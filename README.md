@@ -43,6 +43,8 @@ nix run .                       # read-only preview (no side effects)
 nix run .#preview               # same as default
 nix run .#install               # symlink into ~/.claude/skills/ + GC root
 nix run .#install -- --profile  # install via 'nix profile' instead
+nix run .#uninstall             # remove the skill (symlink + GC root + lock entry)
+nix run .#reap                  # remove broken/dead managed entries
 nix build .#my-skill            # produce $out/share/claude-skills/my-skill/
 ```
 
@@ -86,9 +88,11 @@ Returns an attrset suitable for use as a flake's `outputs`:
     ${skillName}  = <skill derivation>;
   });
   apps = forAllSystems (system: {
-    default = { type = "app"; program = "<preview>"; };
-    install = { type = "app"; program = "<install>"; };
-    preview = { type = "app"; program = "<preview>"; };
+    default   = { type = "app"; program = "<preview>"; };
+    install   = { type = "app"; program = "<install>"; };
+    uninstall = { type = "app"; program = "<uninstall>"; };
+    preview   = { type = "app"; program = "<preview>"; };
+    reap      = { type = "app"; program = "<reap>"; };
   });
 }
 ```
@@ -123,6 +127,9 @@ It auto-discovers every subdirectory of `skillsDir` that contains a
 nix run .                           # preview every skill (read-only)
 nix run .#install                   # install every skill — symlinks + GC roots
 nix run .#install -- --profile      # via nix profile
+nix run .#uninstall -- <name>       # remove one skill by name
+nix run .#reap                      # remove broken managed entries
+nix run .#reconcile                 # install declared set, sweep strays
 nix build .#all                     # symlinkJoin'd derivation for all skills
 nix build .#<skill-name>            # single skill derivation
 ```
@@ -165,9 +172,12 @@ Returns:
     # ...one entry per discovered skill
   });
   apps = forAllSystems (system: {
-    default = { type = "app"; program = "<aggregate preview>"; };
-    install = { type = "app"; program = "<aggregate installer>"; };
-    preview = { type = "app"; program = "<aggregate preview>"; };
+    default   = { type = "app"; program = "<aggregate preview>"; };
+    install   = { type = "app"; program = "<aggregate installer>"; };
+    uninstall = { type = "app"; program = "<uninstaller>"; };
+    preview   = { type = "app"; program = "<aggregate preview>"; };
+    reap      = { type = "app"; program = "<reap>"; };
+    reconcile = { type = "app"; program = "<reconcile>"; };
   });
 }
 ```
@@ -215,7 +225,7 @@ The `SKILL.md` frontmatter `name` field should match `skillName`.
 
 ### Default: symlink + GC root
 
-The Nix-native install. Two things happen:
+The Nix-native install. Three things happen:
 
 1. **User-facing symlink.**
    `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/<skillName>` is created as a
@@ -226,21 +236,17 @@ The Nix-native install. Two things happen:
    a symlink to the store derivation. This protects the store path from
    `nix-store --gc`. Override the gcroots dir with `NIX_GCROOTS_DIR` (used by
    the test suite; rarely useful in practice).
+3. **Aggregate lock entry.**
+   An entry is upserted into
+   `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/.flake-skills-lock.json`
+   summarizing what was installed (provenance from the per-skill sentinel +
+   the resolved `storePath` + an `installedAt` timestamp). See
+   [Lock file](#lock-file) below.
 
 The user-facing symlink is read-only by virtue of pointing into the store. To
 **upgrade** a skill, re-run `nix run .#install`: the symlink is replaced
 atomically, the new store path becomes the GC root, the old path becomes
-GC-eligible.
-
-To **uninstall**:
-
-```sh
-rm ~/.claude/skills/<skillName>
-rm /nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>
-```
-
-(The first `rm` is enough to make Claude Code stop seeing the skill; the
-second is what releases the store path for GC.)
+GC-eligible, and the lock entry is refreshed.
 
 ### `--profile`: via `nix profile install`
 
@@ -253,11 +259,71 @@ nix run .#install -- --profile
 
 This calls `nix profile install <store-path>`, then symlinks
 `~/.claude/skills/<skillName>` into `~/.nix-profile/share/claude-skills/`.
-GC protection comes from the profile itself; no separate GC root.
+GC protection comes from the profile itself; no separate GC root. The
+aggregate lock is updated the same way as in symlink mode.
 
 To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`.
-To **uninstall**: `nix profile remove ...` AND `rm ~/.claude/skills/<name>`
-(both — the symlink lives outside the profile).
+
+## Uninstall behavior
+
+```sh
+nix run .#uninstall                  # single-skill flake: removes that skill
+nix run .#uninstall -- <name>        # multi-skill flake: removes one by name
+nix run .#uninstall -- alpha beta    # multiple at once
+```
+
+Removes all three install-side artifacts:
+
+- the user-facing symlink at `$target_root/<name>`,
+- the per-user GC root at `$gcroots_dir/claude-skill-<name>`,
+- the entry in `$target_root/.flake-skills-lock.json`.
+
+It refuses to touch entries it can't confidently identify as managed by this
+flake-skills lineage (the sentinel must say `managedBy=<this lineage>`, or — if
+the symlink target has been GC'd — a same-named GC root must exist as a
+naming-convention fallback). A user's hand-rolled `~/.claude/skills/foo`
+directory is therefore safe even if `foo` happens to match a flake-skills
+skill name.
+
+For `--profile`-mode installs, `nix run .#uninstall` removes the user-facing
+symlink + lock entry, but the entry stays in the Nix profile. Run
+`nix profile remove` separately to drop it from the profile.
+
+## Lock file
+
+`$target_root/.flake-skills-lock.json` is a single-file index of every skill
+this flake-skills lineage has installed under `$target_root`. Same data as
+the per-skill sentinels (`$target_root/<name>/.flake-skills-managed.json`),
+indexed by name so you can `cat` it for an overview:
+
+```json
+{
+  "schemaVersion": 1,
+  "skills": {
+    "garnix-ci": {
+      "schemaVersion": 1,
+      "managedBy": "github:nhooey/flake-skills",
+      "managedByRev": "abc123...",
+      "managedByDirty": false,
+      "managedByNarHash": "sha256-...",
+      "skillName": "garnix-ci",
+      "version": "0.1.0",
+      "storePath": "/nix/store/...-claude-skill-garnix-ci-0.1.0",
+      "installedAt": "2026-04-27T12:34:56Z"
+    }
+  }
+}
+```
+
+The lock is **descriptive, not authoritative**: install / reconcile / reap /
+uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
+no lasting effect. The source of truth is still the symlink + GC root + the
+sentinel inside each store path.
+
+Atomicity: each writer goes through tmp-file + `mv -f`, so a crashed installer
+can't leave a half-written file behind. Concurrent installers of distinct
+skills are safe; concurrent installers of the **same** skill name race on the
+last-writer-wins, same as they would on the symlink itself.
 
 ## Targeting other agents
 

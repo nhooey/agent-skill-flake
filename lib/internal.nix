@@ -95,10 +95,13 @@ let
       name = "install-${appName}";
       runtimeInputs = with pkgs; [
         coreutils
+        jq
         nix
       ];
       text = ''
         target_root=''${${envVarOverride}:-${installRoot}}
+
+        ${lockBashHelpers}
 
         mode=symlink
         for arg in "$@"; do
@@ -164,6 +167,7 @@ let
                   printf 'WARNING: could not write GC root for %s; store path may be GC-eligible\n' "$skill_name" >&2
                 fi
               fi
+              lock_upsert "$skill_name" "$store_path"
             done
             ;;
 
@@ -179,6 +183,7 @@ let
               rm -rf "$target"
               ln -sfn "$profile_subpath" "$target"
               printf 'installed (profile): %s -> %s\n' "$target" "$profile_subpath"
+              lock_upsert "$skill_name" "$store_path"
             done
             printf 'manage with: nix profile list / upgrade / rollback / remove\n'
             ;;
@@ -220,6 +225,97 @@ let
     }
   '';
 
+  # Bash helpers for the aggregate lock file at
+  # `$target_root/.flake-skills-lock.json`. The lock is a denormalized index
+  # of installed skills (one entry per `$target_root/<skillName>`) drawn from
+  # each skill's per-install `.flake-skills-managed.json` sentinel — same
+  # data, indexed by name for human inspection (`cat $target_root/.flake-
+  # skills-lock.json`). It is descriptive, not authoritative; install and
+  # reconcile rebuild it from the symlinks + sentinels.
+  #
+  # Atomicity: tmp-write + `mv -f` so an interrupted writer can't leave a
+  # half-written file behind. No advisory lock — concurrent installs of
+  # the same skill name would race, but each write transitions through a
+  # valid state.
+  lockBashHelpers = ''
+    lock_path() { printf '%s/.flake-skills-lock.json' "$target_root"; }
+
+    lock_init_if_absent() {
+      local lock; lock=$(lock_path)
+      mkdir -p "$(dirname "$lock")"
+      if [ ! -f "$lock" ]; then
+        printf '%s\n' '{"schemaVersion":1,"skills":{}}' > "$lock"
+      fi
+    }
+
+    # Read the per-install sentinel for $store_path/$skill_name. Returns
+    # `{}` if the sentinel is missing (e.g. skill built by an older
+    # flake-skills rev) so callers don't need to special-case it.
+    lock_read_sentinel() {
+      local store_path="$1" skill_name="$2"
+      local sentinel="$store_path/share/claude-skills/$skill_name/.flake-skills-managed.json"
+      if [ -f "$sentinel" ]; then
+        cat "$sentinel"
+      else
+        printf '%s' '{}'
+      fi
+    }
+
+    # lock_upsert  $skill_name  $store_path
+    lock_upsert() {
+      local skill_name="$1" store_path="$2"
+      local lock tmp now sentinel
+      lock=$(lock_path)
+      tmp="$lock.tmp.$$"
+      now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      sentinel=$(lock_read_sentinel "$store_path" "$skill_name")
+      lock_init_if_absent
+      jq \
+        --arg name "$skill_name" \
+        --argjson s "$sentinel" \
+        --arg sp "$store_path" \
+        --arg t "$now" \
+        '.skills[$name] = ($s + {storePath: $sp, installedAt: $t})' \
+        "$lock" > "$tmp"
+      mv -f "$tmp" "$lock"
+    }
+
+    # lock_remove  $skill_name
+    lock_remove() {
+      local skill_name="$1" lock tmp
+      lock=$(lock_path)
+      [ -f "$lock" ] || return 0
+      tmp="$lock.tmp.$$"
+      jq --arg name "$skill_name" 'del(.skills[$name])' "$lock" > "$tmp"
+      mv -f "$tmp" "$lock"
+    }
+
+    # lock_replace_all  "$@"  -- each arg is "name:store_path"
+    # Rebuild .skills entirely from the args (used by reconcile).
+    lock_replace_all() {
+      local lock tmp now new_skills sentinel skill_name store_path entry
+      lock=$(lock_path)
+      tmp="$lock.tmp.$$"
+      now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      lock_init_if_absent
+      new_skills='{}'
+      for entry in "$@"; do
+        skill_name=''${entry%%:*}
+        store_path=''${entry#*:}
+        sentinel=$(lock_read_sentinel "$store_path" "$skill_name")
+        new_skills=$(jq -n \
+          --argjson cur "$new_skills" \
+          --arg name "$skill_name" \
+          --argjson s "$sentinel" \
+          --arg sp "$store_path" \
+          --arg t "$now" \
+          '$cur + {($name): ($s + {storePath: $sp, installedAt: $t})}')
+      done
+      jq --argjson new "$new_skills" '.skills = $new' "$lock" > "$tmp"
+      mv -f "$tmp" "$lock"
+    }
+  '';
+
   mkReap =
     system:
     {
@@ -243,6 +339,7 @@ let
         upstream_url='${provenance.upstreamUrl}'
 
         ${ownershipBashHelpers}
+        ${lockBashHelpers}
 
         reaped=0
 
@@ -255,6 +352,7 @@ let
               name=$(basename "$entry")
               rm -f "$entry"
               rm -f "$gcroots_dir/claude-skill-$name"
+              lock_remove "$name"
               printf 'reaped (broken target): %s\n' "$entry"
               reaped=$((reaped + 1))
             fi
@@ -269,7 +367,9 @@ let
             [ -L "$gc" ] || continue
             target=$(readlink "$gc")
             if [ ! -e "$target" ]; then
+              name=''${gc##*/claude-skill-}
               rm -f "$gc"
+              lock_remove "$name"
               printf 'reaped GC root (target gone): %s\n' "$gc"
               reaped=$((reaped + 1))
             fi
@@ -304,6 +404,7 @@ let
         upstream_url='${provenance.upstreamUrl}'
 
         ${ownershipBashHelpers}
+        ${lockBashHelpers}
 
         declare -a skills_list=(
         ${skillsArrayBody skills}
@@ -362,8 +463,125 @@ let
           done
         fi
 
+        # 3. Rewrite the aggregate lock to match the declared set exactly.
+        #    Skills not in the declared set are dropped from the lock here
+        #    (their symlinks/GC roots were already removed in step 2).
+        if [ ''${#skills_list[@]} -gt 0 ]; then
+          lock_replace_all "''${skills_list[@]}"
+        else
+          lock_replace_all
+        fi
+
         printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
           "''${#keep_names[@]}" "$swept"
+      '';
+    };
+
+  # Uninstall: undo a prior install for one or more named skills. Removes
+  # the user-facing symlink, the per-user GC root, and the lock entry — the
+  # three things `mkInstaller` writes. Refuses to touch entries it can't
+  # confidently identify as managed by this lineage (sentinel `managedBy`
+  # match, or naming-convention fallback for broken-symlink case), so a
+  # user's hand-rolled `~/.claude/skills/foo` directory is safe.
+  #
+  # `defaultSkillName` is set by the single-skill wrapper (mkSkillFlake) so
+  # `nix run .#uninstall` (no args) does the obvious thing for repos with
+  # exactly one skill. Multi-skill flakes leave it empty and require the
+  # user to name what to remove.
+  mkUninstall =
+    system:
+    {
+      appName,
+      provenance,
+      installRoot,
+      envVarOverride,
+      defaultSkillName ? "",
+    }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    pkgs.writeShellApplication {
+      name = "uninstall-${appName}";
+      runtimeInputs = with pkgs; [
+        coreutils
+        jq
+      ];
+      text = ''
+        target_root=''${${envVarOverride}:-${installRoot}}
+        gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        upstream_url='${provenance.upstreamUrl}'
+        default_skill='${defaultSkillName}'
+
+        ${ownershipBashHelpers}
+        ${lockBashHelpers}
+
+        # Help / arg parsing.
+        if [ $# -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+          cat <<EOF
+        Usage: uninstall-${appName} [<skill-name>...]
+
+        Removes the install-side artifacts for each named skill:
+          - \$target_root/<name>             (symlink into the Nix store)
+          - \$gcroots_dir/claude-skill-<name> (per-user GC root)
+          - the entry in \$target_root/.flake-skills-lock.json
+
+        Refuses to touch entries that aren't managed by this flake-skills
+        lineage (managedBy=$upstream_url).
+
+        With no arguments: uninstalls "$default_skill" (the only skill in
+        a single-skill flake). For multi-skill flakes, a name is required.
+
+        Note: skills installed with --profile must be removed from the
+        Nix profile separately (\`nix profile remove\`).
+
+        Environment:
+          ${envVarOverride}    override the install root (default: ${installRoot})
+          NIX_GCROOTS_DIR    override the GC-roots dir (default: per-user dir)
+        EOF
+          exit 0
+        fi
+
+        # No args + default exists → uninstall the default.
+        if [ $# -eq 0 ]; then
+          if [ -n "$default_skill" ]; then
+            set -- "$default_skill"
+          else
+            echo "uninstall-${appName}: skill name required" >&2
+            echo "Usage: uninstall-${appName} <skill-name>..." >&2
+            exit 2
+          fi
+        fi
+
+        removed=0
+        skipped=0
+        for name in "$@"; do
+          entry="$target_root/$name"
+          if [ ! -L "$entry" ] && [ ! -e "$entry" ]; then
+            printf 'skipped: %s is not installed\n' "$name" >&2
+            skipped=$((skipped + 1))
+            continue
+          fi
+
+          if is_ours_live "$entry" "$upstream_url" \
+             || is_ours_broken "$entry" "$gcroots_dir"; then
+            rm -f "$entry"
+            rm -f "$gcroots_dir/claude-skill-$name"
+            lock_remove "$name"
+            printf 'uninstalled: %s\n' "$name"
+            removed=$((removed + 1))
+          else
+            printf 'skipped: %s is not managed by %s\n' "$name" "$upstream_url" >&2
+            skipped=$((skipped + 1))
+          fi
+        done
+
+        printf '\n%d uninstalled, %d skipped.\n' "$removed" "$skipped"
+        # Exit non-zero if every requested name was skipped — the user
+        # probably typo'd or invoked uninstall on something they didn't
+        # install via this flake.
+        if [ "$removed" = "0" ] && [ "$skipped" -gt 0 ]; then
+          exit 1
+        fi
       '';
     };
 
@@ -421,6 +639,7 @@ in
     mkSkill
     discoverSkills
     mkInstaller
+    mkUninstall
     mkPreview
     mkReap
     mkReconcile

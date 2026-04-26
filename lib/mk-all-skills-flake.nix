@@ -64,6 +64,13 @@ let
       inherit provenance installRoot envVarOverride;
     };
 
+  uninstallFor =
+    system:
+    internal.mkUninstall system {
+      appName = name;
+      inherit provenance installRoot envVarOverride;
+    };
+
   reconcileFor =
     system:
     internal.mkReconcile system {
@@ -98,6 +105,10 @@ in
     install = {
       type = "app";
       program = "${installerFor system}/bin/install-${name}";
+    };
+    uninstall = {
+      type = "app";
+      program = "${uninstallFor system}/bin/uninstall-${name}";
     };
     preview = {
       type = "app";

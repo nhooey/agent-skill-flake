@@ -65,6 +65,14 @@ let
       appName = skillName;
       inherit provenance installRoot envVarOverride;
     };
+
+  uninstallFor =
+    system:
+    internal.mkUninstall system {
+      appName = skillName;
+      defaultSkillName = skillName;
+      inherit provenance installRoot envVarOverride;
+    };
 in
 {
   packages = forAllSystems (system: {
@@ -80,6 +88,10 @@ in
     install = {
       type = "app";
       program = "${installerFor system}/bin/install-${skillName}";
+    };
+    uninstall = {
+      type = "app";
+      program = "${uninstallFor system}/bin/uninstall-${skillName}";
     };
     preview = {
       type = "app";

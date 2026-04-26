@@ -72,10 +72,12 @@
           alphaPkg = fixtureAll.packages.${system}.alpha;
           betaPkg = fixtureAll.packages.${system}.beta;
           installAllApp = fixtureAll.apps.${system}.install.program;
+          uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
           previewAllApp = fixtureAll.apps.${system}.preview.program;
           reapAllApp = fixtureAll.apps.${system}.reap.program;
           reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
           reapSkillApp = fixture.apps.${system}.reap.program;
+          uninstallSkillApp = fixture.apps.${system}.uninstall.program;
         in
         {
           # ──────────────────────────────────────────────────────────────
@@ -449,6 +451,235 @@
                 grep -q "alpha" "$TMPDIR/preview.out"
                 grep -q "beta" "$TMPDIR/preview.out"
                 grep -q "2 skill(s) total" "$TMPDIR/preview.out"
+
+                touch "$out"
+              '';
+
+          # ──────────────────────────────────────────────────────────────
+          # Lock file + uninstall checks.
+          # ──────────────────────────────────────────────────────────────
+
+          # 12. Install populates the aggregate lock with one entry per
+          #     installed skill, copying provenance from the per-skill
+          #     sentinel. Reap, reconcile, and uninstall all read/write
+          #     the same file.
+          example-skills-dir-install-writes-lock =
+            pkgs.runCommand "example-skills-dir-install-lock-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$NIX_GCROOTS_DIR"
+
+                ${installAllApp}
+
+                lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+                test -f "$lock"
+
+                # Schema and structure.
+                test "$(jq -r '.schemaVersion' "$lock")" = "1"
+                test "$(jq -r '.skills | keys | sort | join(",")' "$lock")" = "alpha,beta"
+
+                # Every entry has the fields we promised: provenance from
+                # the sentinel + storePath + installedAt added by upsert.
+                for s in alpha beta; do
+                  for field in managedBy managedByRev managedByDirty \
+                               managedByNarHash skillName version \
+                               storePath installedAt; do
+                    if [ "$(jq -r --arg s "$s" --arg f "$field" \
+                            '.skills[$s] | has($f)' "$lock")" != "true" ]; then
+                      echo "lock entry $s missing field: $field" >&2
+                      exit 1
+                    fi
+                  done
+                  # storePath should match the actual symlink target's
+                  # store-path prefix.
+                  store_path=$(jq -r --arg s "$s" '.skills[$s].storePath' "$lock")
+                  case "$store_path" in
+                    /nix/store/*) ;;
+                    *) echo "expected /nix/store path for $s, got: $store_path" >&2; exit 1 ;;
+                  esac
+                done
+
+                touch "$out"
+              '';
+
+          # 13. Uninstall (multi-skill): removes one named entry — symlink,
+          #     GC root, and lock entry — leaves the other alone.
+          example-skills-dir-uninstall =
+            pkgs.runCommand "example-skills-dir-uninstall-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$NIX_GCROOTS_DIR"
+
+                ${installAllApp}
+                ${uninstallAllApp} alpha
+
+                # alpha is gone in all three places.
+                test ! -L "$CLAUDE_SKILLS_DIR/alpha"
+                test ! -e "$NIX_GCROOTS_DIR/claude-skill-alpha"
+                lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+                test "$(jq 'has("skills") and (.skills | has("alpha") | not)' "$lock")" = "true"
+
+                # beta is untouched.
+                test -L "$CLAUDE_SKILLS_DIR/beta"
+                test -L "$NIX_GCROOTS_DIR/claude-skill-beta"
+                test "$(jq -r '.skills.beta.skillName' "$lock")" = "beta"
+
+                touch "$out"
+              '';
+
+          # 14. Uninstall refuses to touch entries it didn't install
+          #     (manual skill dirs / foreign-lineage symlinks).
+          example-skills-dir-uninstall-refuses-unmanaged =
+            pkgs.runCommand "example-skills-dir-uninstall-refuses-check"
+              {
+                nativeBuildInputs = [ pkgs.coreutils ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$CLAUDE_SKILLS_DIR" "$NIX_GCROOTS_DIR"
+
+                # User's hand-rolled skill — must not be touched.
+                mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
+                echo manual > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                # Should exit non-zero (every requested name skipped).
+                if ${uninstallAllApp} manual-skill 2>"$TMPDIR/err"; then
+                  echo "uninstall should have failed on unmanaged entry" >&2
+                  exit 1
+                fi
+                grep -q "not managed by" "$TMPDIR/err"
+
+                # Manual skill is intact.
+                test -d "$CLAUDE_SKILLS_DIR/manual-skill"
+                test -f "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                touch "$out"
+              '';
+
+          # 15. Single-skill uninstall (no args) defaults to the skill the
+          #     flake was built for.
+          example-skill-uninstall-default =
+            pkgs.runCommand "example-skill-uninstall-default-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$NIX_GCROOTS_DIR"
+
+                ${installApp}
+                test -L "$CLAUDE_SKILLS_DIR/example-skill"
+
+                # No-args uninstall — should pick up the default skill.
+                ${uninstallSkillApp}
+
+                test ! -L "$CLAUDE_SKILLS_DIR/example-skill"
+                test ! -e "$NIX_GCROOTS_DIR/claude-skill-example-skill"
+                lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+                test "$(jq '.skills | length' "$lock")" = "0"
+
+                touch "$out"
+              '';
+
+          # 16. Reap drops the lock entry along with the symlink + GC root.
+          example-skills-dir-reap-prunes-lock =
+            pkgs.runCommand "example-skills-dir-reap-prunes-lock-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$CLAUDE_SKILLS_DIR" "$NIX_GCROOTS_DIR"
+
+                # Initialize a lock with a stale entry — simulates a state
+                # left behind by a previous install whose store path has
+                # since been GC'd.
+                printf '%s' '{"schemaVersion":1,"skills":{"foo":{"managedBy":"github:nhooey/flake-skills","skillName":"foo"}}}' \
+                  > "$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+
+                # Forge a managed-but-broken entry: symlink to a bogus
+                # store path + same-named GC root.
+                bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
+                ln -sfn "$bogus/share/claude-skills/foo" "$CLAUDE_SKILLS_DIR/foo"
+                ln -sfn "$bogus" "$NIX_GCROOTS_DIR/claude-skill-foo"
+
+                ${reapAllApp}
+
+                # All three layers reaped.
+                test ! -L "$CLAUDE_SKILLS_DIR/foo"
+                test ! -e "$NIX_GCROOTS_DIR/claude-skill-foo"
+                lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+                test "$(jq '.skills | has("foo")' "$lock")" = "false"
+
+                touch "$out"
+              '';
+
+          # 17. Reconcile rewrites the lock to match the declared set
+          #     exactly — stray entries dropped, declared entries refreshed.
+          example-skills-dir-reconcile-rewrites-lock =
+            pkgs.runCommand "example-skills-dir-reconcile-rewrites-lock-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$CLAUDE_SKILLS_DIR" "$NIX_GCROOTS_DIR"
+
+                # Pre-populate a lock with a stale entry that won't appear
+                # in the declared (alpha + beta) set.
+                printf '%s' '{"schemaVersion":1,"skills":{"stale":{"managedBy":"github:nhooey/flake-skills","skillName":"stale"}}}' \
+                  > "$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+
+                ${reconcileAllApp}
+
+                lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+                test "$(jq -r '.skills | keys | sort | join(",")' "$lock")" = "alpha,beta"
+                test "$(jq '.skills | has("stale")' "$lock")" = "false"
+
+                # Declared entries got fresh provenance fields populated.
+                for s in alpha beta; do
+                  test "$(jq -r --arg s "$s" '.skills[$s].skillName' "$lock")" = "$s"
+                  test -n "$(jq -r --arg s "$s" '.skills[$s].storePath' "$lock")"
+                done
 
                 touch "$out"
               '';
