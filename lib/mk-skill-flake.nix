@@ -1,6 +1,13 @@
 {
   nixpkgs,
   skillName,
+  # Nix-flake package attribute name. Defaults to `skillName`; override when the
+  # skill's name shadows a common CLI (e.g. `git`) so the flake's
+  # `packages.<system>.<name>` won't collide with packages of the same name in
+  # nixpkgs or in aggregator flakes re-exporting multiple skills. Does NOT
+  # affect the user-facing skill identity (slash command, install path,
+  # binary names) — those continue to use `skillName`.
+  packageName ? skillName,
   src,
   systems ? [
     "x86_64-linux"
@@ -52,7 +59,7 @@ in
 {
   packages = forAllSystems (system: {
     default = skillFor system;
-    ${skillName} = skillFor system;
+    ${packageName} = skillFor system;
   });
 
   apps = forAllSystems (system: {
