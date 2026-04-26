@@ -9,14 +9,33 @@ let
       src,
       version ? "0.1.0",
       description ? "Claude Code skill: ${name}",
+      # Provenance from lib/default.nix: which flake-skills lineage built
+      # this, what rev / dirty state, and the source narHash for
+      # differentiation across dirty builds. Written verbatim into the
+      # `.flake-skills-managed.json` sentinel so reconcile/reap can decide
+      # what's "ours" without needing flake metadata at runtime.
+      provenance,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
+      sentinel = builtins.toJSON {
+        schemaVersion = 1;
+        managedBy = provenance.upstreamUrl;
+        managedByRev = provenance.rev;
+        managedByDirty = provenance.dirty;
+        managedByNarHash = provenance.narHash;
+        skillName = name;
+        inherit version;
+      };
     in
     pkgs.stdenvNoCC.mkDerivation {
       pname = "claude-skill-${name}";
       inherit version src;
       dontBuild = true;
+      # Pass the JSON via env so we don't have to escape it inside the bash
+      # heredoc; bash will see it as a single literal string.
+      passAsFile = [ "sentinel" ];
+      inherit sentinel;
       installPhase = ''
         runHook preInstall
         install -Dm644 SKILL.md "$out/share/claude-skills/${name}/SKILL.md"
@@ -26,6 +45,8 @@ let
             cp -r "$d/." "$out/share/claude-skills/${name}/$d/"
           fi
         done
+        install -Dm644 "$sentinelPath" \
+          "$out/share/claude-skills/${name}/.flake-skills-managed.json"
         runHook postInstall
       '';
       meta = with pkgs.lib; {

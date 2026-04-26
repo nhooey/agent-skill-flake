@@ -10,6 +10,9 @@
   name ? "claude-skills-all",
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
+  # Injected by lib/default.nix from this flake's `self`. Same role as in
+  # mk-skill-flake.nix.
+  provenance,
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };
@@ -23,7 +26,7 @@ let
     system:
     map (s: {
       inherit (s) name;
-      drv = internal.mkSkill system { inherit (s) name src; };
+      drv = internal.mkSkill system { inherit (s) name src; inherit provenance; };
     }) discovered;
 
   aggregateFor =

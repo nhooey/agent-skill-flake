@@ -19,6 +19,9 @@
   version ? "0.1.0",
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
+  # Injected by lib/default.nix from this flake's `self`. Bakes into the
+  # skill's sentinel so reconcile/reap can scope to "things I built".
+  provenance,
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };
@@ -29,7 +32,7 @@ let
     system:
     internal.mkSkill system {
       name = skillName;
-      inherit src version description;
+      inherit src version description provenance;
     };
 
   skillsFor = system: [

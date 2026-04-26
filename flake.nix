@@ -14,7 +14,9 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
 
-      flakeLib = import ./lib;
+      # `self` plumbed in so lib can bake provenance (upstreamUrl, rev,
+      # narHash, dirty) into each skill's sentinel without callers having to.
+      flakeLib = import ./lib { inherit self; };
 
       # Single-skill fixture.
       fixture = flakeLib.mkSkillFlake {
@@ -60,11 +62,15 @@
           # 1. Package builds.
           example-skill-builds = skill;
 
-          # 2. Layout is correct: required files present, plumbing/hidden absent.
+          # 2. Layout is correct: required files present, plumbing/hidden absent,
+          #    sentinel JSON present with the expected required fields.
           example-skill-layout =
             pkgs.runCommand "example-skill-layout-check"
               {
-                nativeBuildInputs = [ pkgs.coreutils ];
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
               }
               ''
                 set -eu
@@ -74,6 +80,29 @@
                 test -f "$root/scripts/run.sh"
                 test ! -e "$root/flake.nix"
                 test ! -e "$root/.hidden"
+
+                sentinel="$root/.flake-skills-managed.json"
+                test -f "$sentinel"
+                # Required fields must all be present and non-null.
+                for field in schemaVersion managedBy managedByRev \
+                             managedByDirty managedByNarHash skillName version; do
+                  if [ "$(jq -r --arg f "$field" 'has($f)' "$sentinel")" != "true" ]; then
+                    echo "sentinel missing field: $field" >&2
+                    exit 1
+                  fi
+                done
+                # Sanity-check a couple of values.
+                test "$(jq -r '.skillName' "$sentinel")" = "example-skill"
+                test "$(jq -r '.schemaVersion' "$sentinel")" = "1"
+                # managedByRev should be a clean SHA (no `-dirty` suffix).
+                rev=$(jq -r '.managedByRev' "$sentinel")
+                case "$rev" in
+                  *-dirty)
+                    echo "managedByRev contains -dirty suffix: $rev" >&2
+                    exit 1
+                    ;;
+                esac
+
                 touch "$out"
               '';
 
