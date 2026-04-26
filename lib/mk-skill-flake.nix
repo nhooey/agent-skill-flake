@@ -58,6 +58,13 @@ let
       skills = skillsFor system;
       inherit installRoot envVarOverride;
     };
+
+  reapFor =
+    system:
+    internal.mkReap system {
+      appName = skillName;
+      inherit provenance installRoot envVarOverride;
+    };
 in
 {
   packages = forAllSystems (system: {
@@ -77,6 +84,10 @@ in
     preview = {
       type = "app";
       program = "${previewFor system}/bin/preview-${skillName}";
+    };
+    reap = {
+      type = "app";
+      program = "${reapFor system}/bin/reap-${skillName}";
     };
   });
 }

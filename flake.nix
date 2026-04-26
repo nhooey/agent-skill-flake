@@ -18,6 +18,19 @@
       # narHash, dirty) into each skill's sentinel without callers having to.
       flakeLib = import ./lib { inherit self; };
 
+      # Internal helpers — used here to expose a top-level `reap` app that
+      # works without any embedded skill set (pure cleanup tool).
+      internal = import ./lib/internal.nix { inherit nixpkgs; };
+
+      reapTopLevel =
+        system:
+        internal.mkReap system {
+          appName = "flake-skills";
+          inherit (flakeLib) provenance;
+          installRoot = "$HOME/.claude/skills";
+          envVarOverride = "CLAUDE_SKILLS_DIR";
+        };
+
       # Single-skill fixture.
       fixture = flakeLib.mkSkillFlake {
         inherit nixpkgs;
@@ -37,6 +50,13 @@
     {
       lib = flakeLib;
 
+      apps = forAllSystems (system: {
+        reap = {
+          type = "app";
+          program = "${reapTopLevel system}/bin/reap-flake-skills";
+        };
+      });
+
       checks = forAllSystems (
         system:
         let
@@ -53,6 +73,9 @@
           betaPkg = fixtureAll.packages.${system}.beta;
           installAllApp = fixtureAll.apps.${system}.install.program;
           previewAllApp = fixtureAll.apps.${system}.preview.program;
+          reapAllApp = fixtureAll.apps.${system}.reap.program;
+          reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
+          reapSkillApp = fixture.apps.${system}.reap.program;
         in
         {
           # ──────────────────────────────────────────────────────────────
@@ -286,6 +309,109 @@
                 test ! -e "$HOME/.claude/skills/alpha"
                 test ! -e "$HOME/.claude/skills/beta"
 
+                touch "$out"
+              '';
+
+          # 9. Reap removes a managed-but-broken entry (symlink target gone)
+          #    and its matching GC root, while leaving unmanaged entries alone.
+          example-skills-dir-reap-broken =
+            pkgs.runCommand "example-skills-dir-reap-broken-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$CLAUDE_SKILLS_DIR" "$NIX_GCROOTS_DIR"
+
+                # Forge a managed-but-broken entry: symlink to a non-existent
+                # store path, plus a same-named GC root (the
+                # naming-convention ownership signal reap falls back to when
+                # the sentinel is unreadable).
+                bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
+                ln -sfn "$bogus/share/claude-skills/foo" "$CLAUDE_SKILLS_DIR/foo"
+                ln -sfn "$bogus" "$NIX_GCROOTS_DIR/claude-skill-foo"
+
+                # Unmanaged entry — must NOT be touched.
+                mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
+                echo manual > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                ${reapAllApp}
+
+                # Broken managed entry + GC root reaped.
+                test ! -L "$CLAUDE_SKILLS_DIR/foo"
+                test ! -e "$NIX_GCROOTS_DIR/claude-skill-foo"
+
+                # Manual entry untouched.
+                test -d "$CLAUDE_SKILLS_DIR/manual-skill"
+                test -f "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                touch "$out"
+              '';
+
+          # 10. Reconcile installs the declared set AND sweeps stray managed
+          #     entries while leaving unmanaged entries alone.
+          example-skills-dir-reconcile =
+            pkgs.runCommand "example-skills-dir-reconcile-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.coreutils
+                  pkgs.jq
+                ];
+              }
+              ''
+                set -eu
+                export HOME="$TMPDIR/fake-home"
+                export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$CLAUDE_SKILLS_DIR" "$NIX_GCROOTS_DIR"
+
+                # Stray managed entry: reuse alpha's content (so the sentinel
+                # genuinely matches our managedBy URL) but mount it under a
+                # name that isn't in the declared set. Reconcile must sweep
+                # it once it sees alpha+beta as the keep set.
+                ln -sfn ${alphaPkg}/share/claude-skills/alpha \
+                  "$CLAUDE_SKILLS_DIR/stale"
+                ln -sfn ${alphaPkg} "$NIX_GCROOTS_DIR/claude-skill-stale"
+
+                # Unmanaged entry — must NOT be swept.
+                mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
+                echo manual > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                ${reconcileAllApp}
+
+                # Declared skills installed.
+                test -L "$CLAUDE_SKILLS_DIR/alpha"
+                test -L "$CLAUDE_SKILLS_DIR/beta"
+                test -f "$CLAUDE_SKILLS_DIR/alpha/SKILL.md"
+                test -f "$CLAUDE_SKILLS_DIR/beta/SKILL.md"
+                test -L "$NIX_GCROOTS_DIR/claude-skill-alpha"
+                test -L "$NIX_GCROOTS_DIR/claude-skill-beta"
+
+                # Stray managed entry swept.
+                test ! -L "$CLAUDE_SKILLS_DIR/stale"
+                test ! -e "$NIX_GCROOTS_DIR/claude-skill-stale"
+
+                # Unmanaged entry untouched.
+                test -d "$CLAUDE_SKILLS_DIR/manual-skill"
+                test -f "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+
+                touch "$out"
+              '';
+
+          # 11. Single-skill flake exposes a reap app — sanity check that
+          #     mk-skill-flake wires it correctly. (Behavior is shared with
+          #     the multi-skill check above; this just verifies the binding.)
+          example-skill-reap-exists =
+            pkgs.runCommand "example-skill-reap-exists-check"
+              { }
+              ''
+                test -x ${reapSkillApp}
                 touch "$out"
               '';
 

@@ -33,7 +33,7 @@ let
   };
 in
 {
-  inherit upstreamUrl;
+  inherit upstreamUrl provenance;
 
   mkSkillFlake = args:
     import ./mk-skill-flake.nix (args // { inherit provenance; });

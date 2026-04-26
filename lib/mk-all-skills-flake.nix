@@ -56,6 +56,21 @@ let
       skills = skillSetFor system;
       inherit installRoot envVarOverride;
     };
+
+  reapFor =
+    system:
+    internal.mkReap system {
+      appName = name;
+      inherit provenance installRoot envVarOverride;
+    };
+
+  reconcileFor =
+    system:
+    internal.mkReconcile system {
+      appName = name;
+      skills = skillSetFor system;
+      inherit provenance installRoot envVarOverride;
+    };
 in
 {
   packages = forAllSystems (
@@ -87,6 +102,14 @@ in
     preview = {
       type = "app";
       program = "${previewFor system}/bin/preview-${name}";
+    };
+    reap = {
+      type = "app";
+      program = "${reapFor system}/bin/reap-${name}";
+    };
+    reconcile = {
+      type = "app";
+      program = "${reconcileFor system}/bin/reconcile-${name}";
     };
   });
 }

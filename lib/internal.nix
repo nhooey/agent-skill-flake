@@ -186,6 +186,187 @@ let
       '';
     };
 
+  # Shared bash helpers used by both reap and reconcile to identify which
+  # `$target_root` entries are "ours" (built by this flake-skills lineage).
+  # The check is layered:
+  #   1. If the symlink target is live, read `.flake-skills-managed.json` and
+  #      verify `managedBy == upstreamUrl`. This is the strict signal.
+  #   2. If the symlink target is broken (store path GC'd), fall back to
+  #      checking for a `$gcroots_dir/claude-skill-<name>` entry. This is a
+  #      naming-convention signal — single-lineage assumption: a user with
+  #      forks of flake-skills could see false-positives across lineages.
+  ownershipBashHelpers = ''
+    # is_ours_live  $entry  $upstream_url
+    # Returns 0 if the symlink is alive AND its sentinel matches upstream_url.
+    is_ours_live() {
+      local entry="$1" upstream="$2" sentinel managed_by
+      [ -L "$entry" ] || return 1
+      [ -e "$entry" ] || return 1
+      sentinel="$entry/.flake-skills-managed.json"
+      [ -f "$sentinel" ] || return 1
+      managed_by=$(jq -r '.managedBy // empty' "$sentinel" 2>/dev/null) || return 1
+      [ "$managed_by" = "$upstream" ]
+    }
+
+    # is_ours_broken  $entry  $gcroots_dir
+    # Returns 0 if the symlink target is missing AND a same-named GC root
+    # exists (the naming-convention fallback). Best-effort.
+    is_ours_broken() {
+      local entry="$1" gcdir="$2" name
+      [ -L "$entry" ] || return 1
+      [ -e "$entry" ] && return 1
+      name=$(basename "$entry")
+      [ -L "$gcdir/claude-skill-$name" ] || [ -e "$gcdir/claude-skill-$name" ]
+    }
+  '';
+
+  mkReap =
+    system:
+    {
+      appName,
+      provenance,
+      installRoot,
+      envVarOverride,
+    }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    pkgs.writeShellApplication {
+      name = "reap-${appName}";
+      runtimeInputs = with pkgs; [
+        coreutils
+        jq
+      ];
+      text = ''
+        target_root=''${${envVarOverride}:-${installRoot}}
+        gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        upstream_url='${provenance.upstreamUrl}'
+
+        ${ownershipBashHelpers}
+
+        reaped=0
+
+        # 1. Walk $target_root/* — remove our managed entries whose symlink
+        #    target is gone. Live entries are kept (reconcile handles those).
+        if [ -d "$target_root" ]; then
+          shopt -s nullglob
+          for entry in "$target_root"/*; do
+            if is_ours_broken "$entry" "$gcroots_dir"; then
+              name=$(basename "$entry")
+              rm -f "$entry"
+              rm -f "$gcroots_dir/claude-skill-$name"
+              printf 'reaped (broken target): %s\n' "$entry"
+              reaped=$((reaped + 1))
+            fi
+          done
+        fi
+
+        # 2. Walk $gcroots_dir/claude-skill-* — remove orphan GC roots whose
+        #    store-path target no longer exists in the store.
+        if [ -d "$gcroots_dir" ]; then
+          shopt -s nullglob
+          for gc in "$gcroots_dir"/claude-skill-*; do
+            [ -L "$gc" ] || continue
+            target=$(readlink "$gc")
+            if [ ! -e "$target" ]; then
+              rm -f "$gc"
+              printf 'reaped GC root (target gone): %s\n' "$gc"
+              reaped=$((reaped + 1))
+            fi
+          done
+        fi
+
+        printf '\n%d entr(y/ies) reaped (managedBy=%s).\n' "$reaped" "$upstream_url"
+      '';
+    };
+
+  mkReconcile =
+    system:
+    {
+      appName,
+      skills,
+      provenance,
+      installRoot,
+      envVarOverride,
+    }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    pkgs.writeShellApplication {
+      name = "reconcile-${appName}";
+      runtimeInputs = with pkgs; [
+        coreutils
+        jq
+      ];
+      text = ''
+        target_root=''${${envVarOverride}:-${installRoot}}
+        gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        upstream_url='${provenance.upstreamUrl}'
+
+        ${ownershipBashHelpers}
+
+        declare -a skills_list=(
+        ${skillsArrayBody skills}
+        )
+
+        mkdir -p "$target_root"
+        gcroots_ok=1
+        if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
+          gcroots_ok=0
+          printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
+        fi
+
+        # 1. Install / refresh each declared skill (idempotent).
+        declare -a keep_names=()
+        for entry in "''${skills_list[@]}"; do
+          skill_name=''${entry%%:*}
+          store_path=''${entry#*:}
+          skill_subpath="$store_path/share/claude-skills/$skill_name"
+          target="$target_root/$skill_name"
+          rm -rf "$target"
+          ln -sfn "$skill_subpath" "$target"
+          printf 'reconciled (install): %s -> %s\n' "$target" "$skill_subpath"
+          if [ "$gcroots_ok" = "1" ]; then
+            ln -sfn "$store_path" "$gcroots_dir/claude-skill-$skill_name" || \
+              printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
+          fi
+          keep_names+=("$skill_name")
+        done
+
+        # 2. Sweep $target_root for managed entries NOT in the declared set.
+        swept=0
+        if [ -d "$target_root" ]; then
+          shopt -s nullglob
+          for entry in "$target_root"/*; do
+            name=$(basename "$entry")
+            in_keep=0
+            for k in "''${keep_names[@]}"; do
+              if [ "$k" = "$name" ]; then
+                in_keep=1
+                break
+              fi
+            done
+            [ "$in_keep" = "1" ] && continue
+
+            if is_ours_live "$entry" "$upstream_url"; then
+              rm -f "$entry"
+              rm -f "$gcroots_dir/claude-skill-$name"
+              printf 'reconciled (sweep): %s\n' "$entry"
+              swept=$((swept + 1))
+            elif is_ours_broken "$entry" "$gcroots_dir"; then
+              rm -f "$entry"
+              rm -f "$gcroots_dir/claude-skill-$name"
+              printf 'reconciled (sweep, broken): %s\n' "$entry"
+              swept=$((swept + 1))
+            fi
+          done
+        fi
+
+        printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
+          "''${#keep_names[@]}" "$swept"
+      '';
+    };
+
   mkPreview =
     system:
     {
@@ -241,5 +422,7 @@ in
     discoverSkills
     mkInstaller
     mkPreview
+    mkReap
+    mkReconcile
     ;
 }
