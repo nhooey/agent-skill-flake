@@ -87,6 +87,20 @@
           # 1. Package builds.
           example-skill-builds = skill;
 
+          # 1b. mkSkillFlake exposes the skill at `packages.<system>.skill-<name>`
+          #     by default — `skill-` prefix prevents collision with same-named
+          #     entries in nixpkgs or aggregator flakes (e.g. `git`).
+          example-skill-package-named =
+            pkgs.runCommand "example-skill-package-named-check"
+              { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                set -eu
+                # Forces eval of the renamed attribute; eval would fail
+                # if the default ever reverted to bare `skillName`.
+                test -f ${fixture.packages.${system}."skill-example-skill"}/share/claude-skills/example-skill/SKILL.md
+                touch "$out"
+              '';
+
           # 2. Layout is correct: required files present, plumbing/hidden absent,
           #    sentinel JSON present with the expected required fields.
           example-skill-layout =

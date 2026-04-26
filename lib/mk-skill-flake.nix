@@ -1,13 +1,14 @@
 {
   nixpkgs,
   skillName,
-  # Nix-flake package attribute name. Defaults to `skillName`; override when the
-  # skill's name shadows a common CLI (e.g. `git`) so the flake's
-  # `packages.<system>.<name>` won't collide with packages of the same name in
-  # nixpkgs or in aggregator flakes re-exporting multiple skills. Does NOT
-  # affect the user-facing skill identity (slash command, install path,
-  # binary names) — those continue to use `skillName`.
-  packageName ? skillName,
+  # Nix-flake package attribute name. Defaults to `"skill-${skillName}"` so
+  # `packages.<system>.<name>` is collision-safe by construction — bare
+  # skill names (`git`, `nix-flakes`, …) routinely shadow same-named entries
+  # in nixpkgs or in aggregator flakes re-exporting multiple skills. Override
+  # only if you have a specific reason to deviate from the `skill-*`
+  # convention. Does NOT affect the user-facing skill identity (slash
+  # command, install path, binary names) — those continue to use `skillName`.
+  packageName ? "skill-${skillName}",
   src,
   systems ? [
     "x86_64-linux"
