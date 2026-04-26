@@ -83,9 +83,13 @@ in
   packages = forAllSystems (
     system:
     let
+      # Prefix per-skill package keys with `skill-` (matching mkSkillFlake's
+      # default) so bare skill names like `nix-flakes` don't shadow same-named
+      # entries in nixpkgs or aggregator flakes. The skill's user-facing
+      # identity (install path, sentinel, slash command) still uses `s.name`.
       perSkill = lib.listToAttrs (
         map (s: {
-          inherit (s) name;
+          name = "skill-${s.name}";
           value = s.drv;
         }) (skillSetFor system)
       );

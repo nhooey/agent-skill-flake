@@ -69,8 +69,8 @@
 
           # Multi-skill artifacts.
           allSkills = fixtureAll.packages.${system}.default;
-          alphaPkg = fixtureAll.packages.${system}.alpha;
-          betaPkg = fixtureAll.packages.${system}.beta;
+          alphaPkg = fixtureAll.packages.${system}."skill-alpha";
+          betaPkg = fixtureAll.packages.${system}."skill-beta";
           installAllApp = fixtureAll.apps.${system}.install.program;
           uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
           previewAllApp = fixtureAll.apps.${system}.preview.program;
