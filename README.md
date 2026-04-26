@@ -1,16 +1,20 @@
 # flake-skills
 
-A tiny Nix flake providing `lib.mkSkillFlake`: a function that builds an
-installable Nix flake from a [Claude Code agent-skill][skills] directory.
+A tiny Nix flake providing two functions for building installable Nix flakes
+from [Claude Code agent-skill][skills] directories:
 
-Use it from a per-skill repo (or a per-skill flake within a multi-skill repo
-like [`nhooey/skills-nix`][skills-nix]) to skip the boilerplate of wiring up
-`packages` / `apps` / install / preview by hand.
+- **`lib.mkSkillFlake`** — turn a single skill directory into a flake.
+- **`lib.mkAllSkillsFlake`** — turn a directory of skills into one
+  multi-skill flake (auto-discovery + aggregate install/preview).
+
+Use these to skip the boilerplate of wiring up `packages` / `apps` /
+install / preview by hand. The canonical multi-skill consumer is
+[`nhooey/skills-nix`][skills-nix].
 
 [skills]: https://www.anthropic.com/engineering/agent-skills
 [skills-nix]: https://github.com/nhooey/skills-nix
 
-## Consumer example
+## Single-skill: `mkSkillFlake`
 
 A per-skill `flake.nix` is ten lines:
 
@@ -46,7 +50,7 @@ The default `nix run` is the **preview** — it lists the files that would be
 installed and the target path, but writes nothing. The explicit `#install`
 app is the only one with side effects.
 
-## API
+### `mkSkillFlake` API
 
 ```nix
 flake-skills.lib.mkSkillFlake {
@@ -88,6 +92,96 @@ Returns an attrset suitable for use as a flake's `outputs`:
   });
 }
 ```
+
+## Multi-skill: `mkAllSkillsFlake`
+
+If you have a directory of skills (one subdirectory per skill, each with a
+`SKILL.md`), `mkAllSkillsFlake` builds a single flake that exposes them all.
+The top-level repo flake stays ~10 lines:
+
+```nix
+# repo-root/flake.nix
+{
+  description = "skills-nix: Claude Code skills marketplace";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-skills.url = "github:nhooey/flake-skills";
+    flake-skills.inputs.nixpkgs.follows = "nixpkgs";
+  };
+  outputs = { nixpkgs, flake-skills, ... }:
+    flake-skills.lib.mkAllSkillsFlake {
+      inherit nixpkgs;
+      skillsDir = ./skills;
+    };
+}
+```
+
+It auto-discovers every subdirectory of `skillsDir` that contains a
+`SKILL.md`, builds each as its own skill derivation, and exposes:
+
+```sh
+nix run .                           # preview every skill (read-only)
+nix run .#install                   # install every skill — symlinks + GC roots
+nix run .#install -- --profile      # via nix profile
+nix build .#all                     # symlinkJoin'd derivation for all skills
+nix build .#<skill-name>            # single skill derivation
+```
+
+The aggregate installer creates one symlink and one GC root per skill, using
+exactly the same machinery as the single-skill installer.
+
+### `mkAllSkillsFlake` API
+
+```nix
+flake-skills.lib.mkAllSkillsFlake {
+  nixpkgs        = <flake input>;
+  skillsDir      = ./skills;
+  # optional:
+  systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+  name           = "claude-skills-all";
+  installRoot    = "$HOME/.claude/skills";
+  envVarOverride = "CLAUDE_SKILLS_DIR";
+}
+```
+
+| Param            | Required | Default                                                              | Meaning |
+|------------------|----------|----------------------------------------------------------------------|---------|
+| `nixpkgs`        | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
+| `skillsDir`      | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
+| `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
+| `name`           | no       | `"claude-skills-all"`                                                | Aggregate derivation name (also used as the install/preview app suffix). |
+| `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
+| `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Env var that overrides `installRoot`. |
+
+Returns:
+
+```nix
+{
+  packages = forAllSystems (system: {
+    default       = <symlinkJoin of every discovered skill>;
+    all           = <same>;
+    ${skillName1} = <skill 1 derivation>;
+    ${skillName2} = <skill 2 derivation>;
+    # ...one entry per discovered skill
+  });
+  apps = forAllSystems (system: {
+    default = { type = "app"; program = "<aggregate preview>"; };
+    install = { type = "app"; program = "<aggregate installer>"; };
+    preview = { type = "app"; program = "<aggregate preview>"; };
+  });
+}
+```
+
+Discovery rules:
+
+- Subdirectory of `skillsDir` is a skill iff it contains a `SKILL.md`.
+- Subdir name becomes the skill name (must match the `name` field in
+  `SKILL.md`'s frontmatter for the agent to load it).
+- Files at the top of `skillsDir` (e.g. a `README.md`), or subdirs without a
+  `SKILL.md`, are silently ignored.
+- Per-skill source filtering is identical to the single-skill case: only
+  `SKILL.md`, `references/`, and `scripts/` are copied into the output;
+  everything else (`flake.nix`, dotfiles, etc.) is ignored.
 
 ## Build behavior
 
@@ -186,18 +280,16 @@ flake-skills.lib.mkSkillFlake {
 
 ## Stability
 
-The lib is exported as `lib.mkSkillFlake`. Consumers should pin via
-`flake.lock`. If a breaking change is ever needed, a new entry point will be
-added (e.g. `lib.v2.mkSkillFlake`) rather than mutating `lib.mkSkillFlake` in
-place.
+The public surface is `lib.mkSkillFlake` and `lib.mkAllSkillsFlake`.
+Consumers should pin via `flake.lock`. If a breaking change is ever needed,
+a new entry point will be added (e.g. `lib.v2.mkSkillFlake`) rather than
+mutating an existing function in place.
 
-## Multi-skill repos
+## Canonical consumer
 
-This flake is single-purpose: one function, one skill per call. To aggregate
-many skills into one derivation (or one installer that drops them all in at
-once), see [`nhooey/skills-nix`][skills-nix]'s top-level `flake.nix` for the
-`symlinkJoin` pattern. That repo is the canonical consumer of `flake-skills`
-and a good starting point for a new multi-skill repo.
+[`nhooey/skills-nix`][skills-nix] uses `mkAllSkillsFlake` for its top-level
+flake and `mkSkillFlake` for each per-skill flake. It is the reference
+example of the multi-skill aggregation pattern.
 
 ## License
 
