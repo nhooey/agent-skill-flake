@@ -35,10 +35,11 @@ That gives you, for the four standard systems
 (`x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`):
 
 ```sh
-nix run .                  # read-only preview (no side effects)
-nix run .#preview          # same as default
-nix run .#install          # actually copy into ~/.claude/skills/
-nix build .#my-skill       # produce $out/share/claude-skills/my-skill/
+nix run .                       # read-only preview (no side effects)
+nix run .#preview               # same as default
+nix run .#install               # symlink into ~/.claude/skills/ + GC root
+nix run .#install -- --profile  # install via 'nix profile' instead
+nix build .#my-skill            # produce $out/share/claude-skills/my-skill/
 ```
 
 The default `nix run` is the **preview** — it lists the files that would be
@@ -116,15 +117,53 @@ The `SKILL.md` frontmatter `name` field should match `skillName`.
 
 ## Install behavior
 
-`nix run .#install`:
+`nix run .#install` has two modes.
 
-1. Resolves `target_root = ${envVarOverride:-installRoot}`. With defaults:
-   `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}`.
-2. Removes any existing `$target_root/<skillName>` directory.
-3. Copies the built skill into `$target_root/<skillName>` with `cp -rL`
-   (dereferencing the store-path symlink so the result is a real, writable
-   directory tree).
-4. Runs `chmod -R u+w` so the user can edit the installed files afterward.
+### Default: symlink + GC root
+
+The Nix-native install. Two things happen:
+
+1. **User-facing symlink.**
+   `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/<skillName>` is created as a
+   symlink to `<store-path>/share/claude-skills/<skillName>`. Claude Code
+   follows it transparently.
+2. **Per-user GC root.**
+   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>` is created as
+   a symlink to the store derivation. This protects the store path from
+   `nix-store --gc`. Override the gcroots dir with `NIX_GCROOTS_DIR` (used by
+   the test suite; rarely useful in practice).
+
+The user-facing symlink is read-only by virtue of pointing into the store. To
+**upgrade** a skill, re-run `nix run .#install`: the symlink is replaced
+atomically, the new store path becomes the GC root, the old path becomes
+GC-eligible.
+
+To **uninstall**:
+
+```sh
+rm ~/.claude/skills/<skillName>
+rm /nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>
+```
+
+(The first `rm` is enough to make Claude Code stop seeing the skill; the
+second is what releases the store path for GC.)
+
+### `--profile`: via `nix profile install`
+
+If you want skills to participate in the `nix profile` machinery
+(`list`/`upgrade`/`rollback`/`remove`):
+
+```sh
+nix run .#install -- --profile
+```
+
+This calls `nix profile install <store-path>`, then symlinks
+`~/.claude/skills/<skillName>` into `~/.nix-profile/share/claude-skills/`.
+GC protection comes from the profile itself; no separate GC root.
+
+To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`.
+To **uninstall**: `nix profile remove ...` AND `rm ~/.claude/skills/<name>`
+(both — the symlink lives outside the profile).
 
 ## Targeting other agents
 

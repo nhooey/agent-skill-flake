@@ -58,7 +58,8 @@
                 touch "$out"
               '';
 
-          # 3. Install obeys CLAUDE_SKILLS_DIR; does not write to $HOME.
+          # 3. Install obeys CLAUDE_SKILLS_DIR; creates a symlink and a GC root
+          #    in the override dirs; does not write to $HOME.
           example-skill-install-env =
             pkgs.runCommand "example-skill-install-env-check"
               {
@@ -69,16 +70,36 @@
                 export HOME="$TMPDIR/fake-home"
                 mkdir -p "$HOME/.claude/skills"
                 export CLAUDE_SKILLS_DIR="$TMPDIR/skills-target"
+                export NIX_GCROOTS_DIR="$TMPDIR/gcroots"
+                mkdir -p "$NIX_GCROOTS_DIR"
 
                 ${installApp}
 
+                # Content is reachable through the symlink.
                 test -f "$CLAUDE_SKILLS_DIR/example-skill/SKILL.md"
                 test -f "$CLAUDE_SKILLS_DIR/example-skill/references/note.md"
                 test -f "$CLAUDE_SKILLS_DIR/example-skill/scripts/run.sh"
-                test ! -e "$HOME/.claude/skills/example-skill"
 
-                # Verify chmod -R u+w made it writable.
-                test -w "$CLAUDE_SKILLS_DIR/example-skill/SKILL.md"
+                # The user-facing path is a symlink (not a copied directory).
+                test -L "$CLAUDE_SKILLS_DIR/example-skill"
+
+                # Symlink target is in the Nix store.
+                target=$(readlink "$CLAUDE_SKILLS_DIR/example-skill")
+                case "$target" in
+                  /nix/store/*) ;;
+                  *) echo "Expected store-path target, got: $target" >&2; exit 1 ;;
+                esac
+
+                # GC root was registered.
+                test -L "$NIX_GCROOTS_DIR/claude-skill-example-skill"
+                gctarget=$(readlink "$NIX_GCROOTS_DIR/claude-skill-example-skill")
+                case "$gctarget" in
+                  /nix/store/*) ;;
+                  *) echo "Expected store-path GC root, got: $gctarget" >&2; exit 1 ;;
+                esac
+
+                # Real $HOME/.claude/skills was untouched.
+                test ! -e "$HOME/.claude/skills/example-skill"
 
                 touch "$out"
               '';
@@ -113,7 +134,7 @@
                 fi
 
                 grep -q "preview" "$TMPDIR/preview.out"
-                grep -q "Would install to" "$TMPDIR/preview.out"
+                grep -q "Would symlink" "$TMPDIR/preview.out"
                 grep -q "example-skill" "$TMPDIR/preview.out"
 
                 touch "$out"
