@@ -36,6 +36,13 @@ let
       # heredoc; bash will see it as a single literal string.
       passAsFile = [ "sentinel" ];
       inherit sentinel;
+      # Discovery markers consumed by darwinModules.default: lets the
+      # activation hook filter `environment.systemPackages` for skills and
+      # extract the bare skill name without parsing `pname`.
+      passthru = {
+        isFlakeSkill = true;
+        flakeSkillName = name;
+      };
       installPhase = ''
         runHook preInstall
         install -Dm644 SKILL.md "$out/share/claude-skills/${name}/SKILL.md"

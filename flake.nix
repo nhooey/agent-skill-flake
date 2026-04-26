@@ -50,6 +50,8 @@
     {
       lib = flakeLib;
 
+      darwinModules.default = import ./darwin-module.nix { inherit self nixpkgs; };
+
       apps = forAllSystems (system: {
         reap = {
           type = "app";
@@ -695,6 +697,131 @@
                   test -n "$(jq -r --arg s "$s" '.skills[$s].storePath' "$lock")"
                 done
 
+                touch "$out"
+              '';
+
+          # ──────────────────────────────────────────────────────────────
+          # darwinModules.default — Phase 4.
+          # ──────────────────────────────────────────────────────────────
+
+          # 18. The darwin module evaluates to a sane userActivationScripts
+          #     entry: nonempty text invoking both reconcile-darwin and
+          #     reap-darwin binaries, with the declared skills baked in.
+          #
+          #     evalModules is used with a minimal mock of the nix-darwin
+          #     option surface (environment.systemPackages,
+          #     system.userActivationScripts) so the module's option
+          #     declarations + config block resolve without a full
+          #     nix-darwin import.
+          darwin-module-evaluates =
+            let
+              mockNixDarwin =
+                { lib, ... }:
+                {
+                  options = {
+                    environment.systemPackages = lib.mkOption {
+                      type = lib.types.listOf lib.types.package;
+                      default = [ ];
+                    };
+                    system.userActivationScripts = lib.mkOption {
+                      type = lib.types.attrsOf (
+                        lib.types.submodule {
+                          options.text = lib.mkOption { type = lib.types.str; };
+                        }
+                      );
+                      default = { };
+                    };
+                  };
+                };
+
+              eval = nixpkgs.lib.evalModules {
+                modules = [
+                  mockNixDarwin
+                  self.darwinModules.default
+                  {
+                    _module.args.pkgs = pkgs;
+                    services.flake-skills.enable = true;
+                    services.flake-skills.skills = [
+                      alphaPkg
+                      betaPkg
+                    ];
+                  }
+                ];
+              };
+
+              activationText = eval.config.system.userActivationScripts.flakeSkillsReconcile.text;
+              activationFile = pkgs.writeText "activation.sh" activationText;
+            in
+            pkgs.runCommand "darwin-module-evaluates-check"
+              { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                set -eu
+                # Activation script is non-empty and invokes both binaries.
+                test -s ${activationFile}
+                grep -q '/bin/reconcile-darwin' ${activationFile}
+                grep -q '/bin/reap-darwin' ${activationFile}
+                touch "$out"
+              '';
+
+          # 19. Auto-discovery: with `services.flake-skills.skills` left
+          #     to its default, the module pulls every passthru.isFlakeSkill
+          #     derivation out of environment.systemPackages and feeds the
+          #     same activation script as if explicitly listed.
+          darwin-module-autodiscovers =
+            let
+              mockNixDarwin =
+                { lib, ... }:
+                {
+                  options = {
+                    environment.systemPackages = lib.mkOption {
+                      type = lib.types.listOf lib.types.package;
+                      default = [ ];
+                    };
+                    system.userActivationScripts = lib.mkOption {
+                      type = lib.types.attrsOf (
+                        lib.types.submodule {
+                          options.text = lib.mkOption { type = lib.types.str; };
+                        }
+                      );
+                      default = { };
+                    };
+                  };
+                };
+
+              eval = nixpkgs.lib.evalModules {
+                modules = [
+                  mockNixDarwin
+                  self.darwinModules.default
+                  {
+                    _module.args.pkgs = pkgs;
+                    services.flake-skills.enable = true;
+                    # Plant the skills here, NOT in cfg.skills — the module
+                    # must auto-discover them.
+                    environment.systemPackages = [
+                      alphaPkg
+                      betaPkg
+                      # An unrelated package that must NOT be reconciled.
+                      pkgs.hello
+                    ];
+                  }
+                ];
+              };
+
+              activationText = eval.config.system.userActivationScripts.flakeSkillsReconcile.text;
+              activationFile = pkgs.writeText "activation.sh" activationText;
+            in
+            pkgs.runCommand "darwin-module-autodiscovers-check"
+              { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                set -eu
+                grep -q '/bin/reconcile-darwin' ${activationFile}
+                # The reconcile binary is generated per-config, so reading
+                # its skills_list embedding is the cleanest auto-discovery
+                # signal: alpha + beta should be there, hello should not.
+                bin=$(grep -oE '/nix/store/[^ ]*reconcile-darwin' ${activationFile} | head -1)
+                grep -q '"alpha:/nix/store/' "$bin"
+                grep -q '"beta:/nix/store/' "$bin"
+                ! grep -q 'hello' "$bin"
                 touch "$out"
               '';
         }
