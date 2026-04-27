@@ -1,5 +1,7 @@
 # flake-skills
 
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fflake-skills)](https://garnix.io/repo/nhooey/flake-skills)
+
 A tiny Nix flake providing two functions for building installable Nix flakes
 from [Claude Code agent-skill][skills] directories:
 
