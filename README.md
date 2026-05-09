@@ -65,6 +65,7 @@ flake-skills.lib.mkSkillFlake {
   systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
   description    = "Claude Code skill: my-skill";
   version        = "0.1.0";
+  extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
 }
@@ -78,6 +79,7 @@ flake-skills.lib.mkSkillFlake {
 | `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
 | `description`    | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
 | `version`        | no       | `"0.1.0"`                                                            | Skill package version. |
+| `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts (e.g. `[ "agents" "assets" "eval-viewer" ]` for `anthropics/skills`' `skill-creator`). Missing dirs are silently ignored. |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Name of an env var the user can set to override `installRoot`. |
 
@@ -203,12 +205,15 @@ The skill derivation produces:
 $out/share/claude-skills/<skillName>/
 ├── SKILL.md          # required, mode 644
 ├── references/       # copied recursively if present
-└── scripts/          # copied recursively if present
+├── scripts/          # copied recursively if present
+└── <extraDirs[*]>/   # any directories listed in `extraDirs`, copied recursively if present
 ```
 
 Everything else in `src` is ignored — including `flake.nix`, `flake.lock`,
-hidden dotfiles, and any other top-level files. If you need to ship more than
-`SKILL.md`, `references/`, and `scripts/`, this lib is not the right tool.
+hidden dotfiles, and any other top-level files. If a skill ships content in
+non-standard top-level directories (e.g. `agents/`, `assets/`), name them in
+`extraDirs` so they get shipped alongside the standard surface. Loose
+top-level files outside that whitelist are still ignored.
 
 The expected source layout matches the [Anthropic agent-skill format][skills]:
 

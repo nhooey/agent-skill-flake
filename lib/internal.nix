@@ -9,6 +9,14 @@ let
       src,
       version ? "0.1.0",
       description ? "Claude Code skill: ${name}",
+      # Additional top-level directories to ship alongside the standard
+      # SKILL.md / references / scripts trio. Use for upstream skills whose
+      # SKILL.md references content in non-standard subdirs (e.g.
+      # anthropics/skills' skill-creator references `agents/`, `assets/`,
+      # `eval-viewer/`). Each entry is a bare directory name relative to
+      # the skill source root; missing dirs are silently ignored, same as
+      # references/scripts.
+      extraDirs ? [ ],
       # Provenance from lib/default.nix: which flake-skills lineage built
       # this, what rev / dirty state, and the source narHash for
       # differentiation across dirty builds. Written verbatim into the
@@ -46,7 +54,7 @@ let
       installPhase = ''
         runHook preInstall
         install -Dm644 SKILL.md "$out/share/claude-skills/${name}/SKILL.md"
-        for d in references scripts; do
+        for d in references scripts ${lib.concatMapStringsSep " " lib.escapeShellArg extraDirs}; do
           if [ -d "$d" ]; then
             mkdir -p "$out/share/claude-skills/${name}/$d"
             cp -r "$d/." "$out/share/claude-skills/${name}/$d/"

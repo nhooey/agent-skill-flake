@@ -18,6 +18,10 @@
   ],
   description ? "Claude Code skill: ${skillName}",
   version ? "0.1.0",
+  # Additional top-level directories from `src` to ship into the install
+  # alongside SKILL.md / references / scripts. Use for upstream skills with
+  # non-standard layouts. Empty list keeps the strict default surface.
+  extraDirs ? [ ],
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
   # Injected by lib/default.nix from this flake's `self`. Bakes into the
@@ -33,7 +37,7 @@ let
     system:
     internal.mkSkill system {
       name = skillName;
-      inherit src version description provenance;
+      inherit src version description extraDirs provenance;
     };
 
   skillsFor = system: [
