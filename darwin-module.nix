@@ -1,21 +1,30 @@
-# nix-darwin module that runs reconcile + reap during user activation.
+# nix-darwin shim: forwards `services.flake-skills.*` into the home-manager
+# module under `home-manager.users.<user>.programs.flake-skills.*`.
 #
-# Usage in a darwin config:
+# The activation itself lives in the home-manager module (see
+# `home-manager-module.nix`) — `system.userActivationScripts`, the previous
+# integration point, was removed in nix-darwin 25.05, and the activation is
+# inherently per-user anyway. This shim exists so darwin configurations can
+# wire flake-skills with one import.
 #
-#   inputs.flake-skills.url = "github:nhooey/flake-skills";
+# Requires home-manager's nix-darwin integration
+# (`inputs.home-manager.darwinModules.home-manager`) to be imported by the
+# consumer. Without it, `home-manager.users` is undefined and evaluation
+# fails with a clear "option not found" error.
+#
+# Usage:
+#
 #   modules = [
+#     inputs.home-manager.darwinModules.home-manager
 #     inputs.flake-skills.darwinModules.default
 #     {
-#       services.flake-skills.enable = true;
-#       # `skills` defaults to auto-discovery via passthru.isFlakeSkill over
-#       # environment.systemPackages — set explicitly to override.
+#       services.flake-skills = {
+#         enable = true;
+#         user   = "alice";
+#         skills = [ inputs.my-skills.packages.aarch64-darwin.skill-foo ];
+#       };
 #     }
 #   ];
-#
-# After `darwin-rebuild switch`, every declared skill ends up symlinked at
-# $HOME/.claude/skills/<name>, with GC roots and the aggregate lock
-# (`.flake-skills-lock.json`) updated. Stray managed entries are swept;
-# broken symlinks are reaped. No manual `nix run #install` needed.
 {
   self,
   nixpkgs,
@@ -27,86 +36,76 @@
   ...
 }:
 let
-  internal = import ./lib/internal.nix { inherit nixpkgs; };
-  flakeLib = import ./lib { inherit self; };
-
   cfg = config.services.flake-skills;
-  system = pkgs.stdenv.hostPlatform.system;
-
-  # Default skill set: every derivation in environment.systemPackages
-  # marked by mkSkill's passthru.isFlakeSkill.
-  autoDiscovered = lib.filter (
-    p:
-    lib.isDerivation p
-    && (p.passthru or { }) ? isFlakeSkill
-    && p.passthru.isFlakeSkill
-  ) config.environment.systemPackages;
-
-  # mkReconcile expects `[{name; drv}]` records keyed by the bare skill
-  # name (the on-disk `~/.claude/skills/<name>` directory).
-  skillRecords = map (drv: {
-    name = drv.passthru.flakeSkillName;
-    inherit drv;
-  }) cfg.skills;
-
-  reconcile = internal.mkReconcile system {
-    appName = "darwin";
-    skills = skillRecords;
-    inherit (flakeLib) provenance;
-    inherit (cfg) installRoot envVarOverride;
-  };
-
-  reap = internal.mkReap system {
-    appName = "darwin";
-    inherit (flakeLib) provenance;
-    inherit (cfg) installRoot envVarOverride;
-  };
 in
 {
   options.services.flake-skills = {
-    enable = lib.mkEnableOption "flake-skills user-activation hook";
+    enable = lib.mkEnableOption "flake-skills user-activation hook (via home-manager)";
+
+    user = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = config.system.primaryUser or null;
+      defaultText = lib.literalExpression "config.system.primaryUser";
+      example = "alice";
+      description = ''
+        The home-manager user this module configures. Defaults to
+        `system.primaryUser` (the nix-darwin convention for "whoever
+        owns this machine"); override to target a different user, or
+        set explicitly when `system.primaryUser` isn't configured.
+        Must resolve to a non-null, non-empty string when
+        `services.flake-skills.enable = true`.
+      '';
+    };
 
     skills = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = autoDiscovered;
-      defaultText = lib.literalExpression ''
-        lib.filter (p: p ? passthru.isFlakeSkill && p.passthru.isFlakeSkill)
-                   config.environment.systemPackages
-      '';
-      description = ''
-        Skill packages to reconcile during user activation. Each must be a
-        derivation produced by flake-skills' `mkSkill` (carrying
-        `passthru.isFlakeSkill = true`). Defaults to auto-discovery over
-        `environment.systemPackages`; override to declare a different
-        explicit set.
-      '';
+      default = [ ];
+      description = "Forwarded to `programs.flake-skills.skills`.";
+    };
+
+    autoDiscover = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Forwarded to `programs.flake-skills.autoDiscover`.";
     };
 
     installRoot = lib.mkOption {
       type = lib.types.str;
       default = "$HOME/.claude/skills";
-      description = ''
-        Where to symlink reconciled skills. Defaults to `~/.claude/skills`
-        (the literal string is expanded by the activation shell, so
-        `$HOME` resolves at run time).
-      '';
+      description = "Forwarded to `programs.flake-skills.installRoot`.";
     };
 
     envVarOverride = lib.mkOption {
       type = lib.types.str;
       default = "CLAUDE_SKILLS_DIR";
-      description = ''
-        Env var that overrides `installRoot` at run time. Must match the
-        var the rest of flake-skills' apps look at, otherwise reconcile and
-        ad-hoc `nix run #install` will disagree on the install location.
-      '';
+      description = "Forwarded to `programs.flake-skills.envVarOverride`.";
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    system.userActivationScripts.flakeSkillsReconcile.text = ''
-      ${reconcile}/bin/reconcile-darwin
-      ${reap}/bin/reap-darwin
-    '';
-  };
+  config = lib.mkIf cfg.enable (
+    let
+      resolvedUser =
+        lib.throwIf (cfg.user == null || cfg.user == "") ''
+          services.flake-skills.user resolved to null/empty. Either
+          set `system.primaryUser` in your nix-darwin configuration,
+          or pass `services.flake-skills.user = "<username>";`
+          explicitly. The activation is per-user, so the module needs
+          to know which user's home-manager session to attach to.
+        '' cfg.user;
+    in
+    {
+      home-manager.users.${resolvedUser} = {
+        imports = [ (import ./home-manager-module.nix { inherit self nixpkgs; }) ];
+        programs.flake-skills = {
+          enable = true;
+          inherit (cfg)
+            skills
+            autoDiscover
+            installRoot
+            envVarOverride
+            ;
+        };
+      };
+    }
+  );
 }

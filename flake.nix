@@ -50,6 +50,8 @@
     {
       lib = flakeLib;
 
+      homeManagerModules.default = import ./home-manager-module.nix { inherit self nixpkgs; };
+
       darwinModules.default = import ./darwin-module.nix { inherit self nixpkgs; };
 
       apps = forAllSystems (system: {
@@ -80,6 +82,58 @@
           reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
           reapSkillApp = fixture.apps.${system}.reap.program;
           uninstallSkillApp = fixture.apps.${system}.uninstall.program;
+
+          # Minimal home-manager option surface for evalModules: just enough
+          # of `home.*` for the module's option declarations and
+          # `home.activation` writes to resolve without pulling in real
+          # home-manager. Pair with `mockHomeManagerLib` via specialArgs to
+          # provide the `lib.hm.dag.entryAfter` stand-in.
+          mockHomeManager =
+            { lib, ... }:
+            {
+              options = {
+                home.homeDirectory = lib.mkOption {
+                  type = lib.types.str;
+                  default = "/home/test";
+                };
+                home.packages = lib.mkOption {
+                  type = lib.types.listOf lib.types.package;
+                  default = [ ];
+                };
+                home.activation = lib.mkOption {
+                  # `data` is what `lib.hm.dag.entryAfter` puts the script
+                  # text into; tests assert on it directly.
+                  type = lib.types.attrsOf (
+                    lib.types.submodule {
+                      options.data = lib.mkOption { type = lib.types.str; };
+                      options.after = lib.mkOption {
+                        type = lib.types.listOf lib.types.str;
+                        default = [ ];
+                      };
+                      options.before = lib.mkOption {
+                        type = lib.types.listOf lib.types.str;
+                        default = [ ];
+                      };
+                    }
+                  );
+                  default = { };
+                };
+              };
+            };
+
+          # Augmented `lib` for the home-manager-module tests — passed via
+          # `specialArgs` so `lib.hm.dag.entryAfter` resolves from the very
+          # first module evaluation pass (no fixpoint race with
+          # `_module.args.lib`). Real home-manager exposes
+          # `lib.hm.dag.entryAfter` as a tagged record; tests only inspect
+          # `.data`, so the stand-in is simplified to data + after.
+          mockHomeManagerLib = nixpkgs.lib // {
+            hm = (nixpkgs.lib.hm or { }) // {
+              dag = {
+                entryAfter = after: data: { inherit after data; };
+              };
+            };
+          };
         in
         {
           # ──────────────────────────────────────────────────────────────
@@ -701,47 +755,24 @@
               '';
 
           # ──────────────────────────────────────────────────────────────
-          # darwinModules.default — Phase 4.
+          # homeManagerModules.default — primary activation surface.
           # ──────────────────────────────────────────────────────────────
 
-          # 18. The darwin module evaluates to a sane userActivationScripts
-          #     entry: nonempty text invoking both reconcile-darwin and
-          #     reap-darwin binaries, with the declared skills baked in.
-          #
-          #     evalModules is used with a minimal mock of the nix-darwin
-          #     option surface (environment.systemPackages,
-          #     system.userActivationScripts) so the module's option
-          #     declarations + config block resolve without a full
-          #     nix-darwin import.
-          darwin-module-evaluates =
+          # 18. Home-manager module evaluates: writes a non-empty
+          #     `home.activation.flakeSkillsReconcile.data` that invokes
+          #     both the reconcile and reap binaries, with the declared
+          #     skills baked in.
+          home-manager-module-evaluates =
             let
-              mockNixDarwin =
-                { lib, ... }:
-                {
-                  options = {
-                    environment.systemPackages = lib.mkOption {
-                      type = lib.types.listOf lib.types.package;
-                      default = [ ];
-                    };
-                    system.userActivationScripts = lib.mkOption {
-                      type = lib.types.attrsOf (
-                        lib.types.submodule {
-                          options.text = lib.mkOption { type = lib.types.str; };
-                        }
-                      );
-                      default = { };
-                    };
-                  };
-                };
-
               eval = nixpkgs.lib.evalModules {
+                specialArgs.lib = mockHomeManagerLib;
                 modules = [
-                  mockNixDarwin
-                  self.darwinModules.default
+                  mockHomeManager
+                  self.homeManagerModules.default
                   {
                     _module.args.pkgs = pkgs;
-                    services.flake-skills.enable = true;
-                    services.flake-skills.skills = [
+                    programs.flake-skills.enable = true;
+                    programs.flake-skills.skills = [
                       alphaPkg
                       betaPkg
                     ];
@@ -749,79 +780,213 @@
                 ];
               };
 
-              activationText = eval.config.system.userActivationScripts.flakeSkillsReconcile.text;
+              activationText = eval.config.home.activation.flakeSkillsReconcile.data;
               activationFile = pkgs.writeText "activation.sh" activationText;
             in
-            pkgs.runCommand "darwin-module-evaluates-check"
+            pkgs.runCommand "home-manager-module-evaluates-check"
               { nativeBuildInputs = [ pkgs.coreutils ]; }
               ''
                 set -eu
-                # Activation script is non-empty and invokes both binaries.
                 test -s ${activationFile}
-                grep -q '/bin/reconcile-darwin' ${activationFile}
-                grep -q '/bin/reap-darwin' ${activationFile}
+                grep -q '/bin/reconcile-home-manager' ${activationFile}
+                grep -q '/bin/reap-home-manager' ${activationFile}
                 touch "$out"
               '';
 
-          # 19. Auto-discovery: with `services.flake-skills.skills` left
-          #     to its default, the module pulls every passthru.isFlakeSkill
-          #     derivation out of environment.systemPackages and feeds the
-          #     same activation script as if explicitly listed.
-          darwin-module-autodiscovers =
+          # 19. autoDiscover flag: when `true`, packages in `home.packages`
+          #     that carry `passthru.isFlakeSkill` are reconciled in
+          #     addition to whatever is in `skills`. Default (`false`) must
+          #     leave them out.
+          home-manager-module-autodiscovers =
             let
-              mockNixDarwin =
+              evalWith =
+                {
+                  autoDiscover,
+                  homePackages,
+                  skills,
+                }:
+                nixpkgs.lib.evalModules {
+                  specialArgs.lib = mockHomeManagerLib;
+                  modules = [
+                    mockHomeManager
+                    self.homeManagerModules.default
+                    {
+                      _module.args.pkgs = pkgs;
+                      programs.flake-skills.enable = true;
+                      programs.flake-skills.skills = skills;
+                      programs.flake-skills.autoDiscover = autoDiscover;
+                      home.packages = homePackages;
+                    }
+                  ];
+                };
+
+              evalOn = evalWith {
+                autoDiscover = true;
+                homePackages = [
+                  alphaPkg
+                  betaPkg
+                  pkgs.hello
+                ];
+                skills = [ ];
+              };
+              evalOff = evalWith {
+                autoDiscover = false;
+                homePackages = [
+                  alphaPkg
+                  betaPkg
+                ];
+                skills = [ ];
+              };
+
+              # Picks the embedded reconcile binary out of the activation
+              # text so the test can inspect what skills it was built with.
+              reconcileBinOf =
+                ev:
+                let
+                  text = ev.config.home.activation.flakeSkillsReconcile.data;
+                in
+                pkgs.writeText "act.sh" text;
+
+              onFile = reconcileBinOf evalOn;
+              offFile = reconcileBinOf evalOff;
+            in
+            pkgs.runCommand "home-manager-module-autodiscovers-check"
+              { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                set -eu
+
+                # autoDiscover = true: alpha + beta picked up from
+                # home.packages; the unrelated `hello` is filtered out.
+                bin_on=$(grep -oE '/nix/store/[^ ]*reconcile-home-manager' ${onFile} | head -1)
+                grep -q '"alpha:/nix/store/' "$bin_on"
+                grep -q '"beta:/nix/store/' "$bin_on"
+                ! grep -q '"hello:' "$bin_on"
+
+                # autoDiscover = false (default): same home.packages, but
+                # skills list is empty, so the reconcile binary references
+                # zero skills.
+                bin_off=$(grep -oE '/nix/store/[^ ]*reconcile-home-manager' ${offFile} | head -1)
+                ! grep -q '"alpha:/nix/store/' "$bin_off"
+                ! grep -q '"beta:/nix/store/' "$bin_off"
+
+                touch "$out"
+              '';
+
+          # ──────────────────────────────────────────────────────────────
+          # darwinModules.default — forwarding shim into home-manager.
+          # ──────────────────────────────────────────────────────────────
+
+          # 20. The darwin shim copies `services.flake-skills.*` through to
+          #     `home-manager.users.<user>.programs.flake-skills.*`. Asserts
+          #     on the propagated values, not on activation text — the
+          #     home-manager module's tests already cover that side.
+          darwin-shim-forwards =
+            let
+              # Minimal mock of nix-darwin's `home-manager.users` namespace
+              # plus `system.primaryUser` (which the shim's `user` option
+              # defaults from). Captures whatever the shim writes so the
+              # test can inspect it.
+              mockDarwinHM =
                 { lib, ... }:
                 {
                   options = {
-                    environment.systemPackages = lib.mkOption {
-                      type = lib.types.listOf lib.types.package;
-                      default = [ ];
-                    };
-                    system.userActivationScripts = lib.mkOption {
-                      type = lib.types.attrsOf (
-                        lib.types.submodule {
-                          options.text = lib.mkOption { type = lib.types.str; };
-                        }
-                      );
+                    home-manager.users = lib.mkOption {
+                      type = lib.types.attrsOf (lib.types.attrsOf lib.types.unspecified);
                       default = { };
+                    };
+                    system.primaryUser = lib.mkOption {
+                      type = lib.types.nullOr lib.types.str;
+                      default = null;
                     };
                   };
                 };
 
               eval = nixpkgs.lib.evalModules {
                 modules = [
-                  mockNixDarwin
+                  mockDarwinHM
                   self.darwinModules.default
                   {
                     _module.args.pkgs = pkgs;
-                    services.flake-skills.enable = true;
-                    # Plant the skills here, NOT in cfg.skills — the module
-                    # must auto-discover them.
-                    environment.systemPackages = [
-                      alphaPkg
-                      betaPkg
-                      # An unrelated package that must NOT be reconciled.
-                      pkgs.hello
-                    ];
+                    services.flake-skills = {
+                      enable = true;
+                      user = "alice";
+                      skills = [
+                        alphaPkg
+                        betaPkg
+                      ];
+                      autoDiscover = true;
+                      installRoot = "/custom/skills";
+                      envVarOverride = "CUSTOM_SKILLS_DIR";
+                    };
                   }
                 ];
               };
 
-              activationText = eval.config.system.userActivationScripts.flakeSkillsReconcile.text;
-              activationFile = pkgs.writeText "activation.sh" activationText;
+              forwarded = eval.config.home-manager.users.alice.programs.flake-skills;
+              importsList = eval.config.home-manager.users.alice.imports;
             in
-            pkgs.runCommand "darwin-module-autodiscovers-check"
+            pkgs.runCommand "darwin-shim-forwards-check"
               { nativeBuildInputs = [ pkgs.coreutils ]; }
               ''
                 set -eu
-                grep -q '/bin/reconcile-darwin' ${activationFile}
-                # The reconcile binary is generated per-config, so reading
-                # its skills_list embedding is the cleanest auto-discovery
-                # signal: alpha + beta should be there, hello should not.
-                bin=$(grep -oE '/nix/store/[^ ]*reconcile-darwin' ${activationFile} | head -1)
-                grep -q '"alpha:/nix/store/' "$bin"
-                grep -q '"beta:/nix/store/' "$bin"
-                ! grep -q 'hello' "$bin"
+                # The shim injected the home-manager module as an import.
+                test ${toString (builtins.length importsList)} = 1
+                # And forwarded every option verbatim.
+                test ${nixpkgs.lib.boolToString forwarded.enable} = true
+                test ${nixpkgs.lib.boolToString forwarded.autoDiscover} = true
+                test ${forwarded.installRoot} = /custom/skills
+                test ${forwarded.envVarOverride} = CUSTOM_SKILLS_DIR
+                # `skills` got passed through as the same two derivations.
+                test ${toString (builtins.length forwarded.skills)} = 2
+                touch "$out"
+              '';
+
+          # 21. `services.flake-skills.user` defaults to `system.primaryUser`
+          #     so darwin consumers with that option set don't have to name
+          #     the user twice. Explicit overrides still win (covered by
+          #     the previous test).
+          darwin-shim-defaults-user-from-system-primary =
+            let
+              mockDarwinHM =
+                { lib, ... }:
+                {
+                  options = {
+                    home-manager.users = lib.mkOption {
+                      type = lib.types.attrsOf (lib.types.attrsOf lib.types.unspecified);
+                      default = { };
+                    };
+                    system.primaryUser = lib.mkOption {
+                      type = lib.types.nullOr lib.types.str;
+                      default = null;
+                    };
+                  };
+                };
+
+              eval = nixpkgs.lib.evalModules {
+                modules = [
+                  mockDarwinHM
+                  self.darwinModules.default
+                  {
+                    _module.args.pkgs = pkgs;
+                    # No explicit `services.flake-skills.user` — it must
+                    # pick up "bob" from system.primaryUser below.
+                    services.flake-skills.enable = true;
+                    services.flake-skills.skills = [ alphaPkg ];
+                    system.primaryUser = "bob";
+                  }
+                ];
+              };
+
+              forwarded = eval.config.home-manager.users.bob.programs.flake-skills;
+            in
+            pkgs.runCommand "darwin-shim-defaults-user-check"
+              { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                set -eu
+                # Shim picked up "bob" from system.primaryUser and wrote
+                # the home-manager config under that user.
+                test ${nixpkgs.lib.boolToString forwarded.enable} = true
+                test ${toString (builtins.length forwarded.skills)} = 1
                 touch "$out"
               '';
         }
