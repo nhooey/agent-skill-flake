@@ -16,12 +16,14 @@ setup() { source "$BATS_HELPERS"; }
 
   local field
   for field in schemaVersion managedBy managedByRev managedByDirty \
-               managedByNarHash skillName version; do
+               managedByNarHash skillName originalSkillName version; do
     assert_equal "$(jq -r --arg f "$field" 'has($f)' "$sentinel")" "true"
   done
 
   assert_equal "$(jq -r '.skillName' "$sentinel")" "example-skill"
-  assert_equal "$(jq -r '.schemaVersion' "$sentinel")" "1"
+  # No rename for this fixture, so originalSkillName == skillName.
+  assert_equal "$(jq -r '.originalSkillName' "$sentinel")" "example-skill"
+  assert_equal "$(jq -r '.schemaVersion' "$sentinel")" "2"
 
   # managedByRev must be a clean SHA (no `-dirty` suffix).
   local rev

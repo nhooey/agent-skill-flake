@@ -68,13 +68,17 @@ flake-skills.lib.mkSkillFlake {
   extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
+  # rename (optional) — see "Renaming & name collisions" below:
+  renameFn       = ctx: ctx.name; # identity (no rename)
+  source         = null;          # skill's origin repo, for ctx.source.*
+  packageName    = null;          # defaults to "skill-${effectiveName}"
 }
 ```
 
 | Param            | Required | Default                                                              | Meaning |
 |------------------|----------|----------------------------------------------------------------------|---------|
 | `nixpkgs`        | yes      | —                                                                    | The consumer's `nixpkgs` flake input. Passed in so the consumer controls pinning. |
-| `skillName`      | yes      | —                                                                    | String. Becomes the skill's directory name (e.g. `"garnix-ci"`). |
+| `skillName`      | yes      | —                                                                    | String. The skill's name (e.g. `"garnix-ci"`), before any `renameFn`. The installed `SKILL.md` frontmatter `name:` is **normalized** to the effective name at build time. |
 | `src`            | yes      | —                                                                    | Path to the skill directory (typically `./.` from the per-skill `flake.nix`). |
 | `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
 | `description`    | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
@@ -82,6 +86,9 @@ flake-skills.lib.mkSkillFlake {
 | `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts (e.g. `[ "agents" "assets" "eval-viewer" ]` for `anthropics/skills`' `skill-creator`). Missing dirs are silently ignored. |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Name of an env var the user can set to override `installRoot`. |
+| `renameFn`       | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
+| `source`         | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
+| `packageName`    | no       | `null` → `"skill-${effectiveName}"`                                  | Override the `packages.<system>.<key>` attribute name. |
 
 Returns an attrset suitable for use as a flake's `outputs`:
 
@@ -152,6 +159,9 @@ flake-skills.lib.mkAllSkillsFlake {
   name           = "claude-skills-all";
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
+  # rename (optional) — see "Renaming & name collisions" below:
+  renameFn       = ctx: ctx.name; # identity (no rename)
+  source         = null;          # skills' origin repo, for ctx.source.*
 }
 ```
 
@@ -163,6 +173,8 @@ flake-skills.lib.mkAllSkillsFlake {
 | `name`           | no       | `"claude-skills-all"`                                                | Aggregate derivation name (also used as the install/preview app suffix). |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Env var that overrides `installRoot`. |
+| `renameFn`       | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). Applied once at discovery so the renamed name flows consistently into package keys, the install symlink, the GC root, the lock, and reconcile's sweep. |
+| `source`         | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
 
 Returns:
 
@@ -189,8 +201,10 @@ Returns:
 Discovery rules:
 
 - Subdirectory of `skillsDir` is a skill iff it contains a `SKILL.md`.
-- Subdir name becomes the skill name (must match the `name` field in
-  `SKILL.md`'s frontmatter for the agent to load it).
+- Subdir name becomes the skill name (after `renameFn`). You do **not**
+  have to keep the `SKILL.md` frontmatter `name:` in sync by hand — the
+  build normalizes it to the effective name (see
+  [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions)).
 - Files at the top of `skillsDir` (e.g. a `README.md`), or subdirs without a
   `SKILL.md`, are silently ignored.
 - Per-skill source filtering is identical to the single-skill case: only
@@ -224,7 +238,91 @@ my-skill/
 └── scripts/          # optional — executable helpers
 ```
 
-The `SKILL.md` frontmatter `name` field should match `skillName`.
+The `SKILL.md` frontmatter `name:` is **normalized at build time** to the
+effective skill name (post-`renameFn`), so the source value doesn't have to
+match `skillName` / the directory — see the next section.
+
+## Renaming & avoiding Claude Code name collisions
+
+Claude Code has a **flat skill namespace**: a skill's identity is its
+`SKILL.md` frontmatter `name:` (falling back to the directory name), and
+same-named skills across scopes resolve by silent precedence
+(enterprise > personal > project > plugin), with built-ins shadowing
+custom skills. Generic names (`git`, `review`, `loop`, …) collide.
+
+`renameFn` is the supported escape hatch. It is a **formula** — a function
+from a context attrset to the effective name — not a fixed string, so a
+derived name can encode where the skill came from:
+
+```nix
+flake-skills.lib.mkAllSkillsFlake {
+  inherit nixpkgs;
+  skillsDir = ./skills;
+  source = {                       # from YOUR flake's `self` + owner/repo
+    owner = "nhooey";
+    repo  = "skills-nix";
+    rev              = self.rev or self.dirtyRev;
+    lastModifiedDate = self.lastModifiedDate;   # "%Y%m%d%H%M%S"
+    narHash          = self.narHash;
+  };
+  # e.g. git → "nhooey-git-1a2b3c4-20260519"
+  renameFn = ctx:
+    "${ctx.source.owner}-${ctx.name}-${ctx.source.shortRev}-${ctx.source.lastModifiedCompact}";
+}
+```
+
+The context passed to `renameFn`:
+
+```nix
+{
+  name = "<original skill name>";   # discovered dir name / skillName
+
+  source = {                        # the skill's origin repo (from `source`)
+    owner; repo; url;               # url: any git URL/flake ref, host-agnostic
+    rev;                            # full, with any "-dirty" stripped
+    shortRev;                       # rev[:7] (or source.shortRev)
+    dirty;                          # bool
+    narHash;
+    lastModified;                   # raw epoch, passed through (or null)
+    lastModifiedDate;               # "YYYY-MM-DD"  (UTC)
+    lastModifiedCompact;            # "YYYYMMDD"    (UTC)
+  };
+
+  tooling = {                       # the flake-skills lineage that built it
+    owner; repo; url; rev; shortRev; dirty; narHash;
+  };
+}
+```
+
+`lastModifiedDate` / `lastModifiedCompact` are sliced from the source's
+`lastModifiedDate` — the `"%Y%m%d%H%M%S"` UTC string Nix already puts on
+`self` (nixpkgs derives dates from it the same way; no epoch math). They
+are null unless you pass `source.lastModifiedDate`. This is the source
+tree's git last-modified time as Nix sees it (commit date for a clean
+checkout) — flake-level, not per-skill, since pure eval can't get
+per-file git mtime without IFD. `owner`/`repo` come from explicit
+`source.owner`/`repo`, or are parsed best-effort from `source.url` for
+any host (for >2 path segments — GitLab subgroups, Gitea — the last two
+segments are taken). When `source` is `null`, all `ctx.source.*` fields
+are `null`; only pass `source` if your formula reads them.
+
+Rules and guarantees:
+
+- The result **must** match Claude Code's name constraint
+  `^[a-z0-9-]{1,64}$` (lowercase letters, digits, hyphens; ≤64 chars).
+  An invalid derived name fails `nix flake check` with a clear message —
+  it never silently produces an unloadable skill.
+- The renamed name is the skill's **real identity everywhere**: the
+  install directory, the slash command, the `SKILL.md` frontmatter
+  `name:` (rewritten in place), the sentinel `skillName`, the GC root,
+  the lock entry, and (unless `packageName` is set) the package key.
+- The pre-rename name is preserved in each skill's
+  `.flake-skills-managed.json` sentinel as `originalSkillName`, so a
+  remapped install is still traceable to what it was called upstream.
+- For `mkSkillFlake`, `ctx.name` is `skillName`; "specifying a new name"
+  is just setting `skillName` (or a constant `renameFn`). For
+  `mkAllSkillsFlake`, `renameFn` is the per-skill formula applied across
+  the whole discovered set.
 
 ## Install behavior
 
@@ -308,12 +406,13 @@ indexed by name so you can `cat` it for an overview:
   "schemaVersion": 1,
   "skills": {
     "garnix-ci": {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "managedBy": "github:nhooey/flake-skills",
       "managedByRev": "abc123...",
       "managedByDirty": false,
       "managedByNarHash": "sha256-...",
       "skillName": "garnix-ci",
+      "originalSkillName": "garnix-ci",
       "version": "0.1.0",
       "storePath": "/nix/store/...-claude-skill-garnix-ci-0.1.0",
       "installedAt": "2026-04-27T12:34:56Z"
