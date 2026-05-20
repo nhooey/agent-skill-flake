@@ -10,6 +10,13 @@
   name ? "claude-skills-all",
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
+  # Prefix applied to each per-skill package attribute key, i.e.
+  # `packages.<system>."${packagePrefix}${effectiveName}"`. Lets
+  # multi-repo consumers brand their package keys (e.g. `"agent-skill-"`
+  # or `"agent-skills-pack-"`) without overriding the convention per
+  # skill. Affects only the package attribute key — not the installed
+  # skill names, `pname`s, derivation names, or the aggregate `name`.
+  packagePrefix ? "skill-",
   # Formula that derives each skill's effective name from a context
   # attrset (NOT a bare string), so a remapped name can encode where the
   # skill came from. Default is identity (no rename). The context is:
@@ -144,13 +151,14 @@ in
   packages = forAllSystems (
     system:
     let
-      # Prefix per-skill package keys with `skill-` (matching mkSkillFlake's
-      # default) so bare skill names like `nix-flakes` don't shadow same-named
-      # entries in nixpkgs or aggregator flakes. The skill's user-facing
-      # identity (install path, sentinel, slash command) still uses `s.name`.
+      # Prefix per-skill package keys with `packagePrefix` (default
+      # `skill-`, matching mkSkillFlake's default) so bare skill names
+      # like `nix-flakes` don't shadow same-named entries in nixpkgs or
+      # aggregator flakes. The skill's user-facing identity (install
+      # path, sentinel, slash command) still uses `s.name`.
       perSkill = lib.listToAttrs (
         map (s: {
-          name = "skill-${s.name}";
+          name = "${packagePrefix}${s.name}";
           value = s.drv;
         }) (skillSetFor system)
       );
