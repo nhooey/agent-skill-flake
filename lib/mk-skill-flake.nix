@@ -2,13 +2,21 @@
   nixpkgs,
   skillName,
   # Nix-flake package attribute name. When null, defaults to
-  # `"skill-${effectiveName}"` (the post-rename name) so
+  # `"${packagePrefix}${effectiveName}"` (the post-rename name) so
   # `packages.<system>.<name>` is collision-safe by construction — bare
   # skill names (`git`, `nix-flakes`, …) routinely shadow same-named
   # entries in nixpkgs or in aggregator flakes re-exporting multiple
   # skills. Override only if you have a specific reason to deviate from
-  # the `skill-*` convention.
+  # the `<prefix><name>` convention.
   packageName ? null,
+  # Prefix applied to the default package attribute key, i.e. the key
+  # becomes `"${packagePrefix}${effectiveName}"`. Lets multi-repo
+  # consumers brand their package keys (e.g. `"agent-skill-"`) without
+  # having to set `packageName` per skill. Ignored when `packageName`
+  # is set explicitly (`packageName` wins). Affects only the package
+  # attribute key — not the installed skill name, `pname`, or the
+  # derivation name.
+  packagePrefix ? "skill-",
   # Optional rename formula, same shape/context as mkAllSkillsFlake's
   # `renameFn` (see that file for the full context attrset). For a single
   # skill `ctx.name` is `skillName`. Default is identity. The result is
@@ -55,7 +63,7 @@ let
   });
 
   effectivePackageName =
-    if packageName == null then "skill-${effectiveName}" else packageName;
+    if packageName == null then "${packagePrefix}${effectiveName}" else packageName;
 
   skillFor =
     system:
