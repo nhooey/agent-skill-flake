@@ -6,6 +6,8 @@
   system,
   fixture,
   fixtureAll,
+  fixtureRename,
+  fixtureAllRenamed,
 }:
 let
   pkgs = nixpkgs.legacyPackages.${system};
@@ -29,6 +31,14 @@ let
   allSkills = fixtureAll.packages.${system}.default;
   alphaPkg = fixtureAll.packages.${system}."skill-alpha";
   betaPkg = fixtureAll.packages.${system}."skill-beta";
+
+  # Rename fixtures. `renamedSkill` proves frontmatter normalization
+  # (its SKILL.md declares a divergent `name:`). `renamedAlphaPkg` proves
+  # the `renameFn` formula + provenance: alpha discovered under
+  # tests/example-skills-dir becomes `nhooey-alpha-0123456-20240424`.
+  renamedSkill = fixtureRename.packages.${system}.default;
+  renamedAlphaName = "nhooey-alpha-0123456-20240424";
+  renamedAlphaPkg = fixtureAllRenamed.packages.${system}."skill-${renamedAlphaName}";
   installAllApp = fixtureAll.apps.${system}.install.program;
   uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
   previewAllApp = fixtureAll.apps.${system}.preview.program;
@@ -139,6 +149,61 @@ in
       UNINSTALL_SKILL_APP = uninstallSkillApp;
     };
   };
+
+  # ──────────────────────────────────────────────────────────────
+  # Rename + frontmatter-normalization checks.
+  # ──────────────────────────────────────────────────────────────
+
+  # mkSkill rewrites the installed SKILL.md so its frontmatter `name:`
+  # equals the canonical name even when the source declared a different
+  # one; store dir + sentinel agree; schemaVersion is 2 and the
+  # pre-rename name is recorded as originalSkillName.
+  example-skill-rename-normalizes-frontmatter = mkBatsCheck {
+    name = "example-skill-rename-normalizes-frontmatter";
+    extraInputs = [ pkgs.jq ];
+    env.RENAME_SKILL_ROOT =
+      "${renamedSkill}/share/claude-skills/example-skill-renamed";
+  };
+
+  # mkAllSkillsFlake's renameFn formula: alpha is discovered and
+  # remapped to a name encoding owner + short rev + git date. The
+  # renamed name propagates to the store dir, the frontmatter, and the
+  # sentinel; the pre-rename name survives as originalSkillName.
+  example-skills-dir-rename-fn = mkBatsCheck {
+    name = "example-skills-dir-rename-fn";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      RENAMED_ALPHA_PKG = renamedAlphaPkg;
+      RENAMED_ALPHA_NAME = renamedAlphaName;
+    };
+  };
+
+  # A renameFn whose output violates Claude Code's name rule must fail
+  # eval (the assertion in mkSkill), not silently build an unloadable
+  # skill. tryEval forcing the offending package's drvPath must report
+  # failure.
+  rename-rejects-invalid-name =
+    let
+      attempt = builtins.tryEval (
+        let
+          bad = self.lib.mkAllSkillsFlake {
+            inherit nixpkgs;
+            skillsDir = ./tests/example-skills-dir;
+            name = "invalid-rename";
+            renameFn = _: "Bad_Name";
+          };
+        in
+        builtins.seq bad.packages.${system}."skill-Bad_Name".drvPath true
+      );
+    in
+    mkEvalCheck {
+      name = "rename-rejects-invalid-name";
+      cond = attempt.success == false;
+      msg =
+        "rename-rejects-invalid-name: an out-of-spec renamed name "
+        + "(uppercase + underscore) must fail eval via the mkSkill name "
+        + "assertion, but evaluation succeeded.";
+    };
 
   # ──────────────────────────────────────────────────────────────
   # Multi-skill checks (mkAllSkillsFlake).

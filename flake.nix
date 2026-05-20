@@ -46,6 +46,39 @@
         skillsDir = ./tests/example-skills-dir;
         name = "example-skills-dir";
       };
+
+      # Single-skill fixture whose SKILL.md frontmatter `name:` diverges
+      # from `skillName` — exercises build-time frontmatter normalization.
+      fixtureRename = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = "example-skill-renamed";
+        src = ./tests/example-skill-rename;
+      };
+
+      # Multi-skill fixture exercising a rich `renameFn`: the derived name
+      # encodes the source owner, original skill name, short git rev, and
+      # git last-modified date. `source` uses fixed values so the names
+      # are deterministic under `nix flake check`:
+      #   lastModifiedDate "20240424120000" → compact "20240424"
+      #   rev[:7]                            → "0123456"
+      # so alpha → "nhooey-alpha-0123456-20240424".
+      fixtureAllRenamed = flakeLib.mkAllSkillsFlake {
+        inherit nixpkgs;
+        skillsDir = ./tests/example-skills-dir;
+        name = "renamed-all";
+        source = {
+          owner = "nhooey";
+          repo = "skills-nix";
+          rev = "0123456789abcdef0123456789abcdef01234567";
+          # Nix hands this to consumers as `self.lastModifiedDate`
+          # ("%Y%m%d%H%M%S", UTC); we just slice it.
+          lastModifiedDate = "20240424120000";
+          narHash = "sha256-deadbeef";
+        };
+        renameFn =
+          ctx:
+          "${ctx.source.owner}-${ctx.name}-${ctx.source.shortRev}-${ctx.source.lastModifiedCompact}";
+      };
     in
     {
       lib = flakeLib;
@@ -70,6 +103,8 @@
             system
             fixture
             fixtureAll
+            fixtureRename
+            fixtureAllRenamed
             ;
         }
       );
