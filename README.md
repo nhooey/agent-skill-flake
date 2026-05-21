@@ -158,7 +158,7 @@ flake-skills.lib.mkAllSkillsFlake {
   skillsDir      = ./skills;
   # optional:
   systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-  name           = "claude-skills-all";
+  name           = "agent-skills-all";
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
   extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
@@ -174,7 +174,7 @@ flake-skills.lib.mkAllSkillsFlake {
 | `nixpkgs`        | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
 | `skillsDir`      | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
 | `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
-| `name`           | no       | `"claude-skills-all"`                                                | Aggregate derivation name (also used as the install/preview app suffix). |
+| `name`           | no       | `"agent-skills-all"`                                                 | Aggregate derivation name (also used as the install/preview app suffix). |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Env var that overrides `installRoot`. |
 | `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. Same semantics as the `mkSkillFlake` param. |
