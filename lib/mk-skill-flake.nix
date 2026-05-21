@@ -41,6 +41,14 @@
   # alongside SKILL.md / references / scripts. Use for upstream skills with
   # non-standard layouts. Empty list keeps the strict default surface.
   extraDirs ? [ ],
+  # Additional top-level files from `src` to ship at the install root.
+  # Each entry is a shell glob evaluated in `src` (nullglob: no-match
+  # silently dropped). Matches that resolve to directories are skipped —
+  # use `extraDirs` for those. Use for upstream skills whose SKILL.md
+  # cross-references loose flat files (e.g. obra/superpowers'
+  # `visual-companion.md`, `code-reviewer.md`) that the strict
+  # SKILL.md + references/ + scripts/ whitelist would otherwise drop.
+  extraFiles ? [ ],
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
   # Injected by lib/default.nix from this flake's `self`. Bakes into the
@@ -70,7 +78,7 @@ let
     internal.mkSkill system {
       name = effectiveName;
       originalSkillName = skillName;
-      inherit src version description extraDirs provenance;
+      inherit src version description extraDirs extraFiles provenance;
     };
 
   skillsFor = system: [

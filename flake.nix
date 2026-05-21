@@ -55,6 +55,40 @@
         src = ./tests/example-skill-rename;
       };
 
+      # `extraFiles` fixtures. Same source skill rebuilt with four
+      # different `extraFiles` settings so the bats tests can assert
+      # positive, negative, no-match, and directory-skip behaviour
+      # without paying for four distinct source trees.
+      extraFilesSrc = ./tests/example-skill-extra-files;
+      extraFilesSkillName = "example-skill-extra-files";
+      fixtureExtraFiles = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = extraFilesSkillName;
+        src = extraFilesSrc;
+        extraFiles = [ "*.md" "*.sh" "*.dot" ];
+      };
+      fixtureExtraFilesOff = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = extraFilesSkillName;
+        src = extraFilesSrc;
+      };
+      fixtureExtraFilesNoMatch = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = extraFilesSkillName;
+        src = extraFilesSrc;
+        extraFiles = [ "*.nonexistent" ];
+      };
+      # `extraFiles = [ "*" ]` against a source that has a top-level
+      # directory (`companion-dir/`) which is NOT in `extraDirs`. The
+      # `[ -f ]` guard inside the install loop must skip the directory
+      # so only top-level regular files are shipped.
+      fixtureExtraFilesDirSkip = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = extraFilesSkillName;
+        src = extraFilesSrc;
+        extraFiles = [ "*" ];
+      };
+
       # Multi-skill fixture exercising a rich `renameFn`: the derived name
       # encodes the source owner, original skill name, short git rev, and
       # git last-modified date. `source` uses fixed values so the names
@@ -105,6 +139,10 @@
             fixtureAll
             fixtureRename
             fixtureAllRenamed
+            fixtureExtraFiles
+            fixtureExtraFilesOff
+            fixtureExtraFilesNoMatch
+            fixtureExtraFilesDirSkip
             ;
         }
       );

@@ -161,6 +161,16 @@ let
       # the skill source root; missing dirs are silently ignored, same as
       # references/scripts.
       extraDirs ? [ ]
+    , # Additional top-level files to ship at the install root. Each entry
+      # is a shell glob evaluated in the skill source root at install time
+      # (nullglob: no-match patterns are silently dropped, same posture as
+      # `extraDirs`). Matches that resolve to directories are skipped — use
+      # `extraDirs` for those. Use for upstream skills whose SKILL.md
+      # cross-references loose flat files at the top level (e.g.
+      # obra/superpowers' `visual-companion.md`, `code-reviewer.md`),
+      # which the standard SKILL.md + references/ + scripts/ whitelist
+      # would otherwise drop.
+      extraFiles ? [ ]
     , # The skill's identity *before* any rename — the directory name as
       # discovered (multi-skill) or the caller's `skillName` (single).
       # Recorded in the sentinel as provenance so a remapped install can
@@ -260,6 +270,24 @@ let
       installPhase = ''
         runHook preInstall
         mkdir -p "$out/share/claude-skills/${name}"
+        # extraFiles runs first so the canonical files written below
+        # (awk-normalized SKILL.md, sentinel) overwrite any same-named
+        # entry copied from the source root — a glob like
+        # `extraFiles = [ "*.md" ]` legitimately matches SKILL.md, and
+        # the awk-normalized frontmatter must win.
+        #
+        # nullglob makes a non-matching pattern expand to nothing instead
+        # of being copied as a literal; the [ -f ] guard skips directory
+        # matches so `extraFiles = [ "*" ]` ships only top-level regular
+        # files (directories already have `extraDirs`).
+        shopt -s nullglob
+        for pat in ${lib.concatMapStringsSep " " lib.escapeShellArg extraFiles}; do
+          for f in $pat; do
+            [ -f "$f" ] || continue
+            install -Dm644 "$f" "$out/share/claude-skills/${name}/$(basename "$f")"
+          done
+        done
+        shopt -u nullglob
         awk -v newname=${lib.escapeShellArg name} \
           -f ${normalizeFrontmatterAwk} \
           SKILL.md > "$out/share/claude-skills/${name}/SKILL.md"
