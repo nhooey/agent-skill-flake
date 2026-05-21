@@ -415,6 +415,76 @@ in
     };
 
   # ──────────────────────────────────────────────────────────────
+  # mkSkillsEnv — multi-skill env (`pkgs.buildEnv` analogue).
+  # ──────────────────────────────────────────────────────────────
+
+  # `mkSkillsEnv` must produce a `symlinkJoin`-style drv that:
+  #   - includes every member skill's files (via symlinks), AND
+  #   - carries `passthru.isFlakeSkillsEnv = true` plus a
+  #     `flakeSkillsEnv = [{ name; drv; }]` list keyed by each
+  #     member's `passthru.flakeSkillName`.
+  # The contract is what lets the home-manager-module expand a single
+  # env entry back into per-skill records on activation.
+  mk-skills-env-passthru =
+    let
+      env = self.lib.mkSkillsEnv {
+        inherit pkgs;
+        name = "skills-env-alpha-beta";
+        skills = [ alphaPkg betaPkg ];
+      };
+    in
+    mkEvalCheck {
+      name = "mk-skills-env-passthru";
+      cond =
+        (env.passthru.isFlakeSkillsEnv or false)
+        && (builtins.length env.passthru.flakeSkillsEnv == 2)
+        && (lib.elem "alpha" (map (m: m.name) env.passthru.flakeSkillsEnv))
+        && (lib.elem "beta" (map (m: m.name) env.passthru.flakeSkillsEnv))
+        && (lib.all (m: m.drv ? passthru && m.drv.passthru.isFlakeSkill or false)
+              env.passthru.flakeSkillsEnv);
+      msg = "mk-skills-env-passthru: env must carry isFlakeSkillsEnv=true "
+        + "and flakeSkillsEnv=[{name=alpha; ...} {name=beta; ...}] with "
+        + "each member's drv carrying isFlakeSkill=true.";
+    };
+
+  # Passing a skills-env into `programs.flake-skills.skills` must expand
+  # back into its member skills in the reconcile script — so a single
+  # env entry installs N separate `~/.claude/skills/<name>/` trees, not
+  # one nested env tree.
+  home-manager-module-expands-skills-env =
+    let
+      env = self.lib.mkSkillsEnv {
+        inherit pkgs;
+        name = "skills-env-alpha-beta";
+        skills = [ alphaPkg betaPkg ];
+      };
+      eval = nixpkgs.lib.evalModules {
+        specialArgs.lib = mockHomeManagerLib;
+        modules = [
+          mockHomeManager
+          self.homeManagerModules.default
+          {
+            _module.args.pkgs = pkgs;
+            programs.flake-skills.enable = true;
+            programs.flake-skills.skills = [ env ];
+          }
+        ];
+      };
+      data = eval.config.home.activation.flakeSkillsReconcile.data;
+      reconcileBin = builtins.head (lib.splitString "\n" data);
+      script = builtins.readFile reconcileBin;
+    in
+    mkEvalCheck {
+      name = "home-manager-module-expands-skills-env";
+      cond =
+        lib.hasInfix ''"alpha:/nix/store/'' script
+        && lib.hasInfix ''"beta:/nix/store/'' script;
+      msg = "home-manager-module-expands-skills-env: reconcile script must "
+        + "contain per-member `name:store-path` entries for both alpha and "
+        + "beta after expansion, but at least one is missing.";
+    };
+
+  # ──────────────────────────────────────────────────────────────
   # darwinModules.default — forwarding shim into home-manager.
   # ──────────────────────────────────────────────────────────────
 

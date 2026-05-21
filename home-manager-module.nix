@@ -36,22 +36,33 @@ let
   cfg = config.programs.flake-skills;
   system = pkgs.stdenv.hostPlatform.system;
 
-  isSkill =
+  # Accept both single skills (mkSkillFlake — `passthru.isFlakeSkill`)
+  # and multi-skill envs (mkSkillsEnv — `passthru.isFlakeSkillsEnv`).
+  isFlakeSkillEntry =
     p:
     lib.isDerivation p
-    && (p.passthru or { }) ? isFlakeSkill
-    && p.passthru.isFlakeSkill;
+    && (
+      ((p.passthru or { }) ? isFlakeSkill && p.passthru.isFlakeSkill)
+      || ((p.passthru or { }) ? isFlakeSkillsEnv && p.passthru.isFlakeSkillsEnv)
+    );
 
-  autoDiscovered = lib.filter isSkill config.home.packages;
+  autoDiscovered = lib.filter isFlakeSkillEntry config.home.packages;
 
   effectiveSkills = cfg.skills ++ (if cfg.autoDiscover then autoDiscovered else [ ]);
 
-  # mkReconcile expects `[{name; drv}]` records keyed by the bare skill
-  # name (the on-disk `~/.claude/skills/<name>` directory).
-  skillRecords = map (drv: {
-    name = drv.passthru.flakeSkillName;
-    inherit drv;
-  }) effectiveSkills;
+  # Expand each entry into one-or-more `{name; drv}` records. A single
+  # skill becomes a 1-element list; a `mkSkillsEnv` becomes its member
+  # list as-is (so each member installs to its own
+  # `~/.claude/skills/<flakeSkillName>/` directory, not to a nested
+  # subtree under the env's name).
+  expandSkill =
+    drv:
+    if drv.passthru.isFlakeSkillsEnv or false then
+      drv.passthru.flakeSkillsEnv
+    else
+      [ { name = drv.passthru.flakeSkillName; inherit drv; } ];
+
+  skillRecords = lib.concatMap expandSkill effectiveSkills;
 
   reconcile = internal.mkReconcile system {
     appName = "home-manager";
@@ -79,9 +90,17 @@ in
         ]
       '';
       description = ''
-        Skill derivations to reconcile on activation. Each must be a
-        derivation produced by flake-skills' `mkSkill` (carrying
-        `passthru.isFlakeSkill = true` and `passthru.flakeSkillName`).
+        Skill (or skills-env) derivations to reconcile on activation.
+        Each must be either:
+
+          • a single skill produced by `mkSkillFlake` /
+            `mkAllSkillsFlake` (carrying `passthru.isFlakeSkill = true`
+            and `passthru.flakeSkillName`), or
+
+          • a multi-skill env produced by `mkSkillsEnv` (carrying
+            `passthru.isFlakeSkillsEnv = true` and
+            `passthru.flakeSkillsEnv`), which is expanded back into its
+            member skills on activation.
       '';
     };
 

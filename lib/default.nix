@@ -40,4 +40,9 @@ in
 
   mkAllSkillsFlake = args:
     import ./mk-all-skills-flake.nix (args // { inherit provenance; });
+
+  # Multi-skill env (the `pkgs.buildEnv` analogue for skills). Takes
+  # already-built skill drvs — no provenance threading needed because
+  # each member carries its own.
+  mkSkillsEnv = import ./mk-skills-env.nix { };
 }
