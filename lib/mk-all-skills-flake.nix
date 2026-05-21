@@ -7,7 +7,7 @@
     "x86_64-darwin"
     "aarch64-darwin"
   ],
-  name ? "claude-skills-all",
+  name ? "agent-skills-all",
   installRoot ? "$HOME/.claude/skills",
   envVarOverride ? "CLAUDE_SKILLS_DIR",
   # Prefix applied to each per-skill package attribute key, i.e.
@@ -181,7 +181,7 @@ in
     perSkill
     // {
       default = aggregateFor system;
-      all = aggregateFor system;
+      agent-skills-all = aggregateFor system;
     }
   );
 
