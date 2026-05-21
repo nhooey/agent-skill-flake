@@ -53,6 +53,21 @@
   #     lastModified;           # self.lastModified (epoch, raw passthrough)
   #     lastModifiedDate; }     # self.lastModifiedDate ("%Y%m%d%H%M%S")
   source ? null,
+  # Additional top-level directories from each discovered skill's source
+  # to ship into the install alongside SKILL.md / references / scripts.
+  # Applied uniformly to every discovered skill; missing dirs are
+  # silently ignored per the standard posture. Same semantics as
+  # mkSkill's `extraDirs`.
+  extraDirs ? [ ],
+  # Additional top-level files from each discovered skill's source to
+  # ship at the install root. Each entry is a shell glob evaluated in
+  # the skill's source (nullglob: no-match silently dropped). Applied
+  # uniformly to every discovered skill. Use for upstream collections
+  # whose SKILL.md files reference loose flat companion files (e.g.
+  # `extraFiles = [ "*.md" "*.sh" "*.ts" "*.js" "*.dot" ]` covers every
+  # loose-file case across obra/superpowers' 14 skills). Same semantics
+  # as mkSkill's `extraFiles`.
+  extraFiles ? [ ],
   # Injected by lib/default.nix from this flake's `self`. Same role as in
   # mk-skill-flake.nix.
   provenance,
@@ -93,7 +108,7 @@ let
       drv = internal.mkSkill system {
         inherit (s) name src;
         originalSkillName = s.originalName;
-        inherit provenance;
+        inherit extraDirs extraFiles provenance;
       };
     }) renamed;
 

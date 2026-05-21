@@ -66,6 +66,7 @@ flake-skills.lib.mkSkillFlake {
   description    = "Claude Code skill: my-skill";
   version        = "0.1.0";
   extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
+  extraFiles     = [ ];           # ship additional top-level files (shell globs evaluated in `src`)
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
   # rename (optional) — see "Renaming & name collisions" below:
@@ -84,6 +85,7 @@ flake-skills.lib.mkSkillFlake {
 | `description`    | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
 | `version`        | no       | `"0.1.0"`                                                            | Skill package version. |
 | `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts (e.g. `[ "agents" "assets" "eval-viewer" ]` for `anthropics/skills`' `skill-creator`). Missing dirs are silently ignored. |
+| `extraFiles`     | no       | `[ ]`                                                                | Additional top-level files from `src` to ship at the install root. Each entry is a shell glob evaluated in `src` (nullglob: no-match silently dropped; directory matches are skipped). Use for upstream skills with loose top-level companions cross-referenced from `SKILL.md` (e.g. `[ "*.md" "*.sh" "*.ts" "*.js" "*.dot" ]` covers every loose-file case across `obra/superpowers`' 14 skills). |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Name of an env var the user can set to override `installRoot`. |
 | `renameFn`       | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
@@ -159,6 +161,8 @@ flake-skills.lib.mkAllSkillsFlake {
   name           = "claude-skills-all";
   installRoot    = "$HOME/.claude/skills";
   envVarOverride = "CLAUDE_SKILLS_DIR";
+  extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
+  extraFiles     = [ ];           # additional top-level files (shell globs; applied to every discovered skill)
   # rename (optional) — see "Renaming & name collisions" below:
   renameFn       = ctx: ctx.name; # identity (no rename)
   source         = null;          # skills' origin repo, for ctx.source.*
@@ -173,6 +177,8 @@ flake-skills.lib.mkAllSkillsFlake {
 | `name`           | no       | `"claude-skills-all"`                                                | Aggregate derivation name (also used as the install/preview app suffix). |
 | `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
 | `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Env var that overrides `installRoot`. |
+| `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. Same semantics as the `mkSkillFlake` param. |
+| `extraFiles`     | no       | `[ ]`                                                                | Additional top-level files to ship at each discovered skill's install root. Each entry is a shell glob evaluated per-skill (nullglob: no-match silently dropped; directory matches are skipped). Applied uniformly across every discovered skill, so a single `[ "*.md" "*.sh" "*.ts" "*.js" "*.dot" ]` covers loose-file companions across an entire upstream collection (e.g. `obra/superpowers`). |
 | `renameFn`       | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). Applied once at discovery so the renamed name flows consistently into package keys, the install symlink, the GC root, the lock, and reconcile's sweep. |
 | `source`         | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
 
@@ -220,14 +226,18 @@ $out/share/claude-skills/<skillName>/
 ├── SKILL.md          # required, mode 644
 ├── references/       # copied recursively if present
 ├── scripts/          # copied recursively if present
-└── <extraDirs[*]>/   # any directories listed in `extraDirs`, copied recursively if present
+├── <extraDirs[*]>/   # any directories listed in `extraDirs`, copied recursively if present
+└── <extraFiles[*]>   # any top-level files matching the `extraFiles` shell globs, mode 644
 ```
 
 Everything else in `src` is ignored — including `flake.nix`, `flake.lock`,
 hidden dotfiles, and any other top-level files. If a skill ships content in
 non-standard top-level directories (e.g. `agents/`, `assets/`), name them in
-`extraDirs` so they get shipped alongside the standard surface. Loose
-top-level files outside that whitelist are still ignored.
+`extraDirs`. If `SKILL.md` cross-references loose flat companion files at
+the source root (e.g. `obra/superpowers`' `visual-companion.md`,
+`code-reviewer.md`), match them with `extraFiles` shell globs (e.g.
+`[ "*.md" "*.sh" "*.dot" ]`). Anything not matched by the whitelist is
+still ignored.
 
 The expected source layout matches the [Anthropic agent-skill format][skills]:
 

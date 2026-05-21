@@ -8,6 +8,10 @@
   fixtureAll,
   fixtureRename,
   fixtureAllRenamed,
+  fixtureExtraFiles,
+  fixtureExtraFilesOff,
+  fixtureExtraFilesNoMatch,
+  fixtureExtraFilesDirSkip,
 }:
 let
   pkgs = nixpkgs.legacyPackages.${system};
@@ -148,6 +152,51 @@ in
       INSTALL_APP = installApp;
       UNINSTALL_SKILL_APP = uninstallSkillApp;
     };
+  };
+
+  # ──────────────────────────────────────────────────────────────
+  # `extraFiles` checks — loose top-level files at the skill source
+  # root (the obra/superpowers case).
+  # ──────────────────────────────────────────────────────────────
+
+  # Positive: `extraFiles = [ "*.md" "*.sh" "*.dot" ]` against a source
+  # with `visual-companion.md`, `helper.sh`, `graph.dot` at its root
+  # ships all three at `$out/share/claude-skills/<name>/<basename>`.
+  # The awk-normalized SKILL.md must NOT be clobbered (the `*.md` glob
+  # matches SKILL.md too, but the installPhase orders extraFiles before
+  # the awk pass so the normalized version wins).
+  example-skill-extra-files-ships = mkBatsCheck {
+    name = "example-skill-extra-files-ships";
+    env.SKILL_ROOT =
+      "${fixtureExtraFiles.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+  };
+
+  # Negative: same source, no `extraFiles` — the loose top-level files
+  # are dropped per the standard whitelist. Regression guard for the
+  # default-strict posture.
+  example-skill-extra-files-off-drops = mkBatsCheck {
+    name = "example-skill-extra-files-off-drops";
+    env.SKILL_ROOT =
+      "${fixtureExtraFilesOff.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+  };
+
+  # Glob with no matches: build succeeds and produces an install with
+  # only the canonical surface (SKILL.md + references/), same as no
+  # `extraFiles` at all. Mirrors how missing `references/` is silently
+  # ignored.
+  example-skill-extra-files-no-match = mkBatsCheck {
+    name = "example-skill-extra-files-no-match";
+    env.SKILL_ROOT =
+      "${fixtureExtraFilesNoMatch.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+  };
+
+  # `extraFiles = [ "*" ]` against a source with a top-level
+  # `companion-dir/` (NOT in `extraDirs`) ships every regular top-level
+  # file but NOT the directory — the `[ -f "$f" ]` guard.
+  example-skill-extra-files-dir-skip = mkBatsCheck {
+    name = "example-skill-extra-files-dir-skip";
+    env.SKILL_ROOT =
+      "${fixtureExtraFilesDirSkip.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
   };
 
   # ──────────────────────────────────────────────────────────────
