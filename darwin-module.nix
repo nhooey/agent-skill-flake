@@ -21,6 +21,7 @@
 #       services.flake-skills = {
 #         enable = true;
 #         user   = "alice";
+#         scope  = "personal";
 #         skills = [ inputs.my-skills.packages.aarch64-darwin.skill-foo ];
 #       };
 #     }
@@ -69,16 +70,26 @@ in
       description = "Forwarded to `programs.flake-skills.autoDiscover`.";
     };
 
-    installRoot = lib.mkOption {
+    agent = lib.mkOption {
       type = lib.types.str;
-      default = "$HOME/.claude/skills";
-      description = "Forwarded to `programs.flake-skills.installRoot`.";
+      default = "claude-code";
+      description = "Forwarded to `programs.flake-skills.agent`.";
     };
 
-    envVarOverride = lib.mkOption {
-      type = lib.types.str;
-      default = "CLAUDE_SKILLS_DIR";
-      description = "Forwarded to `programs.flake-skills.envVarOverride`.";
+    scope = lib.mkOption {
+      type = lib.types.enum [
+        "personal"
+        "project"
+        "custom"
+      ];
+      example = "personal";
+      description = "Forwarded to `programs.flake-skills.scope`. Required.";
+    };
+
+    root = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Forwarded to `programs.flake-skills.root`. Required iff `scope = \"custom\"`.";
     };
   };
 
@@ -101,8 +112,9 @@ in
           inherit (cfg)
             skills
             autoDiscover
-            installRoot
-            envVarOverride
+            agent
+            scope
+            root
             ;
         };
       };

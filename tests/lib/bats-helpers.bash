@@ -6,15 +6,21 @@ bats_load_library bats-support
 bats_load_library bats-assert
 bats_load_library bats-file
 
-# Isolated HOME + skills target + GC root dir under the per-test tmpdir.
-# Most install/uninstall/reap/reconcile tests need exactly this triplet;
-# preview tests need only HOME + CLAUDE_SKILLS_DIR but the extra dirs are
-# harmless.
+# Isolated HOME + a `--scope=custom` install target + GC-roots dir under
+# the per-test tmpdir. Most install/uninstall/reap/reconcile tests need
+# exactly this triplet plus the scope_args[] array passed to every app
+# invocation as --scope=custom --root=... --gcroots-dir=...
 setup_isolated_env() {
   export HOME="$BATS_TEST_TMPDIR/fake-home"
-  export CLAUDE_SKILLS_DIR="$BATS_TEST_TMPDIR/skills-target"
-  export NIX_GCROOTS_DIR="$BATS_TEST_TMPDIR/gcroots"
-  mkdir -p "$HOME/.claude/skills" "$NIX_GCROOTS_DIR"
+  export CUSTOM_TARGET="$BATS_TEST_TMPDIR/skills-target"
+  export GCROOTS_DIR="$BATS_TEST_TMPDIR/gcroots"
+  mkdir -p "$HOME" "$GCROOTS_DIR"
+
+  scope_args=(
+    "--scope=custom"
+    "--root=$CUSTOM_TARGET"
+    "--gcroots-dir=$GCROOTS_DIR"
+  )
 }
 
 # assert_store_symlink <path> [label]

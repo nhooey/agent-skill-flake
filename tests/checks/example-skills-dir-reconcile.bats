@@ -3,31 +3,31 @@
 setup() {
   source "$BATS_HELPERS"
   setup_isolated_env
-  mkdir -p "$CLAUDE_SKILLS_DIR"
+  mkdir -p "$CUSTOM_TARGET"
 }
 
 @test "reconcile installs declared set, sweeps stray, spares unmanaged" {
   # Stray managed entry: reuse alpha's content (sentinel genuinely
   # matches our managedBy URL) under a name not in the declared set.
-  ln -sfn "$ALPHA_PKG/share/claude-skills/alpha" "$CLAUDE_SKILLS_DIR/stale"
-  ln -sfn "$ALPHA_PKG" "$NIX_GCROOTS_DIR/claude-skill-stale"
+  ln -sfn "$ALPHA_PKG/share/claude-skills/alpha" "$CUSTOM_TARGET/stale"
+  ln -sfn "$ALPHA_PKG" "$GCROOTS_DIR/claude-skill-stale"
 
-  mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
-  echo manual > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+  mkdir -p "$CUSTOM_TARGET/manual-skill"
+  echo manual > "$CUSTOM_TARGET/manual-skill/SKILL.md"
 
-  run "$RECONCILE_ALL_APP"
+  run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  assert [ -L "$CLAUDE_SKILLS_DIR/alpha" ]
-  assert [ -L "$CLAUDE_SKILLS_DIR/beta" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/alpha/SKILL.md" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/beta/SKILL.md" ]
-  assert [ -L "$NIX_GCROOTS_DIR/claude-skill-alpha" ]
-  assert [ -L "$NIX_GCROOTS_DIR/claude-skill-beta" ]
+  assert [ -L "$CUSTOM_TARGET/alpha" ]
+  assert [ -L "$CUSTOM_TARGET/beta" ]
+  assert [ -f "$CUSTOM_TARGET/alpha/SKILL.md" ]
+  assert [ -f "$CUSTOM_TARGET/beta/SKILL.md" ]
+  assert [ -L "$GCROOTS_DIR/claude-skill-alpha" ]
+  assert [ -L "$GCROOTS_DIR/claude-skill-beta" ]
 
-  refute [ -L "$CLAUDE_SKILLS_DIR/stale" ]
-  refute [ -e "$NIX_GCROOTS_DIR/claude-skill-stale" ]
+  refute [ -L "$CUSTOM_TARGET/stale" ]
+  refute [ -e "$GCROOTS_DIR/claude-skill-stale" ]
 
-  assert [ -d "$CLAUDE_SKILLS_DIR/manual-skill" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md" ]
+  assert [ -d "$CUSTOM_TARGET/manual-skill" ]
+  assert [ -f "$CUSTOM_TARGET/manual-skill/SKILL.md" ]
 }

@@ -3,17 +3,17 @@
 setup() {
   source "$BATS_HELPERS"
   setup_isolated_env
-  mkdir -p "$CLAUDE_SKILLS_DIR"
+  mkdir -p "$CUSTOM_TARGET"
 }
 
 @test "uninstall refuses to touch an unmanaged entry" {
-  mkdir -p "$CLAUDE_SKILLS_DIR/manual-skill"
-  echo manual > "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md"
+  mkdir -p "$CUSTOM_TARGET/manual-skill"
+  echo manual > "$CUSTOM_TARGET/manual-skill/SKILL.md"
 
-  run "$UNINSTALL_ALL_APP" manual-skill
+  run "$UNINSTALL_ALL_APP" "${scope_args[@]}" manual-skill
   assert_failure
   assert_output --partial "not managed by"
 
-  assert [ -d "$CLAUDE_SKILLS_DIR/manual-skill" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/manual-skill/SKILL.md" ]
+  assert [ -d "$CUSTOM_TARGET/manual-skill" ]
+  assert [ -f "$CUSTOM_TARGET/manual-skill/SKILL.md" ]
 }

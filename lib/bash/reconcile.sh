@@ -1,3 +1,38 @@
+print_help() {
+  cat <<EOF
+Usage: $app_name --scope=<personal|project|custom> [--root=<path>] \\
+                 [--gcroots-dir=<path>]
+
+Required:
+  --scope=personal              Reconcile \$HOME/$personal_suffix
+  --scope=project               Reconcile <project-root>/$project_suffix
+  --scope=custom --root=<path>  Reconcile <path>
+
+Optional:
+  --gcroots-dir=<path>          Override per-user GC-roots dir
+                                (default: /nix/var/nix/gcroots/per-user/\$USER)
+  -h, --help                    Show this help and exit.
+
+Installs/refreshes every declared skill (idempotent), sweeps managed
+entries not in the declared set, and rewrites the aggregate lock to
+match the declared set exactly.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) print_help; exit 0 ;;
+  esac
+done
+
+parse_scope_args "$@" || exit $?
+set -- "${scope_remaining_args[@]}"
+if [ $# -gt 0 ]; then
+  printf '%s: unexpected positional argument: %s\n' "$app_name" "$1" >&2
+  printf '  See `%s --help` for usage.\n' "$app_name" >&2
+  exit 2
+fi
+
 mkdir -p "$target_root"
 gcroots_ok=1
 if ! mkdir -p "$gcroots_dir" 2>/dev/null; then

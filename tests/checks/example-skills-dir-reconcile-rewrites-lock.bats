@@ -3,18 +3,18 @@
 setup() {
   source "$BATS_HELPERS"
   setup_isolated_env
-  mkdir -p "$CLAUDE_SKILLS_DIR"
+  mkdir -p "$CUSTOM_TARGET"
 }
 
 @test "reconcile rewrites the lock to exactly the declared set" {
   printf '%s' \
     '{"schemaVersion":1,"skills":{"stale":{"managedBy":"github:nhooey/flake-skills","skillName":"stale"}}}' \
-    > "$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+    > "$CUSTOM_TARGET/.flake-skills-lock.json"
 
-  run "$RECONCILE_ALL_APP"
+  run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  local lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
   assert_equal "$(jq -r '.skills | keys | sort | join(",")' "$lock")" "alpha,beta"
   assert_equal "$(jq '.skills | has("stale")' "$lock")" "false"
 

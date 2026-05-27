@@ -1,36 +1,51 @@
-# Help / arg parsing.
-if [ $# -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
+print_help() {
   cat <<EOF
-Usage: $app_name [<skill-name>...]
+Usage: $app_name --scope=<personal|project|custom> [--root=<path>] \\
+                 [--gcroots-dir=<path>] [<skill-name>...]
+
+Required:
+  --scope=personal              Operate on \$HOME/$personal_suffix
+  --scope=project               Operate on <project-root>/$project_suffix
+  --scope=custom --root=<path>  Operate on <path>
+
+Optional:
+  --gcroots-dir=<path>          Override per-user GC-roots dir
+                                (default: /nix/var/nix/gcroots/per-user/\$USER)
+  -h, --help                    Show this help and exit.
 
 Removes the install-side artifacts for each named skill:
-  - \$target_root/<name>             (symlink into the Nix store)
-  - \$gcroots_dir/claude-skill-<name> (per-user GC root)
-  - the entry in \$target_root/.flake-skills-lock.json
+  - <target>/<name>                  (symlink into the Nix store)
+  - <gcroots>/claude-skill-<name>    (per-user GC root)
+  - the entry in <target>/.flake-skills-lock.json
 
 Refuses to touch entries that aren't managed by this flake-skills
 lineage (managedBy=$upstream_url).
 
-With no arguments: uninstalls "$default_skill" (the only skill in
-a single-skill flake). For multi-skill flakes, a name is required.
+With no positional args: uninstalls "$default_skill" (the default
+single skill). For multi-skill flakes the default is empty, and a name
+is required.
 
-Note: skills installed with --profile must be removed from the
-Nix profile separately (\`nix profile remove\`).
-
-Environment:
-  $env_var_name    override the install root (default: $install_root_default)
-  NIX_GCROOTS_DIR    override the GC-roots dir (default: per-user dir)
+Note: skills installed with --profile must be removed from the Nix
+profile separately (\`nix profile remove\`).
 EOF
-  exit 0
-fi
+}
 
-# No args + default exists → uninstall the default.
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) print_help; exit 0 ;;
+  esac
+done
+
+parse_scope_args "$@" || exit $?
+set -- "${scope_remaining_args[@]}"
+
+# No positional args + a configured default → uninstall the default.
 if [ $# -eq 0 ]; then
   if [ -n "$default_skill" ]; then
     set -- "$default_skill"
   else
-    echo "$app_name: skill name required" >&2
-    echo "Usage: $app_name <skill-name>..." >&2
+    printf '%s: skill name required\n' "$app_name" >&2
+    printf '  See `%s --help` for usage.\n' "$app_name" >&2
     exit 2
   fi
 fi

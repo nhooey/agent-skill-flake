@@ -49,14 +49,21 @@
   # `visual-companion.md`, `code-reviewer.md`) that the strict
   # SKILL.md + references/ + scripts/ whitelist would otherwise drop.
   extraFiles ? [ ],
-  installRoot ? "$HOME/.claude/skills",
-  envVarOverride ? "CLAUDE_SKILLS_DIR",
+  # Which agent's filesystem layout to target. Each profile in
+  # lib/agent-profiles.nix names a per-scope install suffix
+  # (`$HOME/<personalSuffix>` for personal scope,
+  # `<project-root>/<projectSuffix>` for project scope). Currently
+  # supports `claude-code`, `codex`, `cursor`. Throws at eval if the
+  # name isn't a known profile.
+  agent ? "claude-code",
   # Injected by lib/default.nix from this flake's `self`. Bakes into the
   # skill's sentinel so reconcile/reap can scope to "things I built".
   provenance,
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };
+
+  profile = internal.resolveAgentProfile agent;
 
   forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
 
@@ -93,7 +100,7 @@ let
     internal.mkInstaller system {
       appName = skillName;
       skills = skillsFor system;
-      inherit installRoot envVarOverride;
+      inherit profile;
     };
 
   previewFor =
@@ -102,14 +109,14 @@ let
       appName = skillName;
       displayName = effectiveName;
       skills = skillsFor system;
-      inherit installRoot envVarOverride;
+      inherit profile;
     };
 
   reapFor =
     system:
     internal.mkReap system {
       appName = skillName;
-      inherit provenance installRoot envVarOverride;
+      inherit provenance profile;
     };
 
   uninstallFor =
@@ -117,7 +124,7 @@ let
     internal.mkUninstall system {
       appName = skillName;
       defaultSkillName = effectiveName;
-      inherit provenance installRoot envVarOverride;
+      inherit provenance profile;
     };
 in
 {

@@ -27,8 +27,7 @@
         internal.mkReap system {
           appName = "flake-skills";
           inherit (flakeLib) provenance;
-          installRoot = "$HOME/.claude/skills";
-          envVarOverride = "CLAUDE_SKILLS_DIR";
+          profile = internal.resolveAgentProfile "claude-code";
         };
 
       # Single-skill fixture.
@@ -89,6 +88,16 @@
         extraFiles = [ "*" ];
       };
 
+      # Single-skill fixture built with `agent = "codex"` so the
+      # install scope tests can assert the codex profile's
+      # `.codex/skills/` suffix is used (instead of `.claude/skills/`).
+      fixtureCodex = flakeLib.mkSkillFlake {
+        inherit nixpkgs;
+        skillName = "example-skill";
+        src = ./tests/example-skill;
+        agent = "codex";
+      };
+
       # Multi-skill fixture exercising a rich `renameFn`: the derived name
       # encodes the source owner, original skill name, short git rev, and
       # git last-modified date. `source` uses fixed values so the names
@@ -137,6 +146,7 @@
             system
             fixture
             fixtureAll
+            fixtureCodex
             fixtureRename
             fixtureAllRenamed
             fixtureExtraFiles

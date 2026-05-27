@@ -6,19 +6,19 @@ setup() {
 }
 
 @test "uninstall one skill removes its 3 artifacts, leaves the other" {
-  run "$INSTALL_ALL_APP"
+  run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
-  run "$UNINSTALL_ALL_APP" alpha
+  run "$UNINSTALL_ALL_APP" "${scope_args[@]}" alpha
   assert_success
 
-  local lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
 
-  refute [ -L "$CLAUDE_SKILLS_DIR/alpha" ]
-  refute [ -e "$NIX_GCROOTS_DIR/claude-skill-alpha" ]
+  refute [ -L "$CUSTOM_TARGET/alpha" ]
+  refute [ -e "$GCROOTS_DIR/claude-skill-alpha" ]
   assert_equal \
     "$(jq 'has("skills") and (.skills | has("alpha") | not)' "$lock")" "true"
 
-  assert [ -L "$CLAUDE_SKILLS_DIR/beta" ]
-  assert [ -L "$NIX_GCROOTS_DIR/claude-skill-beta" ]
+  assert [ -L "$CUSTOM_TARGET/beta" ]
+  assert [ -L "$GCROOTS_DIR/claude-skill-beta" ]
   assert_equal "$(jq -r '.skills.beta.skillName' "$lock")" "beta"
 }

@@ -5,16 +5,16 @@ setup() {
   setup_isolated_env
 }
 
-@test "install obeys CLAUDE_SKILLS_DIR, symlinks store, leaves \$HOME alone" {
-  run "$INSTALL_APP"
+@test "install with --scope=custom symlinks into the chosen root, leaves \$HOME alone" {
+  run "$INSTALL_APP" "${scope_args[@]}"
   assert_success
 
-  assert [ -f "$CLAUDE_SKILLS_DIR/example-skill/SKILL.md" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/example-skill/references/note.md" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/example-skill/scripts/run.sh" ]
+  assert [ -f "$CUSTOM_TARGET/example-skill/SKILL.md" ]
+  assert [ -f "$CUSTOM_TARGET/example-skill/references/note.md" ]
+  assert [ -f "$CUSTOM_TARGET/example-skill/scripts/run.sh" ]
 
-  assert_store_symlink "$CLAUDE_SKILLS_DIR/example-skill"
-  assert_store_symlink "$NIX_GCROOTS_DIR/claude-skill-example-skill" "GC root"
+  assert_store_symlink "$CUSTOM_TARGET/example-skill"
+  assert_store_symlink "$GCROOTS_DIR/claude-skill-example-skill" "GC root"
 
   refute [ -e "$HOME/.claude/skills/example-skill" ]
 }

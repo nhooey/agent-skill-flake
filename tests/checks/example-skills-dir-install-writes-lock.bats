@@ -6,10 +6,10 @@ setup() {
 }
 
 @test "install writes a lock entry per skill with full provenance" {
-  run "$INSTALL_ALL_APP"
+  run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  local lock="$CLAUDE_SKILLS_DIR/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
   assert [ -f "$lock" ]
 
   assert_equal "$(jq -r '.schemaVersion' "$lock")" "1"
