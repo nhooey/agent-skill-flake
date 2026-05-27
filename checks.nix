@@ -55,6 +55,30 @@ let
   # that the codex profile's `.codex/skills/` suffix is used.
   installCodexApp = fixtureCodex.apps.${system}.install.program;
 
+  # `withNamePrefix` fixtures: consumer-side prefix wrapping over a
+  # pre-built single skill and a pre-built skills env. Built here (not
+  # in flake.nix) because the wrapper takes per-system `pkgs`; checks.nix
+  # already has `pkgs` in scope.
+  wrappedSingleName = "gstack-example-skill";
+  wrappedSingle = self.lib.withNamePrefix {
+    inherit pkgs;
+    namePrefix = "gstack";
+    skill = skill;
+  };
+  unwrappedAlphaBetaEnv = self.lib.mkSkillsEnv {
+    inherit pkgs;
+    name = "alpha-beta-env";
+    skills = [
+      alphaPkg
+      betaPkg
+    ];
+  };
+  wrappedEnv = self.lib.withNamePrefix {
+    inherit pkgs;
+    namePrefix = "superpowers";
+    skill = unwrappedAlphaBetaEnv;
+  };
+
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
     lib = nixpkgs.lib;
@@ -565,6 +589,114 @@ in
       msg = "home-manager-module-expands-skills-env: reconcile script must "
         + "contain per-member `name:store-path` entries for both alpha and "
         + "beta after expansion, but at least one is missing.";
+    };
+
+  # ──────────────────────────────────────────────────────────────
+  # withNamePrefix — consumer-side prefix wrapper.
+  # ──────────────────────────────────────────────────────────────
+
+  # Wrapping a single skill: install dir, frontmatter, sentinel are all
+  # rewritten to the prefixed name. originalSkillName + managedBy are
+  # preserved so traceability back to the upstream lineage survives.
+  with-name-prefix-single = mkBatsCheck {
+    name = "with-name-prefix-single";
+    extraInputs = [ pkgs.jq ];
+    env.WRAPPED_SKILL_ROOT =
+      "${wrappedSingle}/share/claude-skills/${wrappedSingleName}";
+  };
+
+  # Wrapping a skills env: every member dir is prefix-renamed, frontmatter
+  # and sentinel match per member, originals don't survive.
+  with-name-prefix-env = mkBatsCheck {
+    name = "with-name-prefix-env";
+    extraInputs = [ pkgs.jq ];
+    env.WRAPPED_ENV_ROOT = "${wrappedEnv}/share/claude-skills";
+  };
+
+  # The wrapped env carries `isFlakeSkillsEnv = true` and a
+  # `flakeSkillsEnv` list whose members carry `isFlakeSkill = true`
+  # under prefixed names — the contract home-manager activation relies
+  # on to expand the env into per-skill records.
+  with-name-prefix-passthru = mkEvalCheck {
+    name = "with-name-prefix-passthru";
+    cond =
+      (wrappedSingle.passthru.isFlakeSkill or false)
+      && wrappedSingle.passthru.flakeSkillName == wrappedSingleName
+      && (wrappedEnv.passthru.isFlakeSkillsEnv or false)
+      && (builtins.length wrappedEnv.passthru.flakeSkillsEnv == 2)
+      && (lib.elem "superpowers-alpha" (map (m: m.name) wrappedEnv.passthru.flakeSkillsEnv))
+      && (lib.elem "superpowers-beta" (map (m: m.name) wrappedEnv.passthru.flakeSkillsEnv))
+      && (lib.all
+        (m: m.drv ? passthru && (m.drv.passthru.isFlakeSkill or false))
+        wrappedEnv.passthru.flakeSkillsEnv);
+    msg =
+      "with-name-prefix-passthru: wrapped single must carry "
+      + "isFlakeSkill=true + flakeSkillName='${wrappedSingleName}'; wrapped "
+      + "env must carry isFlakeSkillsEnv=true and flakeSkillsEnv=["
+      + "{name=superpowers-alpha;...} {name=superpowers-beta;...}] with "
+      + "each drv carrying isFlakeSkill=true.";
+  };
+
+  # A wrapped env passed into `programs.flake-skills.skills` must expand
+  # back into its prefixed members in the reconcile script — so home-manager
+  # activation actually installs `superpowers-alpha/` and `superpowers-beta/`,
+  # not a nested env tree.
+  with-name-prefix-home-manager-expands =
+    let
+      eval = nixpkgs.lib.evalModules {
+        specialArgs.lib = mockHomeManagerLib;
+        modules = [
+          mockHomeManager
+          self.homeManagerModules.default
+          {
+            _module.args.pkgs = pkgs;
+            programs.flake-skills.enable = true;
+            programs.flake-skills.scope = "personal";
+            programs.flake-skills.skills = [ wrappedEnv ];
+          }
+        ];
+      };
+      data = eval.config.home.activation.flakeSkillsReconcile.data;
+      reconcileBin = builtins.head (lib.splitString " " (builtins.head (lib.splitString "\n" data)));
+      script = builtins.readFile reconcileBin;
+    in
+    mkEvalCheck {
+      name = "with-name-prefix-home-manager-expands";
+      cond =
+        lib.hasInfix ''"superpowers-alpha:/nix/store/'' script
+        && lib.hasInfix ''"superpowers-beta:/nix/store/'' script
+        # The originals must not leak through alongside the prefixed
+        # versions — that would double-install under both names.
+        && !(lib.hasInfix ''"alpha:/nix/store/'' script)
+        && !(lib.hasInfix ''"beta:/nix/store/'' script);
+      msg =
+        "with-name-prefix-home-manager-expands: reconcile script must "
+        + "contain per-member `superpowers-{alpha,beta}:store-path` lines "
+        + "and must NOT contain the unprefixed `{alpha,beta}:store-path` "
+        + "lines, but the assertion failed.";
+    };
+
+  # An invalid `namePrefix` (uppercase, underscore, …) must fail eval
+  # with a clear message — same posture as `rename-rejects-invalid-name`.
+  with-name-prefix-rejects-invalid =
+    let
+      attempt = builtins.tryEval (
+        let
+          bad = self.lib.withNamePrefix {
+            inherit pkgs;
+            namePrefix = "Bad_Prefix";
+            skill = skill;
+          };
+        in
+        builtins.seq bad.drvPath true
+      );
+    in
+    mkEvalCheck {
+      name = "with-name-prefix-rejects-invalid";
+      cond = attempt.success == false;
+      msg =
+        "with-name-prefix-rejects-invalid: a namePrefix violating "
+        + "^[a-z0-9][a-z0-9-]*$ must fail eval, but evaluation succeeded.";
     };
 
   # ──────────────────────────────────────────────────────────────

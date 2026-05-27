@@ -331,6 +331,58 @@ Rules and guarantees:
   `mkAllSkillsFlake`, `renameFn` is the per-skill formula applied across
   the whole discovered set.
 
+## Consumer-side prefixing: `withNamePrefix`
+
+`renameFn` runs at the *producer's* eval time — once a skill flake has
+emitted its packages, the name is frozen in the store path. A downstream
+consumer pulling someone else's skill pack as a flake input has no way
+to rename it without rebuilding the upstream source.
+
+`lib.withNamePrefix` is the consumer-side escape hatch. It takes a
+pre-built skill (or skills env), copies its contents under a
+`<prefix>-<oldName>` directory, rewrites `SKILL.md` frontmatter `name:`
+and the `.flake-skills-managed.json` sentinel `skillName`, and refreshes
+passthru so the wrapped drv behaves like a first-class `mkSkill` output
+everywhere downstream (home-manager activation, installer, reconcile,
+`mkSkillsEnv`). A `-` separator is auto-inserted between prefix and
+old name; chaining wrappers compounds the prefix.
+
+```nix
+# Wrap a single skill:
+flake-skills.lib.withNamePrefix {
+  pkgs       = nixpkgs.legacyPackages.${system};
+  namePrefix = "gstack";
+  skill      = inputs.someones-skills.packages.${system}.skill-foo;
+}
+# → drv with passthru.flakeSkillName = "gstack-foo"
+
+# Wrap a skills env (every member gets the same prefix):
+flake-skills.lib.withNamePrefix {
+  pkgs       = nixpkgs.legacyPackages.${system};
+  namePrefix = "superpowers";
+  skill      = flake-skills.lib.mkSkillsEnv {
+    inherit pkgs;
+    name   = "their-pack";
+    skills = [ inputs.someones-skills.packages.${system}.skill-foo
+               inputs.someones-skills.packages.${system}.skill-bar ];
+  };
+}
+# → env whose `flakeSkillsEnv` members are individually prefix-wrapped:
+#   superpowers-foo, superpowers-bar
+```
+
+| Param        | Required | Default | Meaning |
+|--------------|----------|---------|---------|
+| `pkgs`       | yes      | —       | Nixpkgs instance for the target system. Same shape as `mkSkillsEnv`'s `pkgs`. |
+| `namePrefix` | yes      | —       | Non-empty string. Must match `^[a-z0-9][a-z0-9-]*$`. The combined `<prefix>-<oldName>` is asserted against Claude Code's `^[a-z0-9-]{1,64}$` rule per member, so an over-long prefix fails `nix flake check`. |
+| `skill`      | yes      | —       | Either a single skill drv (`passthru.isFlakeSkill`) or a skills env drv (`passthru.isFlakeSkillsEnv`). Anything else throws. |
+
+What the wrapper preserves from the upstream sentinel:
+`originalSkillName`, `managedBy`/`managedByRev`/`managedByDirty`/
+`managedByNarHash`, `version`, `schemaVersion`. Only `skillName` is
+rewritten. Traceability back to the upstream lineage survives
+re-prefixing.
+
 ## Install scope
 
 Every install/uninstall/reap/reconcile/preview invocation **must** declare
