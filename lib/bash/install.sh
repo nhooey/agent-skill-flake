@@ -1,49 +1,110 @@
-mode=symlink
-for arg in "$@"; do
-  case "$arg" in
-    --profile) mode=profile ;;
-    -h|--help)
-      cat <<EOF
-Usage: $app_name [--profile]
+# Build the lookup table of available skill names for subset filtering
+# and typo protection.
+declare -a all_skill_names=()
+declare -A skill_path_by_name=()
+for entry in "${skills_list[@]}"; do
+  name=${entry%%:*}
+  path=${entry#*:}
+  all_skill_names+=("$name")
+  skill_path_by_name["$name"]="$path"
+done
+
+print_help() {
+  cat <<EOF
+Usage: $app_name --scope=<personal|project|custom> [--root=<path>] \\
+                 [--gcroots-dir=<path>] [--profile] [<skill-name>...]
+
+Required:
+  --scope=personal              Install under \$HOME/$personal_suffix
+  --scope=project               Install under <project-root>/$project_suffix
+                                (project root = nearest .git/ or flake.nix
+                                ancestor of \$PWD)
+  --scope=custom --root=<path>  Install under <path>
+
+Optional:
+  --gcroots-dir=<path>          Override per-user GC-roots dir
+                                (default: /nix/var/nix/gcroots/per-user/\$USER)
+  --profile                     Install via \`nix profile install\` and
+                                symlink to ~/.nix-profile/share/claude-skills/
+                                instead of the default direct-symlink mode.
+  -h, --help                    Show this help and exit.
+
+Positional <skill-name>...:
+  If given, install only those skills (must match names exposed by this
+  flake). With no positional args, install every skill in the flake.
 
 Default (symlink mode):
-  For each skill, creates a symlink at \$target_root/<skill> pointing
-  to its content under the Nix store, and registers a per-user GC root
-  so the store path is protected from \`nix-store --gc\`.
+  For each skill, creates a symlink at <target>/<skill> pointing to its
+  content under the Nix store, and registers a per-user GC root so the
+  store path is protected from \`nix-store --gc\`.
 
 --profile:
   Installs each skill into your Nix profile (\`nix profile install\`),
-  then symlinks \$target_root/<skill> into
-  ~/.nix-profile/share/claude-skills/. Skills then appear in
-  \`nix profile list\` and support \`nix profile upgrade\` / rollback.
+  then symlinks <target>/<skill> into ~/.nix-profile/share/claude-skills/.
+  Skills then appear in \`nix profile list\` and support
+  \`nix profile upgrade\` / rollback.
 
-Environment:
-  $env_var_name    override the install root (default: $install_root_default)
-  NIX_GCROOTS_DIR    override the GC-roots dir (default: per-user dir)
-
-Currently installed target root: $target_root
+Available skills:
 EOF
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $arg" >&2
-      echo "Try '--help'." >&2
-      exit 2
-      ;;
+  for n in "${all_skill_names[@]}"; do
+    printf '  %s\n' "$n"
+  done
+}
+
+# --help short-circuits before scope parsing so the help text is
+# obtainable without picking a scope.
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) print_help; exit 0 ;;
   esac
 done
+
+parse_scope_args "$@" || exit $?
+set -- "${scope_remaining_args[@]}"
+
+mode=symlink
+declare -a selected_names=()
+for arg in "$@"; do
+  case "$arg" in
+    --profile) mode=profile ;;
+    -*)
+      printf '%s: unknown flag: %s\n' "$app_name" "$arg" >&2
+      printf '  See `%s --help` for usage.\n' "$app_name" >&2
+      exit 2
+      ;;
+    *) selected_names+=("$arg") ;;
+  esac
+done
+
+# Subset filter. Unknown names are a hard error — the eval-time
+# equivalent for build-time skill discovery.
+declare -a effective_skills=()
+if [ ${#selected_names[@]} -gt 0 ]; then
+  for want in "${selected_names[@]}"; do
+    if [ -z "${skill_path_by_name[$want]+x}" ]; then
+      printf '%s: unknown skill name: %s\n' "$app_name" "$want" >&2
+      printf '  Available skills:\n' >&2
+      for n in "${all_skill_names[@]}"; do
+        printf '    %s\n' "$n" >&2
+      done
+      exit 2
+    fi
+    effective_skills+=("$want:${skill_path_by_name[$want]}")
+  done
+else
+  effective_skills=("${skills_list[@]}")
+fi
 
 mkdir -p "$target_root"
 
 case "$mode" in
   symlink)
-    gcroots_dir=${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
     gcroots_ok=1
     if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
       gcroots_ok=0
       printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
     fi
-    for entry in "${skills_list[@]}"; do
+    for entry in "${effective_skills[@]}"; do
       skill_name=${entry%%:*}
       store_path=${entry#*:}
       skill_subpath="$store_path/share/claude-skills/$skill_name"
@@ -63,7 +124,7 @@ case "$mode" in
     ;;
 
   profile)
-    for entry in "${skills_list[@]}"; do
+    for entry in "${effective_skills[@]}"; do
       skill_name=${entry%%:*}
       store_path=${entry#*:}
       target="$target_root/$skill_name"

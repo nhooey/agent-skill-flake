@@ -1,3 +1,38 @@
+print_help() {
+  cat <<EOF
+Usage: $app_name --scope=<personal|project|custom> [--root=<path>] \\
+                 [--gcroots-dir=<path>]
+
+Required:
+  --scope=personal              Reap \$HOME/$personal_suffix
+  --scope=project               Reap <project-root>/$project_suffix
+  --scope=custom --root=<path>  Reap <path>
+
+Optional:
+  --gcroots-dir=<path>          Override per-user GC-roots dir
+                                (default: /nix/var/nix/gcroots/per-user/\$USER)
+  -h, --help                    Show this help and exit.
+
+Removes managed entries (managedBy=$upstream_url) whose symlink
+targets have been garbage-collected, and orphan GC roots whose
+store-path targets no longer exist.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) print_help; exit 0 ;;
+  esac
+done
+
+parse_scope_args "$@" || exit $?
+set -- "${scope_remaining_args[@]}"
+if [ $# -gt 0 ]; then
+  printf '%s: unexpected positional argument: %s\n' "$app_name" "$1" >&2
+  printf '  See `%s --help` for usage.\n' "$app_name" >&2
+  exit 2
+fi
+
 reaped=0
 
 # 1. Walk $target_root/* — remove our managed entries whose symlink

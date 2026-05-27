@@ -7,12 +7,12 @@ setup() {
 
 @test "aggregate preview is read-only and lists both skills" {
   local before after
-  before=$(snapshot_fs "$HOME" "$CLAUDE_SKILLS_DIR")
+  before=$(snapshot_fs "$HOME" "$CUSTOM_TARGET")
 
-  run "$PREVIEW_ALL_APP"
+  run "$PREVIEW_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  after=$(snapshot_fs "$HOME" "$CLAUDE_SKILLS_DIR")
+  after=$(snapshot_fs "$HOME" "$CUSTOM_TARGET")
   assert_equal "$before" "$after"
 
   assert_output --partial "preview"

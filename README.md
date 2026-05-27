@@ -41,18 +41,19 @@ That gives you, for the four standard systems
 (`x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`):
 
 ```sh
-nix run .                       # read-only preview (no side effects)
-nix run .#preview               # same as default
-nix run .#install               # symlink into ~/.claude/skills/ + GC root
-nix run .#install -- --profile  # install via 'nix profile' instead
-nix run .#uninstall             # remove the skill (symlink + GC root + lock entry)
-nix run .#reap                  # remove broken/dead managed entries
-nix build .#my-skill            # produce $out/share/claude-skills/my-skill/
+nix run .#preview   -- --scope=personal              # preview at $HOME/.claude/skills/
+nix run .#install   -- --scope=personal              # install at $HOME/.claude/skills/
+nix run .#install   -- --scope=project               # install at <repo-root>/.claude/skills/
+nix run .#install   -- --scope=custom --root=/tmp/x  # install at the named path
+nix run .#install   -- --scope=personal --profile    # via `nix profile install`
+nix run .#uninstall -- --scope=personal              # remove the skill
+nix run .#reap      -- --scope=personal              # remove broken managed entries
+nix build .#my-skill                                 # produce $out/share/claude-skills/my-skill/
 ```
 
-The default `nix run` is the **preview** — it lists the files that would be
-installed and the target path, but writes nothing. The explicit `#install`
-app is the only one with side effects.
+`--scope` is **required** on every install/uninstall/reap/reconcile/preview
+invocation — there is no implicit default. See
+[Install scope](#install-scope) for the resolver semantics.
 
 ### `mkSkillFlake` API
 
@@ -67,8 +68,7 @@ flake-skills.lib.mkSkillFlake {
   version        = "0.1.0";
   extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
   extraFiles     = [ ];           # ship additional top-level files (shell globs evaluated in `src`)
-  installRoot    = "$HOME/.claude/skills";
-  envVarOverride = "CLAUDE_SKILLS_DIR";
+  agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   # rename (optional) — see "Renaming & name collisions" below:
   renameFn       = ctx: ctx.name; # identity (no rename)
   source         = null;          # skill's origin repo, for ctx.source.*
@@ -76,21 +76,20 @@ flake-skills.lib.mkSkillFlake {
 }
 ```
 
-| Param            | Required | Default                                                              | Meaning |
-|------------------|----------|----------------------------------------------------------------------|---------|
-| `nixpkgs`        | yes      | —                                                                    | The consumer's `nixpkgs` flake input. Passed in so the consumer controls pinning. |
-| `skillName`      | yes      | —                                                                    | String. The skill's name (e.g. `"garnix-ci"`), before any `renameFn`. The installed `SKILL.md` frontmatter `name:` is **normalized** to the effective name at build time. |
-| `src`            | yes      | —                                                                    | Path to the skill directory (typically `./.` from the per-skill `flake.nix`). |
-| `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
-| `description`    | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
-| `version`        | no       | `"0.1.0"`                                                            | Skill package version. |
-| `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts (e.g. `[ "agents" "assets" "eval-viewer" ]` for `anthropics/skills`' `skill-creator`). Missing dirs are silently ignored. |
-| `extraFiles`     | no       | `[ ]`                                                                | Additional top-level files from `src` to ship at the install root. Each entry is a shell glob evaluated in `src` (nullglob: no-match silently dropped; directory matches are skipped). Use for upstream skills with loose top-level companions cross-referenced from `SKILL.md` (e.g. `[ "*.md" "*.sh" "*.ts" "*.js" "*.dot" ]` covers every loose-file case across `obra/superpowers`' 14 skills). |
-| `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
-| `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Name of an env var the user can set to override `installRoot`. |
-| `renameFn`       | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
-| `source`         | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
-| `packageName`    | no       | `null` → `"skill-${effectiveName}"`                                  | Override the `packages.<system>.<key>` attribute name. |
+| Param         | Required | Default                                                              | Meaning |
+|---------------|----------|----------------------------------------------------------------------|---------|
+| `nixpkgs`     | yes      | —                                                                    | The consumer's `nixpkgs` flake input. Passed in so the consumer controls pinning. |
+| `skillName`   | yes      | —                                                                    | String. The skill's name (e.g. `"garnix-ci"`), before any `renameFn`. The installed `SKILL.md` frontmatter `name:` is **normalized** to the effective name at build time. |
+| `src`         | yes      | —                                                                    | Path to the skill directory (typically `./.` from the per-skill `flake.nix`). |
+| `systems`     | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
+| `description` | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
+| `version`     | no       | `"0.1.0"`                                                            | Skill package version. |
+| `extraDirs`   | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts. Missing dirs are silently ignored. |
+| `extraFiles`  | no       | `[ ]`                                                                | Additional top-level files from `src` to ship at the install root. Each entry is a shell glob evaluated in `src` (nullglob: no-match silently dropped; directory matches are skipped). |
+| `agent`       | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). Throws at eval if the name isn't a known profile. |
+| `renameFn`    | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
+| `source`      | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
+| `packageName` | no       | `null` → `"skill-${effectiveName}"`                                  | Override the `packages.<system>.<key>` attribute name. |
 
 Returns an attrset suitable for use as a flake's `outputs`:
 
@@ -137,14 +136,14 @@ It auto-discovers every subdirectory of `skillsDir` that contains a
 `SKILL.md`, builds each as its own skill derivation, and exposes:
 
 ```sh
-nix run .                           # preview every skill (read-only)
-nix run .#install                   # install every skill — symlinks + GC roots
-nix run .#install -- --profile      # via nix profile
-nix run .#uninstall -- <name>       # remove one skill by name
-nix run .#reap                      # remove broken managed entries
-nix run .#reconcile                 # install declared set, sweep strays
-nix build .#all                     # symlinkJoin'd derivation for all skills
-nix build .#<skill-name>            # single skill derivation
+nix run .#install -- --scope=personal                   # all skills, personal scope
+nix run .#install -- --scope=project nix-flakes git-ssh # subset by name, project scope
+nix run .#install -- --scope=personal --profile         # via nix profile
+nix run .#uninstall -- --scope=personal <name>...       # remove one or more
+nix run .#reap      -- --scope=personal                 # remove broken managed entries
+nix run .#reconcile -- --scope=personal                 # install declared set, sweep strays
+nix build .#all                                         # symlinkJoin'd derivation for all skills
+nix build .#<skill-name>                                # single skill derivation
 ```
 
 The aggregate installer creates one symlink and one GC root per skill, using
@@ -159,8 +158,7 @@ flake-skills.lib.mkAllSkillsFlake {
   # optional:
   systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
   name           = "agent-skills-all";
-  installRoot    = "$HOME/.claude/skills";
-  envVarOverride = "CLAUDE_SKILLS_DIR";
+  agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
   extraFiles     = [ ];           # additional top-level files (shell globs; applied to every discovered skill)
   # rename (optional) — see "Renaming & name collisions" below:
@@ -169,18 +167,17 @@ flake-skills.lib.mkAllSkillsFlake {
 }
 ```
 
-| Param            | Required | Default                                                              | Meaning |
-|------------------|----------|----------------------------------------------------------------------|---------|
-| `nixpkgs`        | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
-| `skillsDir`      | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
-| `systems`        | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
-| `name`           | no       | `"agent-skills-all"`                                                 | Aggregate derivation name (also used as the install/preview app suffix). |
-| `installRoot`    | no       | `"$HOME/.claude/skills"`                                             | Default install target. **Raw shell expression** — `$HOME` is expanded at runtime. |
-| `envVarOverride` | no       | `"CLAUDE_SKILLS_DIR"`                                                | Env var that overrides `installRoot`. |
-| `extraDirs`      | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. Same semantics as the `mkSkillFlake` param. |
-| `extraFiles`     | no       | `[ ]`                                                                | Additional top-level files to ship at each discovered skill's install root. Each entry is a shell glob evaluated per-skill (nullglob: no-match silently dropped; directory matches are skipped). Applied uniformly across every discovered skill, so a single `[ "*.md" "*.sh" "*.ts" "*.js" "*.dot" ]` covers loose-file companions across an entire upstream collection (e.g. `obra/superpowers`). |
-| `renameFn`       | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). Applied once at discovery so the renamed name flows consistently into package keys, the install symlink, the GC root, the lock, and reconcile's sweep. |
-| `source`         | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
+| Param        | Required | Default                                                              | Meaning |
+|--------------|----------|----------------------------------------------------------------------|---------|
+| `nixpkgs`    | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
+| `skillsDir`  | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
+| `systems`    | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
+| `name`       | no       | `"agent-skills-all"`                                                 | Aggregate derivation name (also used as the install/preview app suffix). |
+| `agent`      | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). |
+| `extraDirs`  | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. |
+| `extraFiles` | no       | `[ ]`                                                                | Additional top-level files to ship at each discovered skill's install root. Each entry is a shell glob evaluated per-skill (nullglob: no-match silently dropped; directory matches are skipped). |
+| `renameFn`   | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
+| `source`     | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
 
 Returns:
 
@@ -334,34 +331,70 @@ Rules and guarantees:
   `mkAllSkillsFlake`, `renameFn` is the per-skill formula applied across
   the whole discovered set.
 
-## Install behavior
+## Install scope
 
-`nix run .#install` has two modes.
+Every install/uninstall/reap/reconcile/preview invocation **must** declare
+its `--scope`. There is no implicit default — the choice is forced at the
+call site so an install can never silently land in a place the caller
+didn't choose. The three scopes:
+
+```sh
+# Personal: $HOME/<agent.personalSuffix>/  (e.g. $HOME/.claude/skills/)
+nix run .#install -- --scope=personal
+
+# Project:  <project-root>/<agent.projectSuffix>/
+#           Walks up from $PWD looking for .git/ (preferred), then
+#           flake.nix. Hard-errors if neither marker is found.
+nix run .#install -- --scope=project
+
+# Custom:   the literal path you name.
+nix run .#install -- --scope=custom --root=/etc/agent-skills
+```
+
+`--scope=custom` requires `--root=<path>`; `--root` is rejected with any
+other scope. Missing `--scope` exits non-zero with a usage hint. Other
+flags:
+
+| Flag                  | Default                              | Meaning |
+|-----------------------|--------------------------------------|---------|
+| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir. Primarily for the test suite — rarely useful in practice. |
+| `--profile`           | (off)                                | `install` only: install via `nix profile install` instead of the default direct-symlink mode. See [`--profile`](#--profile-via-nix-profile-install). |
+| `-h`, `--help`        | —                                    | Print help and exit. |
+
+Positional args after the flags are skill-name selectors (subset install):
+
+```sh
+nix run .#install -- --scope=project nix-flakes git-ssh
+```
+
+`mkAllSkillsFlake` apps install all discovered skills with no positional
+args, or only the named subset when given. An unknown skill name is a
+hard error listing what's available — the install-time equivalent of
+eval-time typo protection.
 
 ### Default: symlink + GC root
 
 The Nix-native install. Three things happen:
 
 1. **User-facing symlink.**
-   `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/<skillName>` is created as a
-   symlink to `<store-path>/share/claude-skills/<skillName>`. Claude Code
-   follows it transparently.
+   `<target>/<skillName>` is created as a symlink to
+   `<store-path>/share/claude-skills/<skillName>`. Claude Code (or
+   whichever agent profile you picked) follows it transparently.
 2. **Per-user GC root.**
-   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>` is created as
-   a symlink to the store derivation. This protects the store path from
-   `nix-store --gc`. Override the gcroots dir with `NIX_GCROOTS_DIR` (used by
-   the test suite; rarely useful in practice).
+   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>` is
+   created as a symlink to the store derivation. This protects the
+   store path from `nix-store --gc`. Override the gcroots dir with
+   `--gcroots-dir=<path>` (test-suite use; rarely useful in practice).
 3. **Aggregate lock entry.**
-   An entry is upserted into
-   `${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/.flake-skills-lock.json`
-   summarizing what was installed (provenance from the per-skill sentinel +
-   the resolved `storePath` + an `installedAt` timestamp). See
-   [Lock file](#lock-file) below.
+   An entry is upserted into `<target>/.flake-skills-lock.json`
+   summarizing what was installed (provenance from the per-skill
+   sentinel + the resolved `storePath` + an `installedAt` timestamp).
+   See [Lock file](#lock-file) below.
 
-The user-facing symlink is read-only by virtue of pointing into the store. To
-**upgrade** a skill, re-run `nix run .#install`: the symlink is replaced
-atomically, the new store path becomes the GC root, the old path becomes
-GC-eligible, and the lock entry is refreshed.
+The user-facing symlink is read-only by virtue of pointing into the
+store. To **upgrade** a skill, re-run `nix run .#install`: the symlink
+is replaced atomically, the new store path becomes the GC root, the
+old path becomes GC-eligible, and the lock entry is refreshed.
 
 ### `--profile`: via `nix profile install`
 
@@ -369,12 +402,12 @@ If you want skills to participate in the `nix profile` machinery
 (`list`/`upgrade`/`rollback`/`remove`):
 
 ```sh
-nix run .#install -- --profile
+nix run .#install -- --scope=personal --profile
 ```
 
 This calls `nix profile install <store-path>`, then symlinks
-`~/.claude/skills/<skillName>` into `~/.nix-profile/share/claude-skills/`.
-GC protection comes from the profile itself; no separate GC root. The
+`<target>/<skillName>` into `~/.nix-profile/share/claude-skills/`. GC
+protection comes from the profile itself; no separate GC root. The
 aggregate lock is updated the same way as in symlink mode.
 
 To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`.
@@ -382,33 +415,34 @@ To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`
 ## Uninstall behavior
 
 ```sh
-nix run .#uninstall                  # single-skill flake: removes that skill
-nix run .#uninstall -- <name>        # multi-skill flake: removes one by name
-nix run .#uninstall -- alpha beta    # multiple at once
+nix run .#uninstall -- --scope=personal              # single-skill flake: removes that skill
+nix run .#uninstall -- --scope=personal <name>       # multi-skill flake: removes one by name
+nix run .#uninstall -- --scope=personal alpha beta   # multiple at once
 ```
 
 Removes all three install-side artifacts:
 
-- the user-facing symlink at `$target_root/<name>`,
-- the per-user GC root at `$gcroots_dir/claude-skill-<name>`,
-- the entry in `$target_root/.flake-skills-lock.json`.
+- the user-facing symlink at `<target>/<name>`,
+- the per-user GC root at `<gcroots-dir>/claude-skill-<name>`,
+- the entry in `<target>/.flake-skills-lock.json`.
 
-It refuses to touch entries it can't confidently identify as managed by this
-flake-skills lineage (the sentinel must say `managedBy=<this lineage>`, or — if
-the symlink target has been GC'd — a same-named GC root must exist as a
-naming-convention fallback). A user's hand-rolled `~/.claude/skills/foo`
-directory is therefore safe even if `foo` happens to match a flake-skills
-skill name.
+It refuses to touch entries it can't confidently identify as managed by
+this flake-skills lineage (the sentinel must say `managedBy=<this
+lineage>`, or — if the symlink target has been GC'd — a same-named GC
+root must exist as a naming-convention fallback). A user's hand-rolled
+`~/.claude/skills/foo` directory is therefore safe even if `foo`
+happens to match a flake-skills skill name.
 
-For `--profile`-mode installs, `nix run .#uninstall` removes the user-facing
-symlink + lock entry, but the entry stays in the Nix profile. Run
-`nix profile remove` separately to drop it from the profile.
+For `--profile`-mode installs, `nix run .#uninstall` removes the
+user-facing symlink + lock entry, but the entry stays in the Nix
+profile. Run `nix profile remove` separately to drop it from the
+profile.
 
 ## Lock file
 
-`$target_root/.flake-skills-lock.json` is a single-file index of every skill
-this flake-skills lineage has installed under `$target_root`. Same data as
-the per-skill sentinels (`$target_root/<name>/.flake-skills-managed.json`),
+`<target>/.flake-skills-lock.json` is a single-file index of every skill
+this flake-skills lineage has installed under that target. Same data as
+the per-skill sentinels (`<target>/<name>/.flake-skills-managed.json`),
 indexed by name so you can `cat` it for an overview:
 
 ```json
@@ -443,29 +477,63 @@ last-writer-wins, same as they would on the symlink itself.
 
 ## Targeting other agents
 
-The defaults target Claude Code's `~/.claude/skills/` directory. To support
-[Codex][codex], [Cursor][cursor], or any other agent that adopts the same
-skill format, retarget via `installRoot` and `envVarOverride`:
+The defaults target Claude Code's `~/.claude/skills/` directory via the
+`claude-code` agent profile. To support
+[Codex][codex], [Cursor][cursor], or any other agent that adopts the
+same skill format, pick a different `agent`:
 
 ```nix
 flake-skills.lib.mkSkillFlake {
   inherit nixpkgs;
-  skillName      = "my-skill";
-  src            = ./.;
-  installRoot    = "$HOME/.codex/skills";
-  envVarOverride = "CODEX_SKILLS_DIR";
+  skillName = "my-skill";
+  src       = ./.;
+  agent     = "codex";   # → installs at $HOME/.codex/skills/ for --scope=personal
 }
 ```
+
+Built-in profiles (see [`lib/agent-profiles.nix`](lib/agent-profiles.nix)):
+
+| `agent`        | personal-scope (`$HOME/…`) | project-scope (`<root>/…`) |
+|----------------|----------------------------|----------------------------|
+| `claude-code`  | `.claude/skills`           | `.claude/skills`           |
+| `codex`        | `.codex/skills`            | `.codex/skills`            |
+| `cursor`       | `.cursor/skills`           | `.cursor/skills`           |
+
+To add a new agent, append an entry to `lib/agent-profiles.nix`. An
+unknown `agent` value throws at eval with the list of known profiles.
 
 [codex]: https://github.com/openai/codex
 [cursor]: https://www.cursor.com/
 
+## Migration from pre-scope versions
+
+Pre-scope releases used `installRoot` and `envVarOverride` parameters
+on `mkSkillFlake` / `mkAllSkillsFlake`, plus an implicit
+`$HOME/.claude/skills/` default and a `CLAUDE_SKILLS_DIR` env-var
+override. All of those are gone:
+
+- Replace `installRoot = "$HOME/.codex/skills"` /
+  `envVarOverride = "CODEX_SKILLS_DIR"` with `agent = "codex"`.
+- Replace `installRoot = "/some/custom/path"` at install time with
+  `nix run .#install -- --scope=custom --root=/some/custom/path`.
+- Replace `CLAUDE_SKILLS_DIR=…` env overrides with the same
+  `--scope=custom --root=…` flags.
+- Replace `services.flake-skills.installRoot` /
+  `programs.flake-skills.installRoot` module options with
+  `scope = "personal" | "project" | "custom";` (and `root = "..."` when
+  `scope = "custom"`).
+
+The home-manager / nix-darwin module options now require `scope` to be
+set explicitly — there is no default. `scope = "personal"` is the usual
+choice for a home-manager activation.
+
 ## Stability
 
 The public surface is `lib.mkSkillFlake` and `lib.mkAllSkillsFlake`.
-Consumers should pin via `flake.lock`. If a breaking change is ever needed,
-a new entry point will be added (e.g. `lib.v2.mkSkillFlake`) rather than
-mutating an existing function in place.
+Consumers should pin via `flake.lock`. The pre-`--scope` API
+(`installRoot` / `envVarOverride` / `CLAUDE_SKILLS_DIR`) is gone in
+this release — see [Migration from pre-scope versions](#migration-from-pre-scope-versions)
+for the swap.
 
 ## Canonical consumer
 

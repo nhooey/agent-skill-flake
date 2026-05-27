@@ -6,6 +6,7 @@
   system,
   fixture,
   fixtureAll,
+  fixtureCodex,
   fixtureRename,
   fixtureAllRenamed,
   fixtureExtraFiles,
@@ -48,6 +49,11 @@ let
   previewAllApp = fixtureAll.apps.${system}.preview.program;
   reapAllApp = fixtureAll.apps.${system}.reap.program;
   reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
+
+  # Codex-profile fixture: single-skill flake built with
+  # `agent = "codex"`. Used by `install-codex-profile.bats` to assert
+  # that the codex profile's `.codex/skills/` suffix is used.
+  installCodexApp = fixtureCodex.apps.${system}.install.program;
 
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
@@ -281,6 +287,27 @@ in
     env.INSTALL_ALL_APP = installAllApp;
   };
 
+  # ──────────────────────────────────────────────────────────────
+  # Install-scope flag coverage (the 9 cases from the
+  # install-scope-required plan §1.4).
+  # ──────────────────────────────────────────────────────────────
+
+  # Covers: missing --scope, personal, project (git root, git subdir,
+  # no-marker fail), custom (with/without --root), subset install
+  # (positive + typo).
+  install-scope = mkBatsCheck {
+    name = "install-scope";
+    extraInputs = [ pkgs.git ];
+    env.INSTALL_ALL_APP = installAllApp;
+  };
+
+  # Codex profile selection: building with `agent = "codex"` puts the
+  # install under `.codex/skills/` rather than `.claude/skills/`.
+  install-codex-profile = mkBatsCheck {
+    name = "install-codex-profile";
+    env.INSTALL_CODEX_APP = installCodexApp;
+  };
+
   # Aggregate preview is read-only.
   example-skills-dir-preview-readonly = mkBatsCheck {
     name = "example-skills-dir-preview-readonly";
@@ -371,6 +398,7 @@ in
           {
             _module.args.pkgs = pkgs;
             programs.flake-skills.enable = true;
+            programs.flake-skills.scope = "personal";
             programs.flake-skills.skills = [
               alphaPkg
               betaPkg
@@ -385,9 +413,10 @@ in
       cond =
         data != ""
         && lib.hasInfix "/bin/reconcile-home-manager" data
-        && lib.hasInfix "/bin/reap-home-manager" data;
+        && lib.hasInfix "/bin/reap-home-manager" data
+        && lib.hasInfix "--scope=personal" data;
       msg = "home-manager-module-evaluates: activation data must invoke "
-        + "reconcile + reap; got:\n${data}";
+        + "reconcile + reap with --scope=personal; got:\n${data}";
     };
 
   # autoDiscover flag: when `true`, packages in `home.packages` that
@@ -411,6 +440,7 @@ in
             {
               _module.args.pkgs = pkgs;
               programs.flake-skills.enable = true;
+              programs.flake-skills.scope = "personal";
               programs.flake-skills.skills = skills;
               programs.flake-skills.autoDiscover = autoDiscover;
               home.packages = homePackages;
@@ -418,16 +448,19 @@ in
           ];
         };
 
-      # The activation data is `<reconcile>/bin/...\n<reap>/bin/...\n`;
-      # the first line is the reconcile binary. Read its script content
-      # back to see which skills were baked in.
+      # The activation data is now
+      # `<reconcile>/bin/... --scope=...\n<reap>/bin/... --scope=...\n`;
+      # the first line is the reconcile invocation. Read just the binary
+      # path (chopping off the args after the first space) to see which
+      # skills were baked in.
       reconcileScript =
         ev:
         let
           data = ev.config.home.activation.flakeSkillsReconcile.data;
           firstLine = builtins.head (lib.splitString "\n" data);
+          reconcileBin = builtins.head (lib.splitString " " firstLine);
         in
-        builtins.readFile firstLine;
+        builtins.readFile reconcileBin;
 
       onScript = reconcileScript (evalWith {
         autoDiscover = true;
@@ -515,12 +548,13 @@ in
           {
             _module.args.pkgs = pkgs;
             programs.flake-skills.enable = true;
+            programs.flake-skills.scope = "personal";
             programs.flake-skills.skills = [ env ];
           }
         ];
       };
       data = eval.config.home.activation.flakeSkillsReconcile.data;
-      reconcileBin = builtins.head (lib.splitString "\n" data);
+      reconcileBin = builtins.head (lib.splitString " " (builtins.head (lib.splitString "\n" data)));
       script = builtins.readFile reconcileBin;
     in
     mkEvalCheck {
@@ -557,8 +591,9 @@ in
                 betaPkg
               ];
               autoDiscover = true;
-              installRoot = "/custom/skills";
-              envVarOverride = "CUSTOM_SKILLS_DIR";
+              agent = "codex";
+              scope = "custom";
+              root = "/custom/skills";
             };
           }
         ];
@@ -573,13 +608,14 @@ in
         builtins.length importsList == 1
         && forwarded.enable == true
         && forwarded.autoDiscover == true
-        && forwarded.installRoot == "/custom/skills"
-        && forwarded.envVarOverride == "CUSTOM_SKILLS_DIR"
+        && forwarded.agent == "codex"
+        && forwarded.scope == "custom"
+        && forwarded.root == "/custom/skills"
         && builtins.length forwarded.skills == 2;
       msg = "darwin-shim-forwards: forwarded values mismatch: "
         + builtins.toJSON {
             imports = builtins.length importsList;
-            inherit (forwarded) enable autoDiscover installRoot envVarOverride;
+            inherit (forwarded) enable autoDiscover agent scope root;
             skills = builtins.length forwarded.skills;
           };
     };
@@ -599,6 +635,7 @@ in
             # No explicit `services.flake-skills.user` — it must pick up
             # "bob" from system.primaryUser below.
             services.flake-skills.enable = true;
+            services.flake-skills.scope = "personal";
             services.flake-skills.skills = [ alphaPkg ];
             system.primaryUser = "bob";
           }

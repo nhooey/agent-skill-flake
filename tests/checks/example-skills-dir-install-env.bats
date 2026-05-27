@@ -6,17 +6,17 @@ setup() {
 }
 
 @test "aggregate install: one symlink + GC root per skill, \$HOME alone" {
-  run "$INSTALL_ALL_APP"
+  run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  assert [ -f "$CLAUDE_SKILLS_DIR/alpha/SKILL.md" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/beta/SKILL.md" ]
-  assert [ -f "$CLAUDE_SKILLS_DIR/beta/references/notes.md" ]
+  assert [ -f "$CUSTOM_TARGET/alpha/SKILL.md" ]
+  assert [ -f "$CUSTOM_TARGET/beta/SKILL.md" ]
+  assert [ -f "$CUSTOM_TARGET/beta/references/notes.md" ]
 
   local s
   for s in alpha beta; do
-    assert_store_symlink "$CLAUDE_SKILLS_DIR/$s"
-    assert_store_symlink "$NIX_GCROOTS_DIR/claude-skill-$s" "GC root for $s"
+    assert_store_symlink "$CUSTOM_TARGET/$s"
+    assert_store_symlink "$GCROOTS_DIR/claude-skill-$s" "GC root for $s"
   done
 
   refute [ -e "$HOME/.claude/skills/alpha" ]

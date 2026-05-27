@@ -8,8 +8,13 @@
     "aarch64-darwin"
   ],
   name ? "agent-skills-all",
-  installRoot ? "$HOME/.claude/skills",
-  envVarOverride ? "CLAUDE_SKILLS_DIR",
+  # Which agent's filesystem layout to target. Each profile in
+  # lib/agent-profiles.nix names a per-scope install suffix
+  # (`$HOME/<personalSuffix>` for personal scope,
+  # `<project-root>/<projectSuffix>` for project scope). Currently
+  # supports `claude-code`, `codex`, `cursor`. Throws at eval if the
+  # name isn't a known profile.
+  agent ? "claude-code",
   # Prefix applied to each per-skill package attribute key, i.e.
   # `packages.<system>."${packagePrefix}${effectiveName}"`. Lets
   # multi-repo consumers brand their package keys (e.g. `"agent-skill-"`
@@ -76,6 +81,8 @@ let
   internal = import ./internal.nix { inherit nixpkgs; };
   inherit (nixpkgs) lib;
 
+  profile = internal.resolveAgentProfile agent;
+
   forAllSystems = f: lib.genAttrs systems (system: f system);
 
   discovered = internal.discoverSkills skillsDir;
@@ -128,7 +135,7 @@ let
     internal.mkInstaller system {
       appName = name;
       skills = skillSetFor system;
-      inherit installRoot envVarOverride;
+      inherit profile;
     };
 
   previewFor =
@@ -137,21 +144,21 @@ let
       appName = name;
       displayName = name;
       skills = skillSetFor system;
-      inherit installRoot envVarOverride;
+      inherit profile;
     };
 
   reapFor =
     system:
     internal.mkReap system {
       appName = name;
-      inherit provenance installRoot envVarOverride;
+      inherit provenance profile;
     };
 
   uninstallFor =
     system:
     internal.mkUninstall system {
       appName = name;
-      inherit provenance installRoot envVarOverride;
+      inherit provenance profile;
     };
 
   reconcileFor =
@@ -159,7 +166,7 @@ let
     internal.mkReconcile system {
       appName = name;
       skills = skillSetFor system;
-      inherit provenance installRoot envVarOverride;
+      inherit provenance profile;
     };
 in
 {

@@ -2,6 +2,21 @@
 let
   inherit (nixpkgs) lib;
 
+  agentProfiles = import ./agent-profiles.nix;
+
+  # Look up an agent profile by name; fail eval with the list of known
+  # agents if the name isn't a known profile.
+  resolveAgentProfile = agent:
+    if agentProfiles ? ${agent} then
+      agentProfiles.${agent}
+    else
+      throw (
+        "flake-skills: unknown agent profile ${builtins.toJSON agent}. "
+        + "Known agents: "
+        + lib.concatStringsSep ", " (builtins.attrNames agentProfiles)
+        + ". Add a new profile to lib/agent-profiles.nix to extend this set."
+      );
+
   # ── Rename-context plumbing ──────────────────────────────────────────
   # The rename formula (`renameFn`) is handed a context attrset, not a
   # bare string, so a derived name can encode where the skill came from
@@ -335,12 +350,23 @@ let
     else
       lib.concatMapStringsSep "\n" (s: ''  "${s.name}:${s.drv}"'') skills;
 
+  # Shared Nix-side prelude. Sets `app_name`, `personal_suffix`,
+  # `project_suffix` and sources scope.bash so `parse_scope_args` is
+  # available to the per-app bash that follows.
+  scopePrelude =
+    { appName, profile }: ''
+      app_name="${appName}"
+      personal_suffix='${profile.personalSuffix}'
+      project_suffix='${profile.projectSuffix}'
+
+      source ${./bash/scope.bash}
+    '';
+
   mkInstaller =
     system:
     { appName
     , skills
-    , installRoot
-    , envVarOverride
+    , profile
     ,
     }:
     let
@@ -350,18 +376,22 @@ let
       name = "install-${appName}";
       runtimeInputs = with pkgs; [
         coreutils
+        git
         jq
         nix
       ];
       # shellcheck can't follow `source <store-path>` because the helper
       # libraries aren't declared as inputs in the bash sense.
-      excludeShellChecks = [ "SC1091" ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
+                 # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016" # `nn` inside single-quoted printf strings is literal
+                 # backtick markup, not an attempt to expand a subshell
+      ];
       text =
-        ''
-          app_name="install-${appName}"
-          env_var_name="${envVarOverride}"
-          install_root_default="${installRoot}"
-          target_root=''${${envVarOverride}:-${installRoot}}
+        scopePrelude { appName = "install-${appName}"; inherit profile; }
+        + ''
 
           source ${./bash/lock.bash}
 
@@ -376,8 +406,7 @@ let
     system:
     { appName
     , provenance
-    , installRoot
-    , envVarOverride
+    , profile
     ,
     }:
     let
@@ -387,15 +416,19 @@ let
       name = "reap-${appName}";
       runtimeInputs = with pkgs; [
         coreutils
+        git
         jq
       ];
-      # shellcheck can't follow `source <store-path>` because the helper
-      # libraries aren't declared as inputs in the bash sense.
-      excludeShellChecks = [ "SC1091" ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
+                 # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016" # `nn` inside single-quoted printf strings is literal
+                 # backtick markup, not an attempt to expand a subshell
+      ];
       text =
-        ''
-          target_root=''${${envVarOverride}:-${installRoot}}
-          gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        scopePrelude { appName = "reap-${appName}"; inherit profile; }
+        + ''
           upstream_url='${provenance.upstreamUrl}'
 
           source ${./bash/ownership.bash}
@@ -409,8 +442,7 @@ let
     { appName
     , skills
     , provenance
-    , installRoot
-    , envVarOverride
+    , profile
     ,
     }:
     let
@@ -420,15 +452,19 @@ let
       name = "reconcile-${appName}";
       runtimeInputs = with pkgs; [
         coreutils
+        git
         jq
       ];
-      # shellcheck can't follow `source <store-path>` because the helper
-      # libraries aren't declared as inputs in the bash sense.
-      excludeShellChecks = [ "SC1091" ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
+                 # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016" # `nn` inside single-quoted printf strings is literal
+                 # backtick markup, not an attempt to expand a subshell
+      ];
       text =
-        ''
-          target_root=''${${envVarOverride}:-${installRoot}}
-          gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        scopePrelude { appName = "reconcile-${appName}"; inherit profile; }
+        + ''
           upstream_url='${provenance.upstreamUrl}'
 
           source ${./bash/ownership.bash}
@@ -456,8 +492,7 @@ let
     system:
     { appName
     , provenance
-    , installRoot
-    , envVarOverride
+    , profile
     , defaultSkillName ? ""
     ,
     }:
@@ -468,18 +503,19 @@ let
       name = "uninstall-${appName}";
       runtimeInputs = with pkgs; [
         coreutils
+        git
         jq
       ];
-      # shellcheck can't follow `source <store-path>` because the helper
-      # libraries aren't declared as inputs in the bash sense.
-      excludeShellChecks = [ "SC1091" ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
+                 # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016" # `nn` inside single-quoted printf strings is literal
+                 # backtick markup, not an attempt to expand a subshell
+      ];
       text =
-        ''
-          app_name="uninstall-${appName}"
-          env_var_name="${envVarOverride}"
-          install_root_default="${installRoot}"
-          target_root=''${${envVarOverride}:-${installRoot}}
-          gcroots_dir=''${NIX_GCROOTS_DIR:-/nix/var/nix/gcroots/per-user/$USER}
+        scopePrelude { appName = "uninstall-${appName}"; inherit profile; }
+        + ''
           upstream_url='${provenance.upstreamUrl}'
           default_skill='${defaultSkillName}'
 
@@ -494,8 +530,7 @@ let
     { appName
     , displayName
     , skills
-    , installRoot
-    , envVarOverride
+    , profile
     ,
     }:
     let
@@ -506,12 +541,19 @@ let
       runtimeInputs = with pkgs; [
         coreutils
         findutils
+        git
+      ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
+                 # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016" # `nn` inside single-quoted printf strings is literal
+                 # backtick markup, not an attempt to expand a subshell
       ];
       text =
-        ''
+        scopePrelude { appName = "preview-${appName}"; inherit profile; }
+        + ''
           display_name='${displayName}'
-          env_var_name="${envVarOverride}"
-          target_root=''${${envVarOverride}:-${installRoot}}
 
           declare -a skills_list=(
           ${skillsArrayBody skills}
@@ -530,5 +572,7 @@ in
     mkPreview
     mkReap
     mkReconcile
+    resolveAgentProfile
+    agentProfiles
     ;
 }

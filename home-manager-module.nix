@@ -1,18 +1,17 @@
 # home-manager module: reconcile + reap on home-manager activation.
 #
-# The activation is inherently per-user ($HOME/.claude/skills,
-# /nix/var/nix/gcroots/per-user/$USER), so home-manager's `home.activation`
-# is the natural execution context — it works in standalone home-manager,
-# under nix-darwin (via home-manager.users.<user>), and under NixOS the
-# same way. The previous `darwin-module.nix` wrote into
-# `system.userActivationScripts`, which was removed in nix-darwin 25.05
-# and only ever ran in the user's session anyway.
+# The activation is inherently per-user
+# ($HOME/<profile.personalSuffix>, /nix/var/nix/gcroots/per-user/$USER),
+# so home-manager's `home.activation` is the natural execution context —
+# it works in standalone home-manager, under nix-darwin (via
+# home-manager.users.<user>), and under NixOS the same way.
 #
 # Usage in standalone home-manager:
 #
 #     imports = [ inputs.flake-skills.homeManagerModules.default ];
 #     programs.flake-skills = {
 #       enable = true;
+#       scope  = "personal";
 #       skills = [ inputs.my-skills.packages.${pkgs.system}.skill-foo ];
 #     };
 #
@@ -36,6 +35,8 @@ let
   cfg = config.programs.flake-skills;
   system = pkgs.stdenv.hostPlatform.system;
 
+  profile = internal.resolveAgentProfile cfg.agent;
+
   # Accept both single skills (mkSkillFlake — `passthru.isFlakeSkill`)
   # and multi-skill envs (mkSkillsEnv — `passthru.isFlakeSkillsEnv`).
   isFlakeSkillEntry =
@@ -53,7 +54,7 @@ let
   # Expand each entry into one-or-more `{name; drv}` records. A single
   # skill becomes a 1-element list; a `mkSkillsEnv` becomes its member
   # list as-is (so each member installs to its own
-  # `~/.claude/skills/<flakeSkillName>/` directory, not to a nested
+  # `<install-root>/<flakeSkillName>/` directory, not to a nested
   # subtree under the env's name).
   expandSkill =
     drv:
@@ -68,14 +69,36 @@ let
     appName = "home-manager";
     skills = skillRecords;
     inherit (flakeLib) provenance;
-    inherit (cfg) installRoot envVarOverride;
+    inherit profile;
   };
 
   reap = internal.mkReap system {
     appName = "home-manager";
     inherit (flakeLib) provenance;
-    inherit (cfg) installRoot envVarOverride;
+    inherit profile;
   };
+
+  # The activation forwards the user's scope choice through to the
+  # generated bash apps as explicit flags — no env vars, no implicit
+  # defaults. Scope=custom requires `root`; the `throwIf` guards below
+  # catch the mis-pairing at eval time. Using throwIf rather than the
+  # NixOS-style `assertions` list keeps the module portable to evalModules
+  # contexts that don't load the assertion-handling module.
+  scopeArgs =
+    if cfg.scope == "custom" then
+      (
+        lib.throwIf (cfg.root == null || cfg.root == "") ''
+          programs.flake-skills.scope = "custom" requires
+          programs.flake-skills.root = "<path>".
+        '' "--scope=custom --root=${lib.escapeShellArg (cfg.root or "")}"
+      )
+    else
+      (
+        lib.throwIf (cfg.root != null) ''
+          programs.flake-skills.root is only valid when scope = "custom"
+          (got scope = ${builtins.toJSON cfg.scope}).
+        '' "--scope=${cfg.scope}"
+      );
 in
 {
   options.programs.flake-skills = {
@@ -116,33 +139,57 @@ in
       '';
     };
 
-    installRoot = lib.mkOption {
+    agent = lib.mkOption {
       type = lib.types.str;
-      default = "${config.home.homeDirectory}/.claude/skills";
-      defaultText = lib.literalExpression ''"''${config.home.homeDirectory}/.claude/skills"'';
+      default = "claude-code";
+      example = "codex";
       description = ''
-        Directory to reconcile skills into. Defaults to
-        `~/.claude/skills` resolved at evaluation time via
-        `config.home.homeDirectory`.
+        Which agent's filesystem layout to target. Each profile in
+        `lib/agent-profiles.nix` names per-scope install suffixes
+        (`$HOME/<personalSuffix>` and
+        `<project-root>/<projectSuffix>`). Currently supports
+        `claude-code`, `codex`, `cursor`. Throws at eval if the name
+        isn't a known profile.
       '';
     };
 
-    envVarOverride = lib.mkOption {
-      type = lib.types.str;
-      default = "CLAUDE_SKILLS_DIR";
+    scope = lib.mkOption {
+      type = lib.types.enum [
+        "personal"
+        "project"
+        "custom"
+      ];
+      example = "personal";
       description = ''
-        Env var that overrides `installRoot` at run time. Must match the
-        var the rest of flake-skills' apps look at, otherwise reconcile
-        and ad-hoc `nix run #install` will disagree on the install
-        location.
+        Install scope — **required**, no default.
+
+          • `personal` → `$HOME/<agent.personalSuffix>`
+          • `project`  → `<project-root>/<agent.projectSuffix>`,
+            walking up from `$PWD` at activation time for the nearest
+            `.git/` (preferred) or `flake.nix` (fallback). Hard error
+            if no project root is found.
+          • `custom`   → the literal `root` option (must be set).
+
+        Home-manager activations almost always want `personal`.
+      '';
+    };
+
+    root = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/etc/agent-skills";
+      description = ''
+        Required when `scope = "custom"`. The literal install
+        directory; passed verbatim to the reconcile/reap apps as
+        `--root=<path>`. Ignored for other scopes.
       '';
     };
   };
 
   config = lib.mkIf cfg.enable {
     home.activation.flakeSkillsReconcile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      ${reconcile}/bin/reconcile-home-manager
-      ${reap}/bin/reap-home-manager
+      ${reconcile}/bin/reconcile-home-manager ${scopeArgs}
+      ${reap}/bin/reap-home-manager ${scopeArgs}
     '';
   };
 }

@@ -6,15 +6,15 @@ setup() {
 }
 
 @test "no-arg uninstall removes the flake's default skill" {
-  run "$INSTALL_APP"
+  run "$INSTALL_APP" "${scope_args[@]}"
   assert_success
-  assert [ -L "$CLAUDE_SKILLS_DIR/example-skill" ]
+  assert [ -L "$CUSTOM_TARGET/example-skill" ]
 
-  run "$UNINSTALL_SKILL_APP"
+  run "$UNINSTALL_SKILL_APP" "${scope_args[@]}"
   assert_success
 
-  refute [ -L "$CLAUDE_SKILLS_DIR/example-skill" ]
-  refute [ -e "$NIX_GCROOTS_DIR/claude-skill-example-skill" ]
+  refute [ -L "$CUSTOM_TARGET/example-skill" ]
+  refute [ -e "$GCROOTS_DIR/claude-skill-example-skill" ]
   assert_equal \
-    "$(jq '.skills | length' "$CLAUDE_SKILLS_DIR/.flake-skills-lock.json")" "0"
+    "$(jq '.skills | length' "$CUSTOM_TARGET/.flake-skills-lock.json")" "0"
 }
