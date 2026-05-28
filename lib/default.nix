@@ -45,4 +45,11 @@ in
   # already-built skill drvs — no provenance threading needed because
   # each member carries its own.
   mkSkillsEnv = import ./mk-skills-env.nix { };
+
+  # Consumer-side prefix wrapper. Takes a pre-built skill or skills env
+  # and emits a renamed copy under `<namePrefix>-<oldName>/`, refreshing
+  # frontmatter, sentinel, and passthru. No provenance threading — the
+  # input already carries its lineage in the sentinel, and the wrapper
+  # leaves those fields alone.
+  withNamePrefix = import ./with-name-prefix.nix { };
 }
