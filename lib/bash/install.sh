@@ -109,16 +109,27 @@ case "$mode" in
       store_path=${entry#*:}
       skill_subpath="$store_path/share/claude-skills/$skill_name"
       target="$target_root/$skill_name"
-      rm -rf "$target"
-      ln -sfn "$skill_subpath" "$target"
-      printf 'installed (symlink): %s -> %s\n' "$target" "$skill_subpath"
-      if [ "$gcroots_ok" = "1" ]; then
-        if ln -sfn "$store_path" "$gcroots_dir/claude-skill-$skill_name" 2>/dev/null; then
-          printf 'GC root: %s -> %s\n' "$gcroots_dir/claude-skill-$skill_name" "$store_path"
+      gcroot_target="$gcroots_dir/claude-skill-$skill_name"
+
+      # Direct `readlink` (no `-f`): we want the symlink's literal
+      # target, not the fully-resolved path. Equal → state already
+      # matches → skip the rm/ln/printf and stay silent. Missing,
+      # non-symlink, or wrong-target → fall through to rewrite.
+      if [ "$(readlink "$target" 2>/dev/null)" != "$skill_subpath" ]; then
+        rm -rf "$target"
+        ln -sfn "$skill_subpath" "$target"
+        printf 'installed (symlink): %s -> %s\n' "$target" "$skill_subpath"
+      fi
+
+      if [ "$gcroots_ok" = "1" ] && \
+         [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
+        if ln -sfn "$store_path" "$gcroot_target" 2>/dev/null; then
+          printf 'GC root: %s -> %s\n' "$gcroot_target" "$store_path"
         else
           printf 'WARNING: could not write GC root for %s; store path may be GC-eligible\n' "$skill_name" >&2
         fi
       fi
+
       lock_upsert "$skill_name" "$store_path"
     done
     ;;
