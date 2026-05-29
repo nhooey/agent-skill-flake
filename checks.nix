@@ -386,6 +386,15 @@ in
     env.INSTALL_ALL_APP = installAllApp;
   };
 
+  # Idempotency: re-running install when on-disk state already matches
+  # the declared set should be a silent no-op. Partial breakage (one
+  # symlink or one GC root removed) re-announces only what it had to
+  # rewrite.
+  example-skills-dir-install-noop = mkBatsCheck {
+    name = "example-skills-dir-install-noop";
+    env.INSTALL_ALL_APP = installAllApp;
+  };
+
   # ──────────────────────────────────────────────────────────────
   # Install-scope flag coverage (the 9 cases from the
   # install-scope-required plan §1.4).
@@ -431,6 +440,14 @@ in
       ALPHA_PKG = alphaPkg;
       RECONCILE_ALL_APP = reconcileAllApp;
     };
+  };
+
+  # Idempotency mirror of install-noop: a second reconcile with state
+  # already in sync skips the per-skill `reconciled (install): …`
+  # output; partial breakage re-announces only the broken entries.
+  example-skills-dir-reconcile-noop = mkBatsCheck {
+    name = "example-skills-dir-reconcile-noop";
+    env.RECONCILE_ALL_APP = reconcileAllApp;
   };
 
   # ──────────────────────────────────────────────────────────────
