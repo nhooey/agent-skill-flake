@@ -383,6 +383,141 @@ What the wrapper preserves from the upstream sentinel:
 rewritten. Traceability back to the upstream lineage survives
 re-prefixing.
 
+## Marketplace / aggregation
+
+A "marketplace" flake pulls several upstream skill flakes, optionally
+cherry-picks and namespace-prefixes them, and exposes a merged package
+set + install apps + a devshell that installs everything. The five
+helpers below promote that logic out of the consumer (which used to
+hand-roll it against the private `lib/internal.nix` module).
+
+If you only need the top-level result, reach for
+[`mkAggregateSkillsFlake`](#mkaggregateskillsflake) — it composes the
+other four. They are also exposed individually for finer control.
+
+> Every helper here takes `{ nixpkgs, system, … }` (single-system) or
+> `{ nixpkgs, systems, … }` (whole-flake) and derives
+> `pkgs = nixpkgs.legacyPackages.${system}` internally — matching every
+> builder in this library. The older `withNamePrefix` stays `pkgs`-based.
+
+### `mkInstaller` — installer over an arbitrary skill set
+
+The single primitive that used to force consumers to import
+`lib/internal.nix`. Builds a `bin/install-<appName>` over an
+already-built `[ { name; drv; } ]` list, resolving the agent profile for
+you.
+
+```nix
+flake-skills.lib.mkInstaller {
+  inherit nixpkgs system;
+  appName = "my-pack";                 # → bin/install-my-pack
+  skills  = [ { name = "foo"; drv = fooDrv; }
+              { name = "bar"; drv = barDrv; } ];
+  agent   = "claude-code";             # optional; resolved to a profile
+}
+# → installer derivation
+```
+
+`lib.resolveAgentProfile { nixpkgs; agent; }` and the pure-data
+`lib.agentProfiles` are exposed too, for callers that need the profile
+directly.
+
+### `withNamePrefixSource` — prefix-wrap every skill in a source flake
+
+The plural of [`withNamePrefix`](#consumer-side-prefixing-withnameprefix).
+Prefix-wraps every skill package a source exposes, returning
+`[ { name; drv; } ]` records keyed by the prefixed name.
+
+```nix
+flake-skills.lib.withNamePrefixSource {
+  inherit nixpkgs system;
+  namePrefix    = "superpowers";
+  source        = inputs.superpowers;  # has .packages.<system>
+  packagePrefix = "skill-";            # which keys count as skills
+}
+# → [ { name = "superpowers-<old>"; drv = wrappedDrv; } … ]
+```
+
+Filtering by `packagePrefix` also drops the source's `default` /
+`<name>-all` aggregate keys, so only real skills are wrapped.
+
+### `mkPrefixedInstaller` — wrap a source, then build its installer
+
+`withNamePrefixSource` + `mkInstaller`. The source's own installer was
+sealed against un-prefixed names at build time, so a fresh one is built
+over the wrapped set.
+
+```nix
+flake-skills.lib.mkPrefixedInstaller {
+  inherit nixpkgs system;
+  source     = inputs.superpowers;
+  namePrefix = "superpowers";
+  # packagePrefix ? "skill-", agent ? "claude-code",
+  # appName ? "agent-skills-${namePrefix}-all"
+}
+# → installer derivation over the prefix-wrapped source
+```
+
+### `installCommandFor` — the `"<bin> <args>"` install string
+
+Independent of any devshell, so a consumer can assemble its own startup
+script / Makefile / app. Covers prefix-or-not and all-or-subset.
+
+```nix
+flake-skills.lib.installCommandFor {
+  inherit nixpkgs system;
+  source = inputs.skills-nix;
+  prefix ? null;        # null → the source's own install app
+  skills ? null;        # null → install all
+  scope  ? "project";   # personal | project | custom
+}
+# → "<installer-bin> --scope=project [name …]"
+```
+
+### `mkAggregateSkillsFlake`
+
+The whole marketplace in one call. `mkAllSkillsFlake` handles one local
+`skillsDir`; this folds that optional base together with a list of
+upstream source flakes (each optionally prefixed) into one package set,
+the base apps, and a devshell-ready install script.
+
+```nix
+let
+  agg = flake-skills.lib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    skillsDir     = ./skills;            # optional local skills (base)
+    packagePrefix = "agent-skill-";
+    sources = [
+      { source = skills-git; }                              # all skills
+      { source = skills-nix; skills = [ "nix-flakes" ]; }   # subset
+      { source = skill-creator; prefix = "anthropic"; }     # namespaced
+      { source = superpowers;   prefix = "superpowers"; }
+    ];
+  };
+in {
+  packages.${system} = agg.packages.${system};
+  apps.${system}     = agg.apps.${system};
+  devShells.${system}.default = pkgs.mkShell {
+    shellHook = agg.installScript system;  # installs base + every source
+  };
+}
+```
+
+It returns:
+
+| Field           | Shape                  | Meaning |
+|-----------------|------------------------|---------|
+| `packages`      | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>-all` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. |
+| `apps`          | `forAllSystems` attrset | the base apps (install/uninstall/preview/reap/reconcile); empty when there is no `skillsDir`. |
+| `installScript` | `system → string`       | newline-joined install commands: the local base first (if any), then one per source. Drop into a devshell startup hook. |
+
+`sources` entries are `{ source; skills ? null; prefix ? null; }`:
+`skills = null` installs everything (a list cherry-picks);
+`prefix = null` merges the source's packages verbatim, otherwise every
+skill is re-prefixed via `withNamePrefixSource`. `packagePrefix` is
+flake-wide (one value for filtering every source's keys and for re-keying
+the merged output).
+
 ## Install scope
 
 Every install/uninstall/reap/reconcile/preview invocation **must** declare

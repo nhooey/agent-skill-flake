@@ -85,6 +85,75 @@ let
     skill = unwrappedAlphaBetaEnv;
   };
 
+  # ── Marketplace / aggregation artifacts ──────────────────────────────
+  # Built here (not in flake.nix) for the same reason as the withNamePrefix
+  # fixtures: the single-system helpers take per-system `nixpkgs`/`pkgs`,
+  # and checks.nix already iterates per system with `nixpkgs` in scope.
+
+  # `lib.mkInstaller` over an arbitrary [{name;drv;}] set (alpha + beta
+  # lifted straight off fixtureAll). The primitive that used to force the
+  # internal.nix import.
+  arbitraryInstaller = self.lib.mkInstaller {
+    inherit nixpkgs system;
+    appName = "arbitrary";
+    skills = [
+      {
+        name = "alpha";
+        drv = alphaPkg;
+      }
+      {
+        name = "beta";
+        drv = betaPkg;
+      }
+    ];
+  };
+  arbitraryInstallApp = "${arbitraryInstaller}/bin/install-arbitrary";
+
+  # `lib.withNamePrefixSource` over fixtureAll → src-alpha / src-beta.
+  prefixedSourceSet = self.lib.withNamePrefixSource {
+    inherit nixpkgs system;
+    namePrefix = "src";
+    source = fixtureAll;
+  };
+
+  # `lib.mkPrefixedInstaller` over fixtureAll (default appName
+  # `agent-skills-src-all`).
+  prefixedInstaller = self.lib.mkPrefixedInstaller {
+    inherit nixpkgs system;
+    source = fixtureAll;
+    namePrefix = "src";
+  };
+  prefixedInstallApp = "${prefixedInstaller}/bin/install-agent-skills-src-all";
+
+  # `lib.installCommandFor` partial application — fixes nixpkgs/system.
+  installCmd = args: self.lib.installCommandFor ({ inherit nixpkgs system; } // args);
+  baseInstallProgram = fixtureAll.apps.${system}.install.program;
+
+  # A second upstream "source" flake with a distinct skill name (gamma) so
+  # the aggregate merge can show a verbatim non-prefixed source contributes
+  # its skill while its `default` / aggregate keys are filtered out.
+  sourceGamma = self.lib.mkAllSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./tests/example-source-dir;
+    name = "source-gamma";
+  };
+
+  # The whole marketplace in one call: local base (example-skills-dir) + one
+  # verbatim source (gamma) + one prefixed source (fixtureAll → src-*).
+  agg = self.lib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./tests/example-skills-dir;
+    name = "aggregate-base";
+    sources = [
+      { source = sourceGamma; }
+      {
+        source = fixtureAll;
+        prefix = "src";
+      }
+    ];
+  };
+  aggPkgs = agg.packages.${system};
+
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
     lib = nixpkgs.lib;
@@ -703,6 +772,129 @@ in
       msg =
         "with-name-prefix-rejects-invalid: a namePrefix violating "
         + "^[a-z0-9][a-z0-9-]*$ must fail eval, but evaluation succeeded.";
+    };
+
+  # ──────────────────────────────────────────────────────────────
+  # Marketplace / aggregation helpers.
+  # ──────────────────────────────────────────────────────────────
+
+  # `lib.mkInstaller` builds a working installer over an arbitrary
+  # [{name;drv;}] set and produces `bin/install-<appName>` — no internal.nix
+  # import. Running it with a scope writes the expected symlinks + GC roots.
+  mk-installer-arbitrary = mkBatsCheck {
+    name = "mk-installer-arbitrary";
+    env.ARBITRARY_INSTALL_APP = arbitraryInstallApp;
+  };
+
+  # `lib.mkPrefixedInstaller` installs the prefixed names end-to-end.
+  mk-prefixed-installer = mkBatsCheck {
+    name = "mk-prefixed-installer";
+    extraInputs = [ pkgs.git ];
+    env.PREFIXED_INSTALL_APP = prefixedInstallApp;
+  };
+
+  # `lib.withNamePrefixSource` returns one {name;drv;} per source skill,
+  # names are `<prefix>-<old>`, each drv is a real flake-skill, and the
+  # source's default/aggregate keys are excluded (filtered by packagePrefix).
+  with-name-prefix-source = mkEvalCheck {
+    name = "with-name-prefix-source";
+    cond =
+      (builtins.length prefixedSourceSet == 2)
+      && (lib.elem "src-alpha" (map (s: s.name) prefixedSourceSet))
+      && (lib.elem "src-beta" (map (s: s.name) prefixedSourceSet))
+      && (lib.all (s: s.drv.passthru.isFlakeSkill or false) prefixedSourceSet)
+      && (lib.all (s: s.drv.passthru.flakeSkillName == s.name) prefixedSourceSet);
+    msg =
+      "with-name-prefix-source: expected exactly [{name=src-alpha;...} "
+      + "{name=src-beta;...}] with each drv carrying isFlakeSkill=true and a "
+      + "matching flakeSkillName; the source's default/aggregate keys must be "
+      + "filtered out.";
+  };
+
+  # `lib.installCommandFor` returns the right string for all four arms of the
+  # prefix × subset cross-product.
+  install-command-for =
+    let
+      arm1 = installCmd { source = fixtureAll; };
+      arm2 = installCmd {
+        source = fixtureAll;
+        skills = [ "alpha" ];
+      };
+      arm3 = installCmd {
+        source = fixtureAll;
+        prefix = "src";
+      };
+      arm4 = installCmd {
+        source = fixtureAll;
+        prefix = "src";
+        skills = [ "src-alpha" ];
+      };
+    in
+    mkEvalCheck {
+      name = "install-command-for";
+      cond =
+        arm1 == "${baseInstallProgram} --scope=project"
+        && arm2 == "${baseInstallProgram} --scope=project alpha"
+        && lib.hasInfix "/bin/install-agent-skills-src-all --scope=project" arm3
+        && !(lib.hasInfix "alpha" arm3)
+        && lib.hasInfix "/bin/install-agent-skills-src-all --scope=project src-alpha" arm4;
+      msg =
+        "install-command-for: one of the four arms (prefix × subset) produced "
+        + "the wrong install string. Got:\n"
+        + "  arm1=${arm1}\n  arm2=${arm2}\n  arm3=${arm3}\n  arm4=${arm4}";
+    };
+
+  # `lib.mkAggregateSkillsFlake` merges base + every source's keys, and the
+  # latent verbatim-merge bug stays fixed: a source's `default` / aggregate
+  # keys never leak into the merge, so the base aggregates survive.
+  aggregate-skills-flake-merge = mkEvalCheck {
+    name = "aggregate-skills-flake-merge";
+    cond =
+      # base skills.
+      (aggPkgs ? "skill-alpha")
+      && (aggPkgs ? "skill-beta")
+      # verbatim (non-prefixed) source.
+      && (aggPkgs ? "skill-gamma")
+      # prefixed source.
+      && (aggPkgs ? "skill-src-alpha")
+      && (aggPkgs ? "skill-src-beta")
+      # base aggregate keys present...
+      && (aggPkgs ? "default")
+      && (aggPkgs ? "agent-skills-all")
+      # ...and they are *base's* (name "aggregate-base"), proving no source
+      # default/aggregate overwrote them.
+      && lib.hasInfix "aggregate-base" aggPkgs.default.name
+      && lib.hasInfix "aggregate-base" aggPkgs."agent-skills-all".name
+      # The sources' aggregate names must not have leaked in as keys.
+      && !(aggPkgs ? "source-gamma")
+      && !(aggPkgs ? "example-skills-dir");
+    msg =
+      "aggregate-skills-flake-merge: merged package set must contain base "
+      + "(skill-alpha/beta) + verbatim source (skill-gamma) + prefixed source "
+      + "(skill-src-alpha/beta), with default/agent-skills-all still pointing "
+      + "at the base aggregate (aggregate-base) and no source aggregate "
+      + "leaking in.";
+  };
+
+  # `installScript system` joins the base install line and one line per
+  # source. Verbatim sources use their own install app; prefixed sources use
+  # a fresh prefixed installer.
+  aggregate-skills-flake-install-script =
+    let
+      script = agg.installScript system;
+    in
+    mkEvalCheck {
+      name = "aggregate-skills-flake-install-script";
+      cond =
+        lib.hasInfix "/bin/install-aggregate-base --scope=project" script
+        && lib.hasInfix "/bin/install-source-gamma --scope=project" script
+        && lib.hasInfix "/bin/install-agent-skills-src-all --scope=project" script
+        && (builtins.length (lib.splitString "\n" script) == 3);
+      msg =
+        "aggregate-skills-flake-install-script: expected 3 lines (base + 2 "
+        + "sources), with base install-aggregate-base, verbatim source "
+        + "install-source-gamma, and prefixed source install-agent-skills-src-all. "
+        + "Got:\n${script}";
     };
 
   # ──────────────────────────────────────────────────────────────
