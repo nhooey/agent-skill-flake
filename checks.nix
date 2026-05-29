@@ -4,19 +4,25 @@
   self,
   nixpkgs,
   system,
-  fixture,
-  fixtureAll,
-  fixtureCodex,
-  fixtureRename,
-  fixtureAllRenamed,
-  fixtureExtraFiles,
-  fixtureExtraFilesOff,
-  fixtureExtraFilesNoMatch,
-  fixtureExtraFilesDirSkip,
 }:
 let
   pkgs = nixpkgs.legacyPackages.${system};
   lib = nixpkgs.lib;
+
+  # Test fixtures (skill flakes built from tests/example-* via the real
+  # builders). Imported here rather than threaded through flake.nix so the
+  # top-level outputs stay structural.
+  inherit (import ./tests/fixtures.nix { flakeLib = self.lib; inherit nixpkgs; })
+    fixture
+    fixtureAll
+    fixtureCodex
+    fixtureRename
+    fixtureAllRenamed
+    fixtureExtraFiles
+    fixtureExtraFilesOff
+    fixtureExtraFilesNoMatch
+    fixtureExtraFilesDirSkip
+    ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
   batsWith = pkgs.bats.withLibraries (p: [
