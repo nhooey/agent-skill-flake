@@ -12,8 +12,11 @@
   nixpkgs,
   # [ { source; skills ? null; prefix ? null; } ]
   #   source — an upstream skill flake (has .packages.<system> / .apps).
-  #   skills — null installs everything; a list cherry-picks (devshell
-  #            install line only; the merged package set is unaffected).
+  #   skills — null takes every skill the source exposes; a list cherry-picks
+  #            by *upstream* skill name (the pre-prefix identity). The choice
+  #            flows into both the merged package set and the reconciled union,
+  #            so a cherry-picked source contributes only those skills. An
+  #            unknown name is a hard eval error listing what the source has.
   #   prefix — null merges the source's packages verbatim; otherwise every
   #            skill is re-prefixed (name, frontmatter, sentinel) via
   #            withNamePrefixSource and a fresh installer is built over it.
@@ -67,49 +70,77 @@ let
           ;
       };
 
-  # One source's contribution, as `[ { key; name; drv; } ]` records — the
-  # single source of truth for both the merged package set (keyed by
-  # `key`) and the combined installer (which needs the installed skill
-  # `name`). The `packagePrefix` filter is applied consistently in both
-  # arms, so a source's `default` / `<name>-all` aggregate keys never leak
-  # into the merge (the latent bug the verbatim-merge consumer had). When
-  # `prefix` is null the source's own (already-prefixed) keys are kept
+  # One source's contribution, as `[ { upstreamName; key; name; drv; } ]`
+  # records — the single source of truth for both the merged package set
+  # (keyed by `key`) and the combined installer (which needs the installed
+  # skill `name`). The `packagePrefix` filter is applied consistently in
+  # both arms, so a source's `default` / `<name>-all` aggregate keys never
+  # leak into the merge (the latent bug the verbatim-merge consumer had).
+  # When `prefix` is null the source's own (already-prefixed) keys are kept
   # verbatim; otherwise the wrapped skills are re-keyed under
   # `packagePrefix`. `name` is the skill's installed identity
-  # (`flakeSkillName`), `key` its package attribute key.
+  # (`flakeSkillName`), `key` its package attribute key, and `upstreamName`
+  # its pre-prefix identity — what an entry's `skills` cherry-pick matches.
   recordsForSource =
     system:
     {
       source,
       prefix ? null,
+      skills ? null,
       ...
     }:
-    if prefix == null then
-      let
-        attrs = source.packages.${system};
-        keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
-      in
-      map (k: {
-        key = k;
-        name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
-        drv = attrs.${k};
-      }) keys
+    let
+      allRecords =
+        if prefix == null then
+          let
+            attrs = source.packages.${system};
+            keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
+          in
+          map (
+            k:
+            let
+              upstreamName = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
+            in
+            {
+              inherit upstreamName;
+              key = k;
+              name = upstreamName;
+              drv = attrs.${k};
+            }
+          ) keys
+        else
+          let
+            wrapped = withNamePrefixSource {
+              inherit
+                nixpkgs
+                system
+                packagePrefix
+                source
+                ;
+              namePrefix = prefix;
+            };
+          in
+          map (w: {
+            # withNamePrefix joins `<prefix>-<oldName>`; strip the prefix
+            # back off to recover the upstream name a cherry-pick matches.
+            upstreamName = lib.removePrefix "${prefix}-" w.name;
+            key = "${packagePrefix}${w.name}";
+            inherit (w) name drv;
+          }) wrapped;
+
+      available = map (r: r.upstreamName) allRecords;
+      unknown = lib.subtractLists available skills;
+    in
+    if skills == null then
+      allRecords
+    else if unknown != [ ] then
+      throw (
+        "mkAggregateSkillsFlake: source `skills` cherry-pick names not found: "
+        + "${lib.concatStringsSep ", " unknown}. "
+        + "Available in this source: ${lib.concatStringsSep ", " available}."
+      )
     else
-      let
-        wrapped = withNamePrefixSource {
-          inherit
-            nixpkgs
-            system
-            packagePrefix
-            source
-            ;
-          namePrefix = prefix;
-        };
-      in
-      map (w: {
-        key = "${packagePrefix}${w.name}";
-        inherit (w) name drv;
-      }) wrapped;
+      builtins.filter (r: builtins.elem r.upstreamName skills) allRecords;
 
   upstreamRecordsFor = system: lib.concatMap (recordsForSource system) sources;
 
@@ -144,9 +175,7 @@ let
   # `[ { name; drv; } ]` records mkInstaller / mkReconcile consume. This
   # is the union the combined installer converges the target to.
   unionSkillsFor =
-    system:
-    baseRecordsFor system
-    ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
+    system: baseRecordsFor system ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
 
   # The combined install/uninstall/preview/reap/reconcile family over the
   # union, all tagged with the aggregate's `name` as their ownership
@@ -226,6 +255,5 @@ in
   # The declarative dev-shell one-liner: converge the target to the union
   # at `--scope=project`. Only reconcile removes strays, so the shell stays
   # a pure function of the inputs.
-  reconcileScript =
-    system: "${combinedReconcile system}/bin/reconcile-${name} --scope=project";
+  reconcileScript = system: "${combinedReconcile system}/bin/reconcile-${name} --scope=project";
 }
