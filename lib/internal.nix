@@ -388,10 +388,14 @@ let
                  # are assigned by scope.bash, which shellcheck can't follow
         "SC2016" # `nn` inside single-quoted printf strings is literal
                  # backtick markup, not an attempt to expand a subshell
+        "SC2034" # owner_app is consumed only by the sourced lock.bash
+                 # (lock_upsert), which shellcheck can't follow
       ];
       text =
         scopePrelude { appName = "install-${appName}"; inherit profile; }
         + ''
+
+          owner_app='${appName}'
 
           source ${./bash/lock.bash}
 
@@ -466,6 +470,7 @@ let
         scopePrelude { appName = "reconcile-${appName}"; inherit profile; }
         + ''
           upstream_url='${provenance.upstreamUrl}'
+          owner_app='${appName}'
 
           source ${./bash/ownership.bash}
           source ${./bash/lock.bash}

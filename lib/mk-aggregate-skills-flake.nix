@@ -1,7 +1,8 @@
 # Build a whole "marketplace" flake in one call: merge an optional local
 # skills directory (`skillsDir`, via mkAllSkillsFlake) with several upstream
 # skill flakes (`sources`), each optionally namespace-prefixed, into one
-# package set + apps + a devshell-ready install script.
+# package set, a combined app suite over the union (install/uninstall/
+# preview/reap/reconcile), and a devshell-ready reconcile script.
 #
 # `mkAllSkillsFlake` handles a single `skillsDir`; this handles a list of
 # source flakes plus an optional local dir. It mirrors mk-all-skills-flake's
@@ -39,7 +40,12 @@
 let
   inherit (nixpkgs) lib;
   marketplace = import ./marketplace.nix { };
-  inherit (marketplace) withNamePrefixSource installCommandFor;
+  inherit (marketplace) withNamePrefixSource;
+  # Used directly (not via marketplace) for the combined app suite, since
+  # marketplace only re-exports the installer; the union needs the whole
+  # install/uninstall/preview/reap/reconcile family over one skill set.
+  internal = import ./internal.nix { inherit nixpkgs; };
+  profile = internal.resolveAgentProfile agent;
 
   forAllSystems = f: lib.genAttrs systems (system: f system);
 
@@ -61,13 +67,17 @@ let
           ;
       };
 
-  # One source's contribution to the merged per-system package set. The
-  # `packagePrefix` filter is applied consistently in both arms, so a
-  # source's `default` / `<name>-all` aggregate keys never leak into the
-  # merge (the latent bug the verbatim-merge consumer had). When `prefix`
-  # is null the source's own (already-prefixed) keys are kept verbatim;
-  # otherwise the wrapped skills are re-keyed under `packagePrefix`.
-  packagesForSource =
+  # One source's contribution, as `[ { key; name; drv; } ]` records — the
+  # single source of truth for both the merged package set (keyed by
+  # `key`) and the combined installer (which needs the installed skill
+  # `name`). The `packagePrefix` filter is applied consistently in both
+  # arms, so a source's `default` / `<name>-all` aggregate keys never leak
+  # into the merge (the latent bug the verbatim-merge consumer had). When
+  # `prefix` is null the source's own (already-prefixed) keys are kept
+  # verbatim; otherwise the wrapped skills are re-keyed under
+  # `packagePrefix`. `name` is the skill's installed identity
+  # (`flakeSkillName`), `key` its package attribute key.
+  recordsForSource =
     system:
     {
       source,
@@ -79,12 +89,11 @@ let
         attrs = source.packages.${system};
         keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
       in
-      lib.listToAttrs (
-        map (k: {
-          name = k;
-          value = attrs.${k};
-        }) keys
-      )
+      map (k: {
+        key = k;
+        name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
+        drv = attrs.${k};
+      }) keys
     else
       let
         wrapped = withNamePrefixSource {
@@ -97,15 +106,87 @@ let
           namePrefix = prefix;
         };
       in
-      lib.listToAttrs (
-        map (w: {
-          name = "${packagePrefix}${w.name}";
-          value = w.drv;
-        }) wrapped
-      );
+      map (w: {
+        key = "${packagePrefix}${w.name}";
+        inherit (w) name drv;
+      }) wrapped;
+
+  upstreamRecordsFor = system: lib.concatMap (recordsForSource system) sources;
 
   upstreamPackagesFor =
-    system: lib.foldl' (acc: entry: acc // packagesForSource system entry) { } sources;
+    system:
+    lib.listToAttrs (
+      map (r: {
+        name = r.key;
+        value = r.drv;
+      }) (upstreamRecordsFor system)
+    );
+
+  # The base's per-skill `[ { name; drv; } ]` records, drawn from its
+  # package set by the same `packagePrefix` filter that drops the
+  # `default` / `<name>-all` aggregate keys. Only `name` + `drv` are
+  # needed (the base package keys already merge in verbatim below).
+  baseRecordsFor =
+    system:
+    if base == null then
+      [ ]
+    else
+      let
+        attrs = base.packages.${system};
+        keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
+      in
+      map (k: {
+        name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
+        drv = attrs.${k};
+      }) keys;
+
+  # The whole declared set: base skills + every source's skills, as the
+  # `[ { name; drv; } ]` records mkInstaller / mkReconcile consume. This
+  # is the union the combined installer converges the target to.
+  unionSkillsFor =
+    system:
+    baseRecordsFor system
+    ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
+
+  # The combined install/uninstall/preview/reap/reconcile family over the
+  # union, all tagged with the aggregate's `name` as their ownership
+  # `appName`. reconcile is the declarative one: it converges the target
+  # to exactly the union (install missing, update changed, sweep strays
+  # this appName owns).
+  combinedInstaller =
+    system:
+    internal.mkInstaller system {
+      appName = name;
+      skills = unionSkillsFor system;
+      inherit profile;
+    };
+  combinedReconcile =
+    system:
+    internal.mkReconcile system {
+      appName = name;
+      skills = unionSkillsFor system;
+      inherit provenance profile;
+    };
+  combinedPreview =
+    system:
+    internal.mkPreview system {
+      appName = name;
+      displayName = name;
+      skills = unionSkillsFor system;
+      inherit profile;
+    };
+  combinedReap =
+    system:
+    internal.mkReap system {
+      appName = name;
+      inherit provenance profile;
+    };
+  combinedUninstall =
+    system:
+    internal.mkUninstall system {
+      appName = name;
+      inherit provenance profile;
+    };
 in
 {
   # base per-skill keys + base `default` / `<name>-all` aggregates, then
@@ -115,24 +196,36 @@ in
     system: (if base == null then { } else base.packages.${system}) // upstreamPackagesFor system
   );
 
-  # Base apps (install/uninstall/preview/reap/reconcile over the local
-  # skills dir). `apps.install` covers base alone; sources are installed via
-  # `installScript` in the devshell. Empty when there is no local dir.
-  apps = forAllSystems (system: if base == null then { } else base.apps.${system});
+  # The combined apps over the union (base + every source). `reconcile` is
+  # declarative — it converges the target to the full union, so a dev shell
+  # wiring `reconcileScript` removes skills a source dropped or renamed.
+  # Each app is `<verb>-${name}`.
+  apps = forAllSystems (system: {
+    install = {
+      type = "app";
+      program = "${combinedInstaller system}/bin/install-${name}";
+    };
+    uninstall = {
+      type = "app";
+      program = "${combinedUninstall system}/bin/uninstall-${name}";
+    };
+    preview = {
+      type = "app";
+      program = "${combinedPreview system}/bin/preview-${name}";
+    };
+    reap = {
+      type = "app";
+      program = "${combinedReap system}/bin/reap-${name}";
+    };
+    reconcile = {
+      type = "app";
+      program = "${combinedReconcile system}/bin/reconcile-${name}";
+    };
+  });
 
-  # Newline-joined install commands for a devshell startup hook: the local
-  # base (if any) first, then one line per source. Each installs at the
-  # given scope (default `project`).
-  installScript =
-    system:
-    let
-      baseLine = lib.optional (base != null) (installCommandFor {
-        inherit nixpkgs system agent;
-        source = base;
-      });
-      sourceLines = map (
-        entry: installCommandFor ({ inherit nixpkgs system packagePrefix agent; } // entry)
-      ) sources;
-    in
-    lib.concatStringsSep "\n" (baseLine ++ sourceLines);
+  # The declarative dev-shell one-liner: converge the target to the union
+  # at `--scope=project`. Only reconcile removes strays, so the shell stays
+  # a pure function of the inputs.
+  reconcileScript =
+    system: "${combinedReconcile system}/bin/reconcile-${name} --scope=project";
 }

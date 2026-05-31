@@ -22,6 +22,10 @@ let
     fixtureExtraFilesOff
     fixtureExtraFilesNoMatch
     fixtureExtraFilesDirSkip
+    fixtureAggConvergeFull
+    fixtureAggConvergeReduced
+    fixtureAggCoexistA
+    fixtureAggCoexistB
     ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
@@ -153,6 +157,14 @@ let
     ];
   };
   aggPkgs = agg.packages.${system};
+
+  # Aggregate reconcile (declarative convergence) artifacts. The combined
+  # reconcile converges the target to the union; these drive the
+  # convergence, idempotence, and coexistence bats checks.
+  aggConvergeFullReconcile = fixtureAggConvergeFull.apps.${system}.reconcile.program;
+  aggConvergeReducedReconcile = fixtureAggConvergeReduced.apps.${system}.reconcile.program;
+  aggCoexistAReconcile = fixtureAggCoexistA.apps.${system}.reconcile.program;
+  aggCoexistBReconcile = fixtureAggCoexistB.apps.${system}.reconcile.program;
 
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
@@ -893,26 +905,54 @@ in
       + "leaking in.";
   };
 
-  # `installScript system` joins the base install line and one line per
-  # source. Verbatim sources use their own install app; prefixed sources use
-  # a fresh prefixed installer.
-  aggregate-skills-flake-install-script =
+  # `reconcileScript system` is the declarative dev-shell one-liner: the
+  # combined reconcile binary over the union at --scope=project. It is a
+  # single command — one owner of the target.
+  aggregate-skills-flake-reconcile-script =
     let
-      script = agg.installScript system;
+      script = agg.reconcileScript system;
     in
     mkEvalCheck {
-      name = "aggregate-skills-flake-install-script";
+      name = "aggregate-skills-flake-reconcile-script";
       cond =
-        lib.hasInfix "/bin/install-aggregate-base --scope=project" script
-        && lib.hasInfix "/bin/install-source-gamma --scope=project" script
-        && lib.hasInfix "/bin/install-agent-skills-src-all --scope=project" script
-        && (builtins.length (lib.splitString "\n" script) == 3);
+        lib.hasInfix "/bin/reconcile-aggregate-base --scope=project" script
+        && !(lib.hasInfix "\n" script);
       msg =
-        "aggregate-skills-flake-install-script: expected 3 lines (base + 2 "
-        + "sources), with base install-aggregate-base, verbatim source "
-        + "install-source-gamma, and prefixed source install-agent-skills-src-all. "
-        + "Got:\n${script}";
+        "aggregate-skills-flake-reconcile-script: expected a single "
+        + "reconcile-aggregate-base --scope=project invocation. Got:\n${script}";
     };
+
+  # Convergence (the skills-git stray-leftover regression): the full union
+  # installs base + a prefixed source (src-gamma); reconciling with the
+  # reduced aggregate (same appName, source dropped) sweeps src-gamma and
+  # leaves base alone. Both reconciles share appName "converge" so the
+  # second recognizes the first's installs as its own.
+  aggregate-reconcile-converges = mkBatsCheck {
+    name = "aggregate-reconcile-converges";
+    env = {
+      RECONCILE_FULL_APP = aggConvergeFullReconcile;
+      RECONCILE_REDUCED_APP = aggConvergeReducedReconcile;
+    };
+  };
+
+  # Idempotence: a second combined reconcile with state already in sync is
+  # a silent no-op (no per-skill `reconciled (install): …` lines), matching
+  # the silent-no-op behavior from #13.
+  aggregate-reconcile-idempotent = mkBatsCheck {
+    name = "aggregate-reconcile-idempotent";
+    env.RECONCILE_FULL_APP = aggConvergeFullReconcile;
+  };
+
+  # Coexistence (scoped ownership): two aggregates installing into one
+  # target each sweep only their own strays. Re-running A's reconcile must
+  # not touch B's gamma, and vice versa.
+  aggregate-reconcile-coexists = mkBatsCheck {
+    name = "aggregate-reconcile-coexists";
+    env = {
+      RECONCILE_A_APP = aggCoexistAReconcile;
+      RECONCILE_B_APP = aggCoexistBReconcile;
+    };
+  };
 
   # ──────────────────────────────────────────────────────────────
   # darwinModules.default — forwarding shim into home-manager.

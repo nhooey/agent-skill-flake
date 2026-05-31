@@ -106,4 +106,63 @@ in
       ctx:
       "${ctx.source.owner}-${ctx.name}-${ctx.source.shortRev}-${ctx.source.lastModifiedCompact}";
   };
+
+  # ── Aggregate reconcile (declarative dev-shell convergence) ──────────
+  # The combined reconcile converges a target to exactly the union of all
+  # aggregated skills. These fixtures exercise convergence (a shrinking
+  # union sweeps the dropped skill), idempotence, and coexistence (two
+  # aggregates sharing one target, each owning only its own slice).
+
+  # Full union: base example-skills-dir (alpha, beta) + a prefixed source
+  # (example-source-dir's gamma → src-gamma). appName "converge".
+  fixtureAggConvergeFull = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./example-skills-dir;
+    name = "converge";
+    sources = [
+      {
+        source = flakeLib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./example-source-dir;
+          name = "converge-src";
+        };
+        prefix = "src";
+      }
+    ];
+  };
+
+  # Same appName "converge", source dropped — the union shrinks to base
+  # (alpha, beta) only, so reconciling with it must sweep the now-stray
+  # src-gamma left by the full reconcile. This is the regression test for
+  # the skills-git stray-leftover bug.
+  fixtureAggConvergeReduced = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./example-skills-dir;
+    name = "converge";
+    sources = [ ];
+  };
+
+  # Coexistence: two aggregates with distinct appNames installing into one
+  # target. `aggCoexistA` owns alpha+beta (appName "coexist-a"); `aggCoexistB`
+  # owns gamma (appName "coexist-b", verbatim source, no local base). Each
+  # reconcile must sweep only its own strays and never the other's skills.
+  fixtureAggCoexistA = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./example-skills-dir;
+    name = "coexist-a";
+    sources = [ ];
+  };
+  fixtureAggCoexistB = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    name = "coexist-b";
+    sources = [
+      {
+        source = flakeLib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./example-source-dir;
+          name = "coexist-b-src";
+        };
+      }
+    ];
+  };
 }

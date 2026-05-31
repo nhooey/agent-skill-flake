@@ -479,7 +479,8 @@ flake-skills.lib.installCommandFor {
 The whole marketplace in one call. `mkAllSkillsFlake` handles one local
 `skillsDir`; this folds that optional base together with a list of
 upstream source flakes (each optionally prefixed) into one package set,
-the base apps, and a devshell-ready install script.
+a combined app suite over the union, and a devshell-ready
+**reconcile** script.
 
 ```nix
 let
@@ -498,18 +499,21 @@ in {
   packages.${system} = agg.packages.${system};
   apps.${system}     = agg.apps.${system};
   devShells.${system}.default = pkgs.mkShell {
-    shellHook = agg.installScript system;  # installs base + every source
+    # Declarative: converge .claude/skills/ to exactly the union —
+    # install missing, update changed, sweep skills a source dropped
+    # or renamed.
+    shellHook = agg.reconcileScript system;
   };
 }
 ```
 
 It returns:
 
-| Field           | Shape                  | Meaning |
-|-----------------|------------------------|---------|
-| `packages`      | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>-all` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. |
-| `apps`          | `forAllSystems` attrset | the base apps (install/uninstall/preview/reap/reconcile); empty when there is no `skillsDir`. |
-| `installScript` | `system → string`       | newline-joined install commands: the local base first (if any), then one per source. Drop into a devshell startup hook. |
+| Field            | Shape                  | Meaning |
+|------------------|------------------------|---------|
+| `packages`       | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>-all` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. |
+| `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union. |
+| `reconcileScript`| `system → string`       | the declarative dev-shell one-liner: `reconcile-${name} --scope=project`. A single command (one owner of the target). |
 
 `sources` entries are `{ source; skills ? null; prefix ? null; }`:
 `skills = null` installs everything (a list cherry-picks);
@@ -522,6 +526,32 @@ For the wrong ways to wire this up — `nix run <input>#install` defeating a
 `follows`, a `packagePrefix` that matches no source keys, a verbatim package
 merge that clobbers `default` — see
 [Pitfalls](#pitfalls--wrong-ways-to-install).
+
+#### Declarative convergence (`reconcileScript`)
+
+A dev shell that installs each source with its own `install` line
+re-converges by adding only: `install` adds or updates *its own*
+symlinks, so when a skill is **renamed or dropped** from the
+declared set its stale symlink lingers — e.g. after superpowers skills
+gained a `superpowers-` prefix, the old un-prefixed `brainstorming` would
+survive next to the new `superpowers-brainstorming`. A per-source
+`reconcile` can't fix this either: every source shares one `flake-skills`
+lineage, so any one source's reconcile would sweep the *other* sources'
+skills as strays.
+
+`reconcileScript` solves this because the aggregate already computes the
+union of every declared skill and installs through a single combined
+installer that **owns** the target. Its `reconcile` converges the target
+to exactly that union — install missing, update changed, sweep the
+renamed/removed strays — so the dev shell is a pure function of the flake
+inputs. No sibling is ever mistaken for a stray, because every sibling is
+in the declared union.
+
+**Scoped ownership.** Each install/reconcile tags its lock entries with
+the aggregate's `name` (`installedBy`), and `reconcile` sweeps only strays
+bearing *its own* `name`. So multiple aggregates (or a hand-rolled
+installer) can share one `.claude/skills/`, each declaratively owning its
+own slice without sweeping the others'.
 
 ## Install scope
 
@@ -753,7 +783,8 @@ indexed by name so you can `cat` it for an overview:
       "originalSkillName": "garnix-ci",
       "version": "0.1.0",
       "storePath": "/nix/store/...-claude-skill-garnix-ci-0.1.0",
-      "installedAt": "2026-04-27T12:34:56Z"
+      "installedAt": "2026-04-27T12:34:56Z",
+      "installedBy": "agent-skills-all"
     }
   }
 }
@@ -763,6 +794,12 @@ The lock is **descriptive, not authoritative**: install / reconcile / reap /
 uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
 no lasting effect. The source of truth is still the symlink + GC root + the
 sentinel inside each store path.
+
+`installedBy` is the one exception — it records the installer `appName` that
+owns the entry, and a scoped `reconcile` consults it to sweep only the strays
+it owns (see [Declarative convergence](#declarative-convergence-reconcilescript)).
+It is written by every `mkInstaller` / `mkReconcile`-built app; an entry with
+no recorded owner (a stray with no lock entry) falls back to the lineage rule.
 
 Atomicity: each writer goes through tmp-file + `mv -f`, so a crashed installer
 can't leave a half-written file behind. Concurrent installers of distinct
