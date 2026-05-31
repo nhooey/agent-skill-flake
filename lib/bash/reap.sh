@@ -21,7 +21,10 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) print_help; exit 0 ;;
+  -h | --help)
+    print_help
+    exit 0
+    ;;
   esac
 done
 

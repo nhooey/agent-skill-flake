@@ -48,7 +48,11 @@ in
     inherit nixpkgs;
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
-    extraFiles = [ "*.md" "*.sh" "*.dot" ];
+    extraFiles = [
+      "*.md"
+      "*.sh"
+      "*.dot"
+    ];
   };
   fixtureExtraFilesOff = flakeLib.mkSkillFlake {
     inherit nixpkgs;
@@ -103,8 +107,7 @@ in
       narHash = "sha256-deadbeef";
     };
     renameFn =
-      ctx:
-      "${ctx.source.owner}-${ctx.name}-${ctx.source.shortRev}-${ctx.source.lastModifiedCompact}";
+      ctx: "${ctx.source.owner}-${ctx.name}-${ctx.source.shortRev}-${ctx.source.lastModifiedCompact}";
   };
 
   # ── Aggregate reconcile (declarative dev-shell convergence) ──────────

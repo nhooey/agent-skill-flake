@@ -34,11 +34,9 @@ in
 {
   inherit upstreamUrl provenance;
 
-  mkSkillFlake = args:
-    import ./mk-skill-flake.nix (args // { inherit provenance; });
+  mkSkillFlake = args: import ./mk-skill-flake.nix (args // { inherit provenance; });
 
-  mkAllSkillsFlake = args:
-    import ./mk-all-skills-flake.nix (args // { inherit provenance; });
+  mkAllSkillsFlake = args: import ./mk-all-skills-flake.nix (args // { inherit provenance; });
 
   # Multi-skill env (the `pkgs.buildEnv` analogue for skills). Takes
   # already-built skill drvs — no provenance threading needed because

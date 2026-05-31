@@ -21,7 +21,10 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) print_help; exit 0 ;;
+  -h | --help)
+    print_help
+    exit 0
+    ;;
   esac
 done
 
@@ -59,9 +62,9 @@ for entry in "${skills_list[@]}"; do
     printf 'reconciled (install): %s -> %s\n' "$target" "$skill_subpath"
   fi
 
-  if [ "$gcroots_ok" = "1" ] && \
-     [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
-    ln -sfn "$store_path" "$gcroot_target" || \
+  if [ "$gcroots_ok" = "1" ] &&
+    [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
+    ln -sfn "$store_path" "$gcroot_target" ||
       printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
   fi
 

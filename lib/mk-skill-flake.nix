@@ -71,11 +71,13 @@ let
   # install path, sentinel `skillName`, default package key, and the
   # preview/uninstall default — everything user-facing. `skillName`
   # itself is kept only as the pre-rename `originalSkillName`.
-  effectiveName = renameFn (internal.mkRenameContext {
-    name = skillName;
-    inherit source;
-    toolingProvenance = provenance;
-  });
+  effectiveName = renameFn (
+    internal.mkRenameContext {
+      name = skillName;
+      inherit source;
+      toolingProvenance = provenance;
+    }
+  );
 
   effectivePackageName =
     if packageName == null then "${packagePrefix}${effectiveName}" else packageName;
@@ -85,7 +87,14 @@ let
     internal.mkSkill system {
       name = effectiveName;
       originalSkillName = skillName;
-      inherit src version description extraDirs extraFiles provenance;
+      inherit
+        src
+        version
+        description
+        extraDirs
+        extraFiles
+        provenance
+        ;
     };
 
   skillsFor = system: [

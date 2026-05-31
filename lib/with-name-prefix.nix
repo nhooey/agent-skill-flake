@@ -78,11 +78,12 @@ let
   wrapOne =
     drv:
     let
-      oldName = drv.passthru.flakeSkillName or (throw ''
-        flake-skills.lib.withNamePrefix: input drv must be a flake-skills
-        skill (carrying `passthru.flakeSkillName`). Got a derivation
-        without that attribute.
-      '');
+      oldName =
+        drv.passthru.flakeSkillName or (throw ''
+          flake-skills.lib.withNamePrefix: input drv must be a flake-skills
+          skill (carrying `passthru.flakeSkillName`). Got a derivation
+          without that attribute.
+        '');
       newName = "${validPrefix}-${oldName}";
       nameOk = builtins.match "[a-z0-9-]{1,64}" newName != null;
     in

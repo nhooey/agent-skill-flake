@@ -61,7 +61,12 @@ let
     if drv.passthru.isFlakeSkillsEnv or false then
       drv.passthru.flakeSkillsEnv
     else
-      [ { name = drv.passthru.flakeSkillName; inherit drv; } ];
+      [
+        {
+          name = drv.passthru.flakeSkillName;
+          inherit drv;
+        }
+      ];
 
   skillRecords = lib.concatMap expandSkill effectiveSkills;
 
@@ -86,19 +91,15 @@ let
   # contexts that don't load the assertion-handling module.
   scopeArgs =
     if cfg.scope == "custom" then
-      (
-        lib.throwIf (cfg.root == null || cfg.root == "") ''
-          programs.flake-skills.scope = "custom" requires
-          programs.flake-skills.root = "<path>".
-        '' "--scope=custom --root=${lib.escapeShellArg (cfg.root or "")}"
-      )
+      (lib.throwIf (cfg.root == null || cfg.root == "") ''
+        programs.flake-skills.scope = "custom" requires
+        programs.flake-skills.root = "<path>".
+      '' "--scope=custom --root=${lib.escapeShellArg (cfg.root or "")}")
     else
-      (
-        lib.throwIf (cfg.root != null) ''
-          programs.flake-skills.root is only valid when scope = "custom"
-          (got scope = ${builtins.toJSON cfg.scope}).
-        '' "--scope=${cfg.scope}"
-      );
+      (lib.throwIf (cfg.root != null) ''
+        programs.flake-skills.root is only valid when scope = "custom"
+        (got scope = ${builtins.toJSON cfg.scope}).
+      '' "--scope=${cfg.scope}");
 in
 {
   options.programs.flake-skills = {
