@@ -26,6 +26,8 @@ let
     fixtureAggConvergeReduced
     fixtureAggCoexistA
     fixtureAggCoexistB
+    fixtureAggCherryPick
+    fixtureAggCherryPickPrefixed
     ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
@@ -165,6 +167,12 @@ let
   aggConvergeReducedReconcile = fixtureAggConvergeReduced.apps.${system}.reconcile.program;
   aggCoexistAReconcile = fixtureAggCoexistA.apps.${system}.reconcile.program;
   aggCoexistBReconcile = fixtureAggCoexistB.apps.${system}.reconcile.program;
+
+  # Aggregate cherry-pick (per-source `skills` filter): only the selected
+  # skill installs; its sibling is dropped. Drives the cherry-pick bats
+  # check across the verbatim and prefixed source arms.
+  aggCherryPickReconcile = fixtureAggCherryPick.apps.${system}.reconcile.program;
+  aggCherryPickPrefixedReconcile = fixtureAggCherryPickPrefixed.apps.${system}.reconcile.program;
 
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
@@ -952,6 +960,31 @@ in
       RECONCILE_A_APP = aggCoexistAReconcile;
       RECONCILE_B_APP = aggCoexistBReconcile;
     };
+  };
+
+  # Cherry-pick (per-source `skills`): only the selected skill installs; the
+  # dropped sibling never lands. Covers both the verbatim source arm (`alpha`
+  # kept, `beta` dropped) and the prefixed arm (`px-alpha` kept, `px-beta`
+  # dropped) — the regression for the `skills` field the reconcile rewrite
+  # ignored.
+  aggregate-cherry-pick = mkBatsCheck {
+    name = "aggregate-cherry-pick";
+    env = {
+      RECONCILE_VERBATIM_APP = aggCherryPickReconcile;
+      RECONCILE_PREFIXED_APP = aggCherryPickPrefixedReconcile;
+    };
+  };
+
+  # The package-set arm of the same filter: the aggregate exposes exactly the
+  # cherry-picked skill's key and not the dropped sibling's, for both the
+  # verbatim (`skill-alpha`) and prefixed (`skill-px-alpha`) sources. Guards
+  # the half of `recordsForSource` the bats check (install side) doesn't see.
+  aggregate-cherry-pick-packages = mkEvalCheck {
+    name = "aggregate-cherry-pick-packages";
+    cond =
+      builtins.attrNames fixtureAggCherryPick.packages.${system} == [ "skill-alpha" ]
+      && builtins.attrNames fixtureAggCherryPickPrefixed.packages.${system} == [ "skill-px-alpha" ];
+    msg = "cherry-pick package set must contain only the selected skill's key";
   };
 
   # ──────────────────────────────────────────────────────────────

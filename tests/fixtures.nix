@@ -165,4 +165,42 @@ in
       }
     ];
   };
+
+  # ── Aggregate cherry-pick (per-source `skills` filter) ───────────────
+  # A source exposing two skills (example-skills-dir's alpha + beta) with
+  # only `alpha` cherry-picked. Proves the per-source `skills` filter keeps
+  # the named skill and drops its sibling — the field the reconcile rewrite
+  # silently ignored. Two variants cover both arms of `recordsForSource`:
+  # the verbatim merge and the re-prefixed merge.
+  fixtureAggCherryPick = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    name = "cherrypick";
+    sources = [
+      {
+        source = flakeLib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./example-skills-dir;
+          name = "cherrypick-src";
+        };
+        skills = [ "alpha" ];
+      }
+    ];
+  };
+  fixtureAggCherryPickPrefixed = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    name = "cherrypick-px";
+    sources = [
+      {
+        source = flakeLib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./example-skills-dir;
+          name = "cherrypick-px-src";
+        };
+        prefix = "px";
+        # Cherry-pick matches the *upstream* name (`alpha`), even though the
+        # installed skill lands re-prefixed as `px-alpha`.
+        skills = [ "alpha" ];
+      }
+    ];
+  };
 }
