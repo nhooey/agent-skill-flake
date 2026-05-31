@@ -10,6 +10,12 @@
 # half-written file behind. No advisory lock — concurrent installs of
 # the same skill name would race, but each write transitions through a
 # valid state.
+#
+# Ownership tagging: the caller sets `owner_app` (the bare installer
+# appName, emitted by mkInstaller / mkReconcile) and each entry it writes
+# carries an `installedBy` field set to that appName. This lets a scoped
+# reconcile sweep only the strays it owns and leave a coexisting
+# aggregate's entries alone.
 
 lock_path() { printf '%s/.flake-skills-lock.json' "$target_root"; }
 
@@ -37,10 +43,11 @@ lock_read_sentinel() {
 # lock_upsert  $skill_name  $store_path
 lock_upsert() {
   local skill_name="$1" store_path="$2"
-  local lock tmp now sentinel
+  local lock tmp now sentinel owner
   lock=$(lock_path)
   tmp="$lock.tmp.$$"
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  owner="${owner_app:-}"
   sentinel=$(lock_read_sentinel "$store_path" "$skill_name")
   lock_init_if_absent
   jq \
@@ -48,9 +55,22 @@ lock_upsert() {
     --argjson s "$sentinel" \
     --arg sp "$store_path" \
     --arg t "$now" \
-    '.skills[$name] = ($s + {storePath: $sp, installedAt: $t})' \
+    --arg owner "$owner" \
+    '.skills[$name] = ($s + {storePath: $sp, installedAt: $t}
+      + (if $owner == "" then {} else {installedBy: $owner} end))' \
     "$lock" > "$tmp"
   mv -f "$tmp" "$lock"
+}
+
+# lock_installed_by  $skill_name  -> prints the entry's installedBy
+# (the owning appName) or empty if the lock, the entry, or the field is
+# absent. Read by reconcile's scoped sweep to decide whose stray an
+# undeclared entry is.
+lock_installed_by() {
+  local skill_name="$1" lock
+  lock=$(lock_path)
+  [ -f "$lock" ] || return 0
+  jq -r --arg n "$skill_name" '.skills[$n].installedBy // empty' "$lock" 2>/dev/null || true
 }
 
 # lock_remove  $skill_name
@@ -64,14 +84,26 @@ lock_remove() {
 }
 
 # lock_replace_all  "$@"  -- each arg is "name:store_path"
-# Rebuild .skills entirely from the args (used by reconcile).
+# Rebuild .skills from the args (used by reconcile). The rebuild is
+# scoped to `owner_app`: entries owned by *other* appNames (installedBy
+# set and != ours) are carried over untouched, so a scoped reconcile
+# rewrites only its own slice and never drops a coexisting aggregate's
+# entries. Entries with no recorded owner are dropped.
 lock_replace_all() {
-  local lock tmp now new_skills sentinel skill_name store_path entry
+  local lock tmp now new_skills sentinel skill_name store_path entry owner
   lock=$(lock_path)
   tmp="$lock.tmp.$$"
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  owner="${owner_app:-}"
   lock_init_if_absent
-  new_skills='{}'
+  if [ -n "$owner" ]; then
+    new_skills=$(jq --arg owner "$owner" \
+      '.skills | with_entries(select((.value.installedBy // "") != ""
+        and (.value.installedBy // "") != $owner))' \
+      "$lock")
+  else
+    new_skills='{}'
+  fi
   for entry in "$@"; do
     skill_name=${entry%%:*}
     store_path=${entry#*:}
@@ -82,7 +114,9 @@ lock_replace_all() {
       --argjson s "$sentinel" \
       --arg sp "$store_path" \
       --arg t "$now" \
-      '$cur + {($name): ($s + {storePath: $sp, installedAt: $t})}')
+      --arg owner "$owner" \
+      '$cur + {($name): ($s + {storePath: $sp, installedAt: $t}
+        + (if $owner == "" then {} else {installedBy: $owner} end))}')
   done
   jq --argjson new "$new_skills" '.skills = $new' "$lock" > "$tmp"
   mv -f "$tmp" "$lock"

@@ -69,6 +69,14 @@ for entry in "${skills_list[@]}"; do
 done
 
 # 2. Sweep $target_root for managed entries NOT in the declared set.
+#
+# Ownership scoping: an entry the lock attributes to a *different*
+# appName (installedBy set and != owner_app) belongs to a coexisting
+# aggregate and is left alone — so multiple aggregates can share one
+# target dir, each declaratively owning its own slice. An entry the
+# lock attributes to *us* is swept. An entry with no recorded owner
+# (a stray with no lock entry) falls back to the lineage rule: swept
+# iff its sentinel / GC root marks it ours.
 swept=0
 if [ -d "$target_root" ]; then
   shopt -s nullglob
@@ -82,6 +90,18 @@ if [ -d "$target_root" ]; then
       fi
     done
     [ "$in_keep" = "1" ] && continue
+
+    installed_by=$(lock_installed_by "$name")
+    if [ -n "$installed_by" ]; then
+      if [ "$installed_by" = "${owner_app:-}" ]; then
+        rm -f "$entry"
+        rm -f "$gcroots_dir/claude-skill-$name"
+        printf 'reconciled (sweep): %s\n' "$entry"
+        swept=$((swept + 1))
+      fi
+      # else: owned by another appName — leave it for that owner.
+      continue
+    fi
 
     if is_ours_live "$entry" "$upstream_url"; then
       rm -f "$entry"
