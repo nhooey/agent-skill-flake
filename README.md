@@ -518,6 +518,11 @@ skill is re-prefixed via `withNamePrefixSource`. `packagePrefix` is
 flake-wide (one value for filtering every source's keys and for re-keying
 the merged output).
 
+For the wrong ways to wire this up — `nix run <input>#install` defeating a
+`follows`, a `packagePrefix` that matches no source keys, a verbatim package
+merge that clobbers `default` — see
+[Pitfalls](#pitfalls--wrong-ways-to-install).
+
 ## Install scope
 
 Every install/uninstall/reap/reconcile/preview invocation **must** declare
@@ -598,6 +603,108 @@ protection comes from the profile itself; no separate GC root. The
 aggregate lock is updated the same way as in symlink mode.
 
 To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`.
+
+## Pitfalls — wrong ways to install
+
+The sections above show the correct forms. This one is the inverse: the
+wrong ways, each a flat "don't / do instead" rule. Several of these fail
+**silently** — they install nothing, or install something that decays
+later — so they are worth stating explicitly. Roughly ordered by how
+likely each is to bite and how quiet the failure is.
+
+### 1. Don't `nix run <input>#install` on a `follows`-pinned input
+
+`nix run <flakeref>#install` evaluates `<flakeref>` as a standalone flake
+using **its own** `flake.lock`. The `inputs.<x>.follows` you declared only
+applies when you reach the input through *your* evaluation. So
+`nix run ${superpowers}#install` builds an installer against superpowers'
+pinned `flake-skills`, not yours — defeating the `follows` and risking a
+double-evaluated, mismatched toolchain.
+
+**Do instead:** reference the already-resolved app path from your own
+outputs — `<input>.apps.${system}.install.program` — or let
+[`installCommandFor`](#installcommandfor--the-bin-args-install-string) /
+[`mkAggregateSkillsFlake`](#mkaggregateskillsflake)'s `installScript` do it
+for you (they emit exactly that path). This is *the* reason `installScript`
+exists.
+
+### 2. Don't hand-symlink or `cp` a store path into the skills dir
+
+`ln -s /nix/store/…-skill-foo ~/.claude/skills/foo` (or copying it) skips
+the two things the installer does for you: the **per-user GC root** (so the
+next `nix-store --gc` can delete the store path out from under your symlink)
+and the **`.flake-skills-lock.json` entry** (so `uninstall` / `reap` /
+`reconcile` can't see it as managed and refuse to touch it).
+
+**Do instead:** `nix run .#install -- --scope=…` (or the aggregate
+`installScript`), which creates symlink + GC root + lock entry atomically.
+See [Default: symlink + GC root](#default-symlink--gc-root).
+
+### 3. Don't import `lib/internal.nix` to build an installer
+
+`internal.nix` is private and uncontracted — its signatures can change
+between releases with no migration note. Reaching into it
+(`internal.mkInstaller`, `internal.resolveAgentProfile`) is the
+pre-marketplace hack the public helpers were created to retire.
+
+**Do instead:** use
+[`lib.mkInstaller`](#mkinstaller--installer-over-an-arbitrary-skill-set),
+`lib.resolveAgentProfile`, `lib.agentProfiles`, or the higher-level
+marketplace helpers. Only the `lib.*` surface is stable.
+
+### 4. Don't set `prefix` on a source whose keys don't match `packagePrefix`
+
+When you prefix a source,
+[`withNamePrefixSource`](#withnameprefixsource--prefix-wrap-every-skill-in-a-source-flake)
+filters that source's package keys by the **flake-wide** `packagePrefix`.
+If the source exposes its skills under a different prefix (e.g. its keys are
+`skill-*` but your `packagePrefix` is `agent-skill-`), the filter matches
+**zero** keys and you get an installer that installs nothing — **no error**.
+
+**Do instead:** confirm the source's actual package-key prefix
+(`nix eval <source>#packages.<system> --apply builtins.attrNames`) and set
+the flake-wide `packagePrefix` to match it.
+
+### 5. Don't merge a source's `packages` verbatim into your package set
+
+`base.packages.${system} // source.packages.${system}` drags in the
+source's `default` and `<name>-all` aggregate keys; a later source's
+`default` silently overwrites your base aggregate's `default`.
+
+**Do instead:** filter to `packagePrefix` keys — which is exactly what
+[`mkAggregateSkillsFlake`](#mkaggregateskillsflake) does on every source —
+so aggregate keys never leak into the merge.
+
+### 6. Don't rely on `--scope` having a default
+
+There is no implicit scope — every `install` / `uninstall` / `reap` /
+`reconcile` / `preview` invocation must pass `--scope`. A missing scope
+hard-errors; `--root` is only valid with `--scope=custom`; `--scope=project`
+hard-errors if no `.git/` or `flake.nix` marker is found walking up from
+`$PWD`.
+
+**Do instead:** always state the scope explicitly at the call site. See
+[Install scope](#install-scope).
+
+### 7. Don't hand-edit `.flake-skills-lock.json` or delete a GC root manually
+
+`uninstall` identifies managed entries via the sentinel + lock + GC root.
+Hand-editing the lock or `rm`-ing the GC root breaks that detection, leaving
+orphaned symlinks `uninstall` will then refuse to remove.
+
+**Do instead:** `nix run .#uninstall -- --scope=… <name>` to remove, `reap`
+to clear broken managed entries, `reconcile` to converge to a declared set.
+See [Uninstall behavior](#uninstall-behavior).
+
+### 8. Don't `nix profile install` the skill store path directly
+
+`nix profile install <store-path>` registers the derivation but never
+creates the user-facing `~/.claude/skills/<name>` symlink, so the agent
+never sees the skill.
+
+**Do instead:** `nix run .#install -- --scope=… --profile`, which both
+`nix profile install`s and creates the symlink (GC protection comes from the
+profile). See [`--profile`](#--profile-via-nix-profile-install).
 
 ## Uninstall behavior
 
