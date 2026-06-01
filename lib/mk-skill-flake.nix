@@ -29,12 +29,12 @@
   # mk-all-skills-flake.nix for the accepted shape.
   source ? null,
   src,
-  systems ? [
-    "x86_64-linux"
-    "aarch64-linux"
-    "x86_64-darwin"
-    "aarch64-darwin"
-  ],
+  # Systems to fan out over. Defaults to `defaultSystems` (the
+  # `nix-systems/default` flake input injected by lib/default.nix) rather
+  # than a hardcoded platform list, so downstream consumers retarget the
+  # fanout by overriding the `systems` input instead of forking. Pass an
+  # explicit list or `import <your systems input>` to override per call.
+  systems ? defaultSystems,
   description ? "Claude Code skill: ${skillName}",
   version ? "0.1.0",
   # Additional top-level directories from `src` to ship into the install
@@ -59,6 +59,9 @@
   # Injected by lib/default.nix from this flake's `self`. Bakes into the
   # skill's sentinel so reconcile/reap can scope to "things I built".
   provenance,
+  # Injected by lib/default.nix from this flake's `nix-systems/default`
+  # input; the default value of `systems` above.
+  defaultSystems,
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };

@@ -26,6 +26,13 @@ let
     narHash = self.narHash or "unknown";
   };
 
+  # Default system set, sourced from the `nix-systems/default` flake input
+  # rather than a hardcoded list. Threaded into every builder as the default
+  # for `systems`, so the fanout is never an inline platform list and
+  # downstream consumers can retarget it by overriding the `systems` input
+  # (`flake-skills.inputs.systems.follows = "systems"`) without forking.
+  defaultSystems = import self.inputs.systems;
+
   # Marketplace / aggregation helpers. Defined in their own module so
   # mk-aggregate-skills-flake.nix can reuse them without importing through
   # this file (which takes `self`, so re-entering it would be circular).
@@ -34,9 +41,10 @@ in
 {
   inherit upstreamUrl provenance;
 
-  mkSkillFlake = args: import ./mk-skill-flake.nix (args // { inherit provenance; });
+  mkSkillFlake = args: import ./mk-skill-flake.nix (args // { inherit provenance defaultSystems; });
 
-  mkAllSkillsFlake = args: import ./mk-all-skills-flake.nix (args // { inherit provenance; });
+  mkAllSkillsFlake =
+    args: import ./mk-all-skills-flake.nix (args // { inherit provenance defaultSystems; });
 
   # Multi-skill env (the `pkgs.buildEnv` analogue for skills). Takes
   # already-built skill drvs — no provenance threading needed because
@@ -73,5 +81,5 @@ in
   # with a list of (optionally prefixed) upstream source flakes into one
   # package set + apps + a devshell-ready install script.
   mkAggregateSkillsFlake =
-    args: import ./mk-aggregate-skills-flake.nix (args // { inherit provenance; });
+    args: import ./mk-aggregate-skills-flake.nix (args // { inherit provenance defaultSystems; });
 }
