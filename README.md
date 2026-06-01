@@ -15,6 +15,7 @@ install / preview by hand. The canonical multi-skill consumer is
 
 [skills]: https://www.anthropic.com/engineering/agent-skills
 [skills-nix]: https://github.com/nhooey/skills-nix
+[nix-systems]: https://github.com/nix-systems/default
 
 ## Single-skill: `mkSkillFlake`
 
@@ -26,7 +27,10 @@ A per-skill `flake.nix` is ten lines:
   description = "my-skill: Claude Code skill for X";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills.url = "github:nhooey/flake-skills";
+    flake-skills = {
+      url = "github:nhooey/flake-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = { nixpkgs, flake-skills, ... }:
     flake-skills.lib.mkSkillFlake {
@@ -37,8 +41,8 @@ A per-skill `flake.nix` is ten lines:
 }
 ```
 
-That gives you, for the four standard systems
-(`x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`):
+That gives you, for each system in the default
+[`nix-systems/default`][nix-systems] set:
 
 ```sh
 nix run .#preview   -- --scope=personal              # preview at $HOME/.claude/skills/
@@ -63,7 +67,7 @@ flake-skills.lib.mkSkillFlake {
   skillName      = "my-skill";
   src            = ./.;
   # optional:
-  systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+  systems        = import systems;  # default: the `nix-systems/default` input; override per "Overriding the target systems"
   description    = "Claude Code skill: my-skill";
   version        = "0.1.0";
   extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
@@ -81,7 +85,7 @@ flake-skills.lib.mkSkillFlake {
 | `nixpkgs`     | yes      | —                                                                    | The consumer's `nixpkgs` flake input. Passed in so the consumer controls pinning. |
 | `skillName`   | yes      | —                                                                    | String. The skill's name (e.g. `"garnix-ci"`), before any `renameFn`. The installed `SKILL.md` frontmatter `name:` is **normalized** to the effective name at build time. |
 | `src`         | yes      | —                                                                    | Path to the skill directory (typically `./.` from the per-skill `flake.nix`). |
-| `systems`     | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
+| `systems`     | no       | `import systems` — the [`nix-systems/default`][nix-systems] input | Systems to build for. Override the `systems` input or pass an explicit list — see [Overriding the target systems](#overriding-the-target-systems). |
 | `description` | no       | `"Claude Code skill: ${skillName}"`                                  | `meta.description` on the skill derivation. |
 | `version`     | no       | `"0.1.0"`                                                            | Skill package version. |
 | `extraDirs`   | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts. Missing dirs are silently ignored. |
@@ -109,6 +113,35 @@ Returns an attrset suitable for use as a flake's `outputs`:
 }
 ```
 
+### Overriding the target systems
+
+By default every builder fans out over the [`nix-systems/default`][nix-systems]
+set — the library never hardcodes a platform list. Retarget it without
+forking by pointing flake-skills' `systems` input at your own:
+
+```nix
+inputs = {
+  systems.url = "github:nix-systems/x86_64-linux";   # or any nix-systems fork / subset
+  flake-skills = {
+    url = "github:nhooey/flake-skills";
+    inputs.nixpkgs.follows = "nixpkgs";
+    inputs.systems.follows = "systems";              # flake-skills tracks your set
+  };
+};
+```
+
+Or pass `systems` directly at the call site — `import systems` from your own
+input, or an explicit list:
+
+```nix
+flake-skills.lib.mkSkillFlake {
+  inherit nixpkgs;
+  systems   = import systems;   # your own nix-systems input (a list literal also works)
+  skillName = "my-skill";
+  src       = ./.;
+}
+```
+
 ## Multi-skill: `mkAllSkillsFlake`
 
 If you have a directory of skills (one subdirectory per skill, each with a
@@ -121,8 +154,10 @@ The top-level repo flake stays ~10 lines:
   description = "skills-nix: Claude Code skills marketplace";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills.url = "github:nhooey/flake-skills";
-    flake-skills.inputs.nixpkgs.follows = "nixpkgs";
+    flake-skills = {
+      url = "github:nhooey/flake-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = { nixpkgs, flake-skills, ... }:
     flake-skills.lib.mkAllSkillsFlake {
@@ -156,7 +191,7 @@ flake-skills.lib.mkAllSkillsFlake {
   nixpkgs        = <flake input>;
   skillsDir      = ./skills;
   # optional:
-  systems        = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+  systems        = import systems;  # default: the `nix-systems/default` input; override per "Overriding the target systems"
   name           = "agent-skills-all";
   agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
@@ -171,7 +206,7 @@ flake-skills.lib.mkAllSkillsFlake {
 |--------------|----------|----------------------------------------------------------------------|---------|
 | `nixpkgs`    | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
 | `skillsDir`  | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
-| `systems`    | no       | `[ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]` | Systems to build for. |
+| `systems`    | no       | `import systems` — the [`nix-systems/default`][nix-systems] input | Systems to build for. Override the `systems` input or pass an explicit list — see [Overriding the target systems](#overriding-the-target-systems). |
 | `name`       | no       | `"agent-skills-all"`                                                 | Aggregate derivation name (also used as the install/preview app suffix). |
 | `agent`      | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). |
 | `extraDirs`  | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. |

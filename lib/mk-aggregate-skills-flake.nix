@@ -29,16 +29,20 @@
   packagePrefix ? "skill-",
   agent ? "claude-code",
   name ? "agent-skills-all",
-  systems ? [
-    "x86_64-linux"
-    "aarch64-linux"
-    "x86_64-darwin"
-    "aarch64-darwin"
-  ],
+  # Systems to fan out over. Defaults to `defaultSystems` (the
+  # `nix-systems/default` flake input injected by lib/default.nix) rather
+  # than a hardcoded platform list, so downstream consumers retarget the
+  # fanout by overriding the `systems` input instead of forking. Pass an
+  # explicit list or `import <your systems input>` to override per call.
+  systems ? defaultSystems,
   # Injected by lib/default.nix from this flake's `self`, threaded into the
   # `base = mkAllSkillsFlake {...}` build. Same role as in
   # mk-all-skills-flake.nix.
   provenance,
+  # Injected by lib/default.nix from this flake's `nix-systems/default`
+  # input; the default value of `systems` above, and threaded into the
+  # `base` build below.
+  defaultSystems,
 }:
 let
   inherit (nixpkgs) lib;
@@ -67,6 +71,7 @@ let
           packagePrefix
           agent
           provenance
+          defaultSystems
           ;
       };
 

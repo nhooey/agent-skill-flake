@@ -1,12 +1,12 @@
 {
   nixpkgs,
   skillsDir,
-  systems ? [
-    "x86_64-linux"
-    "aarch64-linux"
-    "x86_64-darwin"
-    "aarch64-darwin"
-  ],
+  # Systems to fan out over. Defaults to `defaultSystems` (the
+  # `nix-systems/default` flake input injected by lib/default.nix) rather
+  # than a hardcoded platform list, so downstream consumers retarget the
+  # fanout by overriding the `systems` input instead of forking. Pass an
+  # explicit list or `import <your systems input>` to override per call.
+  systems ? defaultSystems,
   name ? "agent-skills-all",
   # Which agent's filesystem layout to target. Each profile in
   # lib/agent-profiles.nix names a per-scope install suffix
@@ -76,6 +76,9 @@
   # Injected by lib/default.nix from this flake's `self`. Same role as in
   # mk-skill-flake.nix.
   provenance,
+  # Injected by lib/default.nix from this flake's `nix-systems/default`
+  # input; the default value of `systems` above.
+  defaultSystems,
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };
