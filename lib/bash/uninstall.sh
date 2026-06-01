@@ -32,7 +32,10 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) print_help; exit 0 ;;
+  -h | --help)
+    print_help
+    exit 0
+    ;;
   esac
 done
 
@@ -60,8 +63,8 @@ for name in "$@"; do
     continue
   fi
 
-  if is_ours_live "$entry" "$upstream_url" \
-     || is_ours_broken "$entry" "$gcroots_dir"; then
+  if is_ours_live "$entry" "$upstream_url" ||
+    is_ours_broken "$entry" "$gcroots_dir"; then
     rm -f "$entry"
     rm -f "$gcroots_dir/claude-skill-$name"
     lock_remove "$name"

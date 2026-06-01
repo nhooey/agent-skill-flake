@@ -95,14 +95,13 @@ in
 
   config = lib.mkIf cfg.enable (
     let
-      resolvedUser =
-        lib.throwIf (cfg.user == null || cfg.user == "") ''
-          services.flake-skills.user resolved to null/empty. Either
-          set `system.primaryUser` in your nix-darwin configuration,
-          or pass `services.flake-skills.user = "<username>";`
-          explicitly. The activation is per-user, so the module needs
-          to know which user's home-manager session to attach to.
-        '' cfg.user;
+      resolvedUser = lib.throwIf (cfg.user == null || cfg.user == "") ''
+        services.flake-skills.user resolved to null/empty. Either
+        set `system.primaryUser` in your nix-darwin configuration,
+        or pass `services.flake-skills.user = "<username>";`
+        explicitly. The activation is per-user, so the module needs
+        to know which user's home-manager session to attach to.
+      '' cfg.user;
     in
     {
       home-manager.users.${resolvedUser} = {

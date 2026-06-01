@@ -90,7 +90,12 @@ let
       appName ? "agent-skills-${namePrefix}-all",
     }:
     mkInstaller {
-      inherit nixpkgs system appName agent;
+      inherit
+        nixpkgs
+        system
+        appName
+        agent
+        ;
       skills = withNamePrefixSource {
         inherit
           nixpkgs
@@ -127,17 +132,19 @@ let
         if prefix == null then
           source.apps.${system}.install.program
         else
-          "${mkPrefixedInstaller {
-            inherit
-              nixpkgs
-              system
-              source
-              agent
-              packagePrefix
-              appName
-              ;
-            namePrefix = prefix;
-          }}/bin/install-${appName}";
+          "${
+            mkPrefixedInstaller {
+              inherit
+                nixpkgs
+                system
+                source
+                agent
+                packagePrefix
+                appName
+                ;
+              namePrefix = prefix;
+            }
+          }/bin/install-${appName}";
       args =
         if skills == null then
           "--scope=${scope}"
@@ -149,8 +156,7 @@ let
   # Resolve an agent profile by name (public wrapper around the internal
   # resolver) for callers who need the profile directly.
   resolveAgentProfile =
-    { nixpkgs, agent }:
-    (import ./internal.nix { inherit nixpkgs; }).resolveAgentProfile agent;
+    { nixpkgs, agent }: (import ./internal.nix { inherit nixpkgs; }).resolveAgentProfile agent;
 
   # Pure-data attrset of supported agent profiles (no nixpkgs needed).
   agentProfiles = import ./agent-profiles.nix;

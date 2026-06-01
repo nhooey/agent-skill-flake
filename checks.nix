@@ -12,7 +12,11 @@ let
   # Test fixtures (skill flakes built from tests/example-* via the real
   # builders). Imported here rather than threaded through flake.nix so the
   # top-level outputs stay structural.
-  inherit (import ./tests/fixtures.nix { flakeLib = self.lib; inherit nixpkgs; })
+  inherit
+    (import ./tests/fixtures.nix {
+      flakeLib = self.lib;
+      inherit nixpkgs;
+    })
     fixture
     fixtureAll
     fixtureCodex
@@ -234,8 +238,9 @@ in
   # entries in nixpkgs or aggregator flakes (e.g. `git`).
   example-skill-package-named = mkBatsCheck {
     name = "example-skill-package-named";
-    env.SKILL_PKG_ROOT =
-      "${fixture.packages.${system}."skill-example-skill"}/share/claude-skills/example-skill";
+    env.SKILL_PKG_ROOT = "${
+      fixture.packages.${system}."skill-example-skill"
+    }/share/claude-skills/example-skill";
   };
 
   # Layout: required files present, plumbing/hidden absent, sentinel
@@ -292,8 +297,9 @@ in
   # the awk pass so the normalized version wins).
   example-skill-extra-files-ships = mkBatsCheck {
     name = "example-skill-extra-files-ships";
-    env.SKILL_ROOT =
-      "${fixtureExtraFiles.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+    env.SKILL_ROOT = "${
+      fixtureExtraFiles.packages.${system}.default
+    }/share/claude-skills/example-skill-extra-files";
   };
 
   # Negative: same source, no `extraFiles` — the loose top-level files
@@ -301,8 +307,9 @@ in
   # default-strict posture.
   example-skill-extra-files-off-drops = mkBatsCheck {
     name = "example-skill-extra-files-off-drops";
-    env.SKILL_ROOT =
-      "${fixtureExtraFilesOff.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+    env.SKILL_ROOT = "${
+      fixtureExtraFilesOff.packages.${system}.default
+    }/share/claude-skills/example-skill-extra-files";
   };
 
   # Glob with no matches: build succeeds and produces an install with
@@ -311,8 +318,9 @@ in
   # ignored.
   example-skill-extra-files-no-match = mkBatsCheck {
     name = "example-skill-extra-files-no-match";
-    env.SKILL_ROOT =
-      "${fixtureExtraFilesNoMatch.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+    env.SKILL_ROOT = "${
+      fixtureExtraFilesNoMatch.packages.${system}.default
+    }/share/claude-skills/example-skill-extra-files";
   };
 
   # `extraFiles = [ "*" ]` against a source with a top-level
@@ -320,8 +328,9 @@ in
   # file but NOT the directory — the `[ -f "$f" ]` guard.
   example-skill-extra-files-dir-skip = mkBatsCheck {
     name = "example-skill-extra-files-dir-skip";
-    env.SKILL_ROOT =
-      "${fixtureExtraFilesDirSkip.packages.${system}.default}/share/claude-skills/example-skill-extra-files";
+    env.SKILL_ROOT = "${
+      fixtureExtraFilesDirSkip.packages.${system}.default
+    }/share/claude-skills/example-skill-extra-files";
   };
 
   # ──────────────────────────────────────────────────────────────
@@ -335,8 +344,7 @@ in
   example-skill-rename-normalizes-frontmatter = mkBatsCheck {
     name = "example-skill-rename-normalizes-frontmatter";
     extraInputs = [ pkgs.jq ];
-    env.RENAME_SKILL_ROOT =
-      "${renamedSkill}/share/claude-skills/example-skill-renamed";
+    env.RENAME_SKILL_ROOT = "${renamedSkill}/share/claude-skills/example-skill-renamed";
   };
 
   # mkAllSkillsFlake's renameFn formula: alpha is discovered and
@@ -551,7 +559,8 @@ in
         && lib.hasInfix "/bin/reconcile-home-manager" data
         && lib.hasInfix "/bin/reap-home-manager" data
         && lib.hasInfix "--scope=personal" data;
-      msg = "home-manager-module-evaluates: activation data must invoke "
+      msg =
+        "home-manager-module-evaluates: activation data must invoke "
         + "reconcile + reap with --scope=personal; got:\n${data}";
     };
 
@@ -628,7 +637,8 @@ in
         # alpha nor beta is referenced.
         && !(lib.hasInfix ''"alpha:/nix/store/'' offScript)
         && !(lib.hasInfix ''"beta:/nix/store/'' offScript);
-      msg = "home-manager-module-autodiscovers: autoDiscover gating wrong "
+      msg =
+        "home-manager-module-autodiscovers: autoDiscover gating wrong "
         + "(alpha/beta should appear only with autoDiscover=true, never hello)";
     };
 
@@ -648,7 +658,10 @@ in
       env = self.lib.mkSkillsEnv {
         inherit pkgs;
         name = "skills-env-alpha-beta";
-        skills = [ alphaPkg betaPkg ];
+        skills = [
+          alphaPkg
+          betaPkg
+        ];
       };
     in
     mkEvalCheck {
@@ -658,9 +671,11 @@ in
         && (builtins.length env.passthru.flakeSkillsEnv == 2)
         && (lib.elem "alpha" (map (m: m.name) env.passthru.flakeSkillsEnv))
         && (lib.elem "beta" (map (m: m.name) env.passthru.flakeSkillsEnv))
-        && (lib.all (m: m.drv ? passthru && m.drv.passthru.isFlakeSkill or false)
-              env.passthru.flakeSkillsEnv);
-      msg = "mk-skills-env-passthru: env must carry isFlakeSkillsEnv=true "
+        && (lib.all (
+          m: m.drv ? passthru && m.drv.passthru.isFlakeSkill or false
+        ) env.passthru.flakeSkillsEnv);
+      msg =
+        "mk-skills-env-passthru: env must carry isFlakeSkillsEnv=true "
         + "and flakeSkillsEnv=[{name=alpha; ...} {name=beta; ...}] with "
         + "each member's drv carrying isFlakeSkill=true.";
     };
@@ -674,7 +689,10 @@ in
       env = self.lib.mkSkillsEnv {
         inherit pkgs;
         name = "skills-env-alpha-beta";
-        skills = [ alphaPkg betaPkg ];
+        skills = [
+          alphaPkg
+          betaPkg
+        ];
       };
       eval = nixpkgs.lib.evalModules {
         specialArgs.lib = mockHomeManagerLib;
@@ -695,10 +713,9 @@ in
     in
     mkEvalCheck {
       name = "home-manager-module-expands-skills-env";
-      cond =
-        lib.hasInfix ''"alpha:/nix/store/'' script
-        && lib.hasInfix ''"beta:/nix/store/'' script;
-      msg = "home-manager-module-expands-skills-env: reconcile script must "
+      cond = lib.hasInfix ''"alpha:/nix/store/'' script && lib.hasInfix ''"beta:/nix/store/'' script;
+      msg =
+        "home-manager-module-expands-skills-env: reconcile script must "
         + "contain per-member `name:store-path` entries for both alpha and "
         + "beta after expansion, but at least one is missing.";
     };
@@ -713,8 +730,7 @@ in
   with-name-prefix-single = mkBatsCheck {
     name = "with-name-prefix-single";
     extraInputs = [ pkgs.jq ];
-    env.WRAPPED_SKILL_ROOT =
-      "${wrappedSingle}/share/claude-skills/${wrappedSingleName}";
+    env.WRAPPED_SKILL_ROOT = "${wrappedSingle}/share/claude-skills/${wrappedSingleName}";
   };
 
   # Wrapping a skills env: every member dir is prefix-renamed, frontmatter
@@ -738,9 +754,9 @@ in
       && (builtins.length wrappedEnv.passthru.flakeSkillsEnv == 2)
       && (lib.elem "superpowers-alpha" (map (m: m.name) wrappedEnv.passthru.flakeSkillsEnv))
       && (lib.elem "superpowers-beta" (map (m: m.name) wrappedEnv.passthru.flakeSkillsEnv))
-      && (lib.all
-        (m: m.drv ? passthru && (m.drv.passthru.isFlakeSkill or false))
-        wrappedEnv.passthru.flakeSkillsEnv);
+      && (lib.all (
+        m: m.drv ? passthru && (m.drv.passthru.isFlakeSkill or false)
+      ) wrappedEnv.passthru.flakeSkillsEnv);
     msg =
       "with-name-prefix-passthru: wrapped single must carry "
       + "isFlakeSkill=true + flakeSkillName='${wrappedSingleName}'; wrapped "
@@ -923,8 +939,7 @@ in
     mkEvalCheck {
       name = "aggregate-skills-flake-reconcile-script";
       cond =
-        lib.hasInfix "/bin/reconcile-aggregate-base --scope=project" script
-        && !(lib.hasInfix "\n" script);
+        lib.hasInfix "/bin/reconcile-aggregate-base --scope=project" script && !(lib.hasInfix "\n" script);
       msg =
         "aggregate-skills-flake-reconcile-script: expected a single "
         + "reconcile-aggregate-base --scope=project invocation. Got:\n${script}";
@@ -1032,12 +1047,19 @@ in
         && forwarded.scope == "custom"
         && forwarded.root == "/custom/skills"
         && builtins.length forwarded.skills == 2;
-      msg = "darwin-shim-forwards: forwarded values mismatch: "
+      msg =
+        "darwin-shim-forwards: forwarded values mismatch: "
         + builtins.toJSON {
-            imports = builtins.length importsList;
-            inherit (forwarded) enable autoDiscover agent scope root;
-            skills = builtins.length forwarded.skills;
-          };
+          imports = builtins.length importsList;
+          inherit (forwarded)
+            enable
+            autoDiscover
+            agent
+            scope
+            root
+            ;
+          skills = builtins.length forwarded.skills;
+        };
     };
 
   # `services.flake-skills.user` defaults to `system.primaryUser` so
@@ -1067,7 +1089,6 @@ in
     mkEvalCheck {
       name = "darwin-shim-defaults-user";
       cond = forwarded.enable == true && builtins.length forwarded.skills == 1;
-      msg = "darwin-shim-defaults-user: shim did not forward under "
-        + "system.primaryUser 'bob'";
+      msg = "darwin-shim-defaults-user: shim did not forward under " + "system.primaryUser 'bob'";
     };
 }

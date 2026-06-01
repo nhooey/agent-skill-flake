@@ -6,7 +6,8 @@ let
 
   # Look up an agent profile by name; fail eval with the list of known
   # agents if the name isn't a known profile.
-  resolveAgentProfile = agent:
+  resolveAgentProfile =
+    agent:
     if agentProfiles ? ${agent} then
       agentProfiles.${agent}
     else
@@ -61,15 +62,15 @@ let
       noGit = lib.removeSuffix ".git" (lib.removeSuffix "/" url);
       path =
         if lib.hasInfix "://" noGit then
-        # scheme://[user@]host[:port]/owner/repo → drop scheme,
-        # optional userinfo, and the host[:port] segment.
+          # scheme://[user@]host[:port]/owner/repo → drop scheme,
+          # optional userinfo, and the host[:port] segment.
           let
             afterScheme = lib.last (lib.splitString "://" noGit);
             afterUser = lib.last (lib.splitString "@" afterScheme);
           in
           lib.concatStringsSep "/" (lib.drop 1 (lib.splitString "/" afterUser))
         else if lib.hasInfix ":" noGit then
-        # scp-like `git@host:owner/repo` or shorthand `type:owner/repo`
+          # scp-like `git@host:owner/repo` or shorthand `type:owner/repo`
           lib.last (lib.splitString ":" noGit)
         else
           noGit;
@@ -94,10 +95,10 @@ let
   # Kept distinct on purpose: in a marketplace flake the skills and the
   # build tooling routinely live in different repos.
   mkRenameContext =
-    { name
-    , source ? null
-    , toolingProvenance
-    ,
+    {
+      name,
+      source ? null,
+      toolingProvenance,
     }:
     let
       tSlug = parseRepoSlug toolingProvenance.upstreamUrl;
@@ -107,14 +108,12 @@ let
       get = a: if source == null then null else (source.${a} or null);
       srcRevRaw = get "rev";
       srcDirty =
-        if source == null then null
-        else (source.dirty or (srcRevRaw != null && lib.hasSuffix "-dirty" srcRevRaw));
-      srcRev =
-        if srcRevRaw == null then null
-        else lib.removeSuffix "-dirty" srcRevRaw;
-      srcShort =
-        if srcRev == null then null
-        else orElse (get "shortRev") (builtins.substring 0 7 srcRev);
+        if source == null then
+          null
+        else
+          (source.dirty or (srcRevRaw != null && lib.hasSuffix "-dirty" srcRevRaw));
+      srcRev = if srcRevRaw == null then null else lib.removeSuffix "-dirty" srcRevRaw;
+      srcShort = if srcRev == null then null else orElse (get "shortRev") (builtins.substring 0 7 srcRev);
       srcSlug =
         if source == null then
           {
@@ -141,8 +140,10 @@ let
       source = {
         inherit (srcSlug) owner repo;
         url = orElse (get "url") (
-          if srcSlug.owner != null && srcSlug.repo != null then "github:${srcSlug.owner}/${srcSlug.repo}"
-          else null
+          if srcSlug.owner != null && srcSlug.repo != null then
+            "github:${srcSlug.owner}/${srcSlug.repo}"
+          else
+            null
         );
         rev = srcRev;
         shortRev = srcShort;
@@ -164,19 +165,20 @@ let
 
   mkSkill =
     system:
-    { name
-    , src
-    , version ? "0.1.0"
-    , description ? "Claude Code skill: ${name}"
-    , # Additional top-level directories to ship alongside the standard
+    {
+      name,
+      src,
+      version ? "0.1.0",
+      description ? "Claude Code skill: ${name}",
+      # Additional top-level directories to ship alongside the standard
       # SKILL.md / references / scripts trio. Use for upstream skills whose
       # SKILL.md references content in non-standard subdirs (e.g.
       # anthropics/skills' skill-creator references `agents/`, `assets/`,
       # `eval-viewer/`). Each entry is a bare directory name relative to
       # the skill source root; missing dirs are silently ignored, same as
       # references/scripts.
-      extraDirs ? [ ]
-    , # Additional top-level files to ship at the install root. Each entry
+      extraDirs ? [ ],
+      # Additional top-level files to ship at the install root. Each entry
       # is a shell glob evaluated in the skill source root at install time
       # (nullglob: no-match patterns are silently dropped, same posture as
       # `extraDirs`). Matches that resolve to directories are skipped — use
@@ -185,20 +187,19 @@ let
       # obra/superpowers' `visual-companion.md`, `code-reviewer.md`),
       # which the standard SKILL.md + references/ + scripts/ whitelist
       # would otherwise drop.
-      extraFiles ? [ ]
-    , # The skill's identity *before* any rename — the directory name as
+      extraFiles ? [ ],
+      # The skill's identity *before* any rename — the directory name as
       # discovered (multi-skill) or the caller's `skillName` (single).
       # Recorded in the sentinel as provenance so a remapped install can
       # still be traced back to what it was called upstream. Defaults to
       # `name` (no rename).
-      originalSkillName ? name
-    , # Provenance from lib/default.nix: which flake-skills lineage built
+      originalSkillName ? name,
+      # Provenance from lib/default.nix: which flake-skills lineage built
       # this, what rev / dirty state, and the source narHash for
       # differentiation across dirty builds. Written verbatim into the
       # `.flake-skills-managed.json` sentinel so reconcile/reap can decide
       # what's "ours" without needing flake metadata at runtime.
-      provenance
-    ,
+      provenance,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -260,13 +261,12 @@ let
         inherit originalSkillName version;
       };
     in
-    assert lib.assertMsg nameOk
-      (
-        "flake-skills: skill name ${builtins.toJSON name} is invalid. "
-        + "Claude Code skill names must match ^[a-z0-9-]{1,64}$ "
-        + "(lowercase letters, digits, hyphens; ≤64 chars). "
-        + "Fix the skillName / renameFn that produced it."
-      );
+    assert lib.assertMsg nameOk (
+      "flake-skills: skill name ${builtins.toJSON name} is invalid. "
+      + "Claude Code skill names must match ^[a-z0-9-]{1,64}$ "
+      + "(lowercase letters, digits, hyphens; ≤64 chars). "
+      + "Fix the skillName / renameFn that produced it."
+    );
     pkgs.stdenvNoCC.mkDerivation {
       pname = "claude-skill-${name}";
       inherit version src;
@@ -335,26 +335,22 @@ let
       dirNames = builtins.attrNames (lib.filterAttrs (n: _: isDir n) entries);
       skillNames = builtins.filter hasSkillMd dirNames;
     in
-    map
-      (n: {
-        name = n;
-        src = skillsDir + "/${n}";
-      })
-      skillNames;
+    map (n: {
+      name = n;
+      src = skillsDir + "/${n}";
+    }) skillNames;
 
   # Bash-array body: one `"name:store_path"` line per skill, indented.
   skillsArrayBody =
     skills:
-    if skills == [ ] then
-      ""
-    else
-      lib.concatMapStringsSep "\n" (s: ''  "${s.name}:${s.drv}"'') skills;
+    if skills == [ ] then "" else lib.concatMapStringsSep "\n" (s: ''"${s.name}:${s.drv}"'') skills;
 
   # Shared Nix-side prelude. Sets `app_name`, `personal_suffix`,
   # `project_suffix` and sources scope.bash so `parse_scope_args` is
   # available to the per-app bash that follows.
   scopePrelude =
-    { appName, profile }: ''
+    { appName, profile }:
+    ''
       app_name="${appName}"
       personal_suffix='${profile.personalSuffix}'
       project_suffix='${profile.projectSuffix}'
@@ -364,10 +360,10 @@ let
 
   mkInstaller =
     system:
-    { appName
-    , skills
-    , profile
-    ,
+    {
+      appName,
+      skills,
+      profile,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -384,15 +380,21 @@ let
       # libraries aren't declared as inputs in the bash sense.
       excludeShellChecks = [
         "SC1091" # source <store-path> not followable
-        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
-                 # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016" # `nn` inside single-quoted printf strings is literal
-                 # backtick markup, not an attempt to expand a subshell
-        "SC2034" # owner_app is consumed only by the sourced lock.bash
-                 # (lock_upsert), which shellcheck can't follow
+        "SC2154"
+        # vars (target_root, gcroots_dir, scope_remaining_args)
+        # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016"
+        # `nn` inside single-quoted printf strings is literal
+        # backtick markup, not an attempt to expand a subshell
+        "SC2034"
+        # owner_app is consumed only by the sourced lock.bash
+        # (lock_upsert), which shellcheck can't follow
       ];
       text =
-        scopePrelude { appName = "install-${appName}"; inherit profile; }
+        scopePrelude {
+          appName = "install-${appName}";
+          inherit profile;
+        }
         + ''
 
           owner_app='${appName}'
@@ -408,10 +410,10 @@ let
 
   mkReap =
     system:
-    { appName
-    , provenance
-    , profile
-    ,
+    {
+      appName,
+      provenance,
+      profile,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -425,13 +427,18 @@ let
       ];
       excludeShellChecks = [
         "SC1091" # source <store-path> not followable
-        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
-                 # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016" # `nn` inside single-quoted printf strings is literal
-                 # backtick markup, not an attempt to expand a subshell
+        "SC2154"
+        # vars (target_root, gcroots_dir, scope_remaining_args)
+        # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016"
+        # `nn` inside single-quoted printf strings is literal
+        # backtick markup, not an attempt to expand a subshell
       ];
       text =
-        scopePrelude { appName = "reap-${appName}"; inherit profile; }
+        scopePrelude {
+          appName = "reap-${appName}";
+          inherit profile;
+        }
         + ''
           upstream_url='${provenance.upstreamUrl}'
 
@@ -443,11 +450,11 @@ let
 
   mkReconcile =
     system:
-    { appName
-    , skills
-    , provenance
-    , profile
-    ,
+    {
+      appName,
+      skills,
+      provenance,
+      profile,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -461,13 +468,18 @@ let
       ];
       excludeShellChecks = [
         "SC1091" # source <store-path> not followable
-        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
-                 # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016" # `nn` inside single-quoted printf strings is literal
-                 # backtick markup, not an attempt to expand a subshell
+        "SC2154"
+        # vars (target_root, gcroots_dir, scope_remaining_args)
+        # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016"
+        # `nn` inside single-quoted printf strings is literal
+        # backtick markup, not an attempt to expand a subshell
       ];
       text =
-        scopePrelude { appName = "reconcile-${appName}"; inherit profile; }
+        scopePrelude {
+          appName = "reconcile-${appName}";
+          inherit profile;
+        }
         + ''
           upstream_url='${provenance.upstreamUrl}'
           owner_app='${appName}'
@@ -495,11 +507,11 @@ let
   # user to name what to remove.
   mkUninstall =
     system:
-    { appName
-    , provenance
-    , profile
-    , defaultSkillName ? ""
-    ,
+    {
+      appName,
+      provenance,
+      profile,
+      defaultSkillName ? "",
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -513,13 +525,18 @@ let
       ];
       excludeShellChecks = [
         "SC1091" # source <store-path> not followable
-        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
-                 # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016" # `nn` inside single-quoted printf strings is literal
-                 # backtick markup, not an attempt to expand a subshell
+        "SC2154"
+        # vars (target_root, gcroots_dir, scope_remaining_args)
+        # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016"
+        # `nn` inside single-quoted printf strings is literal
+        # backtick markup, not an attempt to expand a subshell
       ];
       text =
-        scopePrelude { appName = "uninstall-${appName}"; inherit profile; }
+        scopePrelude {
+          appName = "uninstall-${appName}";
+          inherit profile;
+        }
         + ''
           upstream_url='${provenance.upstreamUrl}'
           default_skill='${defaultSkillName}'
@@ -532,11 +549,11 @@ let
 
   mkPreview =
     system:
-    { appName
-    , displayName
-    , skills
-    , profile
-    ,
+    {
+      appName,
+      displayName,
+      skills,
+      profile,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -550,13 +567,18 @@ let
       ];
       excludeShellChecks = [
         "SC1091" # source <store-path> not followable
-        "SC2154" # vars (target_root, gcroots_dir, scope_remaining_args)
-                 # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016" # `nn` inside single-quoted printf strings is literal
-                 # backtick markup, not an attempt to expand a subshell
+        "SC2154"
+        # vars (target_root, gcroots_dir, scope_remaining_args)
+        # are assigned by scope.bash, which shellcheck can't follow
+        "SC2016"
+        # `nn` inside single-quoted printf strings is literal
+        # backtick markup, not an attempt to expand a subshell
       ];
       text =
-        scopePrelude { appName = "preview-${appName}"; inherit profile; }
+        scopePrelude {
+          appName = "preview-${appName}";
+          inherit profile;
+        }
         + ''
           display_name='${displayName}'
 

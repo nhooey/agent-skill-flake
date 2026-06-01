@@ -20,10 +20,11 @@
 lock_path() { printf '%s/.flake-skills-lock.json' "$target_root"; }
 
 lock_init_if_absent() {
-  local lock; lock=$(lock_path)
+  local lock
+  lock=$(lock_path)
   mkdir -p "$(dirname "$lock")"
   if [ ! -f "$lock" ]; then
-    printf '%s\n' '{"schemaVersion":1,"skills":{}}' > "$lock"
+    printf '%s\n' '{"schemaVersion":1,"skills":{}}' >"$lock"
   fi
 }
 
@@ -58,7 +59,7 @@ lock_upsert() {
     --arg owner "$owner" \
     '.skills[$name] = ($s + {storePath: $sp, installedAt: $t}
       + (if $owner == "" then {} else {installedBy: $owner} end))' \
-    "$lock" > "$tmp"
+    "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
 }
 
@@ -79,7 +80,7 @@ lock_remove() {
   lock=$(lock_path)
   [ -f "$lock" ] || return 0
   tmp="$lock.tmp.$$"
-  jq --arg name "$skill_name" 'del(.skills[$name])' "$lock" > "$tmp"
+  jq --arg name "$skill_name" 'del(.skills[$name])' "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
 }
 
@@ -118,6 +119,6 @@ lock_replace_all() {
       '$cur + {($name): ($s + {storePath: $sp, installedAt: $t}
         + (if $owner == "" then {} else {installedBy: $owner} end))}')
   done
-  jq --argjson new "$new_skills" '.skills = $new' "$lock" > "$tmp"
+  jq --argjson new "$new_skills" '.skills = $new' "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
 }

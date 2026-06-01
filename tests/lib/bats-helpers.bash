@@ -30,8 +30,8 @@ assert_store_symlink() {
   assert [ -L "$path" ]
   target=$(readlink "$path")
   case "$target" in
-    /nix/store/*) ;;
-    *) fail "expected /nix/store target for $label, got: $target" ;;
+  /nix/store/*) ;;
+  *) fail "expected /nix/store target for $label, got: $target" ;;
   esac
 }
 

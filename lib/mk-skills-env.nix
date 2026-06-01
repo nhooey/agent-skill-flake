@@ -45,14 +45,15 @@
 }:
 let
   members = map (drv: {
-    name = drv.passthru.flakeSkillName or (throw ''
-      mkSkillsEnv '${name}': every member of `skills` must be a
-      derivation produced by flake-skills' `mkSkillFlake` /
-      `mkAllSkillsFlake` (carrying `passthru.flakeSkillName`). Got
-      a derivation without that attribute; if you're trying to nest
-      a `mkSkillsEnv` inside another, inline the member skills
-      instead — nested envs aren't supported.
-    '');
+    name =
+      drv.passthru.flakeSkillName or (throw ''
+        mkSkillsEnv '${name}': every member of `skills` must be a
+        derivation produced by flake-skills' `mkSkillFlake` /
+        `mkAllSkillsFlake` (carrying `passthru.flakeSkillName`). Got
+        a derivation without that attribute; if you're trying to nest
+        a `mkSkillsEnv` inside another, inline the member skills
+        instead — nested envs aren't supported.
+      '');
     inherit drv;
   }) skills;
 in
