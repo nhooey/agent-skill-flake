@@ -221,4 +221,11 @@ in
       program = "${reconcileFor system}/bin/reconcile-${name}";
     };
   });
+
+  # The declarative dev-shell one-liner: converge the target to this pack's
+  # declared skill set at `--scope=project`. Only reconcile removes strays, so
+  # the shell stays a pure function of the inputs. Mirrors mkAggregateSkillsFlake's
+  # `reconcileScript` so consumers can drop either into a devshell startup hook
+  # without reaching into `apps.reconcile.program` and appending the scope flag.
+  reconcileScript = system: "${reconcileFor system}/bin/reconcile-${name} --scope=project";
 }
