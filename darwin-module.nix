@@ -57,41 +57,11 @@ in
         `services.flake-skills.enable = true`.
       '';
     };
-
-    skills = lib.mkOption {
-      type = lib.types.listOf lib.types.package;
-      default = [ ];
-      description = "Forwarded to `programs.flake-skills.skills`.";
-    };
-
-    autoDiscover = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = "Forwarded to `programs.flake-skills.autoDiscover`.";
-    };
-
-    agent = lib.mkOption {
-      type = lib.types.str;
-      default = "claude-code";
-      description = "Forwarded to `programs.flake-skills.agent`.";
-    };
-
-    scope = lib.mkOption {
-      type = lib.types.enum [
-        "personal"
-        "project"
-        "custom"
-      ];
-      example = "personal";
-      description = "Forwarded to `programs.flake-skills.scope`. Required.";
-    };
-
-    root = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "Forwarded to `programs.flake-skills.root`. Required iff `scope = \"custom\"`.";
-    };
-  };
+  }
+  # The data options forwarded verbatim into the home-manager module
+  # (`skills`, `autoDiscover`, `agent`, `scope`, `root`) — shared so the
+  # shim's option types stay in lockstep with what it forwards into.
+  // import ./lib/options-flake-skills.nix { inherit lib; };
 
   config = lib.mkIf cfg.enable (
     let
