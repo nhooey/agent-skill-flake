@@ -4,6 +4,10 @@ let
 
   agentProfiles = import ./agent-profiles.nix;
 
+  # Shared awk that normalizes installed SKILL.md frontmatter `name:`.
+  # Used by both `mkSkill` (below) and `withNamePrefix`.
+  normalizeFrontmatterScript = import ./normalize-frontmatter.nix;
+
   # Look up an agent profile by name; fail eval with the list of known
   # agents if the name isn't a known profile.
   resolveAgentProfile =
@@ -17,6 +21,44 @@ let
         + lib.concatStringsSep ", " (builtins.attrNames agentProfiles)
         + ". Add a new profile to lib/agent-profiles.nix to extend this set."
       );
+
+  # ── Shared validators ────────────────────────────────────────────────
+  # Name/prefix rules live in lib/skill-name.nix (lib-only) so the
+  # consumer-side `withNamePrefix` can share them; re-exported below.
+  inherit (import ./skill-name.nix { inherit lib; })
+    isValidSkillName
+    assertValidSkillName
+    validateNamePrefix
+    ;
+
+  # ── Sentinel ─────────────────────────────────────────────────────────
+  # The `.flake-skills-managed.json` record written into every installed
+  # skill. Single source of truth for the schema/field set; `mkSkill`
+  # builds it at eval, and `withNamePrefix` rewrites only `skillName` on an
+  # already-built file via jq (see lib/with-name-prefix.nix) — keep the two
+  # in sync through this definition.
+  mkSentinel =
+    {
+      name,
+      originalSkillName,
+      version,
+      provenance,
+    }:
+    builtins.toJSON {
+      schemaVersion = 2;
+      managedBy = provenance.upstreamUrl;
+      managedByRev = provenance.rev;
+      managedByDirty = provenance.dirty;
+      managedByNarHash = provenance.narHash;
+      skillName = name;
+      inherit originalSkillName version;
+    };
+
+  # Filter an attrset's keys to those a skill package set exposes under
+  # `prefix` — drops `default` / `<name>-all` aggregate keys. Used wherever
+  # a source's `packages.<system>` is sifted for its per-skill entries.
+  skillKeysWithPrefix =
+    attrs: prefix: builtins.filter (lib.hasPrefix prefix) (builtins.attrNames attrs);
 
   # ── Rename-context plumbing ──────────────────────────────────────────
   # The rename formula (`renameFn`) is handed a context attrset, not a
@@ -163,6 +205,26 @@ let
       };
     };
 
+  # Apply the rename formula to one skill. Returns the post-rename
+  # `effective` name plus the `original` (pre-rename) name kept for the
+  # sentinel's `originalSkillName`. Centralizes the `renameFn
+  # (mkRenameContext {...})` call shared by the single- and multi-skill
+  # builders so the context shape can't drift between them.
+  applyRename =
+    {
+      name,
+      source ? null,
+      provenance,
+      renameFn,
+    }:
+    {
+      effective = renameFn (mkRenameContext {
+        inherit name source;
+        toolingProvenance = provenance;
+      });
+      original = name;
+    };
+
   mkSkill =
     system:
     {
@@ -204,69 +266,21 @@ let
     let
       pkgs = nixpkgs.legacyPackages.${system};
 
-      # Claude Code's hard constraint on the effective skill name (the
-      # `name:` frontmatter / directory name): lowercase letters, digits,
-      # hyphens, ≤64 chars. `builtins.match` is whole-string-anchored.
-      # Assert at eval so a bad `skillName` / `renameFn` fails `nix flake
-      # check` with a clear message instead of silently producing a skill
-      # Claude Code refuses to load.
-      nameOk = builtins.match "[a-z0-9-]{1,64}" name != null;
+      # See lib/normalize-frontmatter.nix for the rename contract; the
+      # script is shared with `withNamePrefix` so both rewrite frontmatter
+      # `name:` identically. Run below via `awk -v newname=… -f`.
+      normalizeFrontmatterAwk = pkgs.writeText "normalize-skill-frontmatter.awk" normalizeFrontmatterScript;
 
-      # awk pass that normalizes the *installed* SKILL.md so its
-      # top-level frontmatter `name:` equals the canonical `name`. This
-      # is the half a directory rename can't do alone: Claude Code reads
-      # the frontmatter `name:` in preference to the directory, so a
-      # rename that didn't rewrite it would silently keep the old
-      # identity. Only the first `---`-fenced block is touched, and only
-      # a column-0 `name:` key (an indented `name:` under e.g.
-      # `metadata:` is correctly left alone); if the block has no `name:`
-      # one is injected; a file with no frontmatter gets one synthesized.
-      normalizeFrontmatterAwk = pkgs.writeText "normalize-skill-frontmatter.awk" ''
-        BEGIN { state = 0; seen = 0 }
-        NR == 1 && $0 != "---" {
-          print "---"
-          print "name: " newname
-          print "---"
-          print ""
-          print
-          state = 2
-          next
-        }
-        NR == 1 {
-          print
-          state = 1
-          next
-        }
-        state == 1 && $0 == "---" {
-          if (seen == 0) print "name: " newname
-          print
-          state = 2
-          next
-        }
-        state == 1 && /^name[[:blank:]]*:/ {
-          print "name: " newname
-          seen = 1
-          next
-        }
-        { print }
-      '';
-
-      sentinel = builtins.toJSON {
-        schemaVersion = 2;
-        managedBy = provenance.upstreamUrl;
-        managedByRev = provenance.rev;
-        managedByDirty = provenance.dirty;
-        managedByNarHash = provenance.narHash;
-        skillName = name;
-        inherit originalSkillName version;
+      sentinel = mkSentinel {
+        inherit
+          name
+          originalSkillName
+          version
+          provenance
+          ;
       };
     in
-    assert lib.assertMsg nameOk (
-      "flake-skills: skill name ${builtins.toJSON name} is invalid. "
-      + "Claude Code skill names must match ^[a-z0-9-]{1,64}$ "
-      + "(lowercase letters, digits, hyphens; ≤64 chars). "
-      + "Fix the skillName / renameFn that produced it."
-    );
+    assert assertValidSkillName name "skill name";
     pkgs.stdenvNoCC.mkDerivation {
       pname = "claude-skill-${name}";
       inherit version src;
@@ -358,24 +372,41 @@ let
       source ${./bash/scope.bash}
     '';
 
-  mkInstaller =
+  # Factory behind every installer/reap/reconcile/uninstall/preview app.
+  # The five `<verb>` apps share one shape — `writeShellApplication` whose
+  # `text` is `scopePrelude` + a few env-var assignments + sourced helper
+  # libraries + an optional `skills_list` array + the verb's bash script.
+  # Only four things vary per verb, all passed in: `runtimeInputs`, the
+  # extra env-var lines (`extraEnv`), which `./bash/*.bash` helpers get
+  # sourced (`sourceModules`), and whether a `skills_list` array is emitted
+  # (`skills` non-null). The base `excludeShellChecks` are shared; an app
+  # that defines a var consumed only by a sourced helper adds `SC2034`.
+  mkShellApp =
     system:
     {
+      verb,
       appName,
-      skills,
       profile,
+      runtimeInputs,
+      extraEnv ? "",
+      sourceModules ? [ ],
+      skills ? null,
+      extraExcludeShellChecks ? [ ],
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
+      fullAppName = "${verb}-${appName}";
+      sourceLines =
+        if sourceModules == [ ] then
+          ""
+        else
+          lib.concatMapStringsSep "\n" (m: "source ${m}") sourceModules + "\n";
+      skillsArray =
+        if skills == null then "" else "declare -a skills_list=(\n${skillsArrayBody skills}\n)\n";
     in
     pkgs.writeShellApplication {
-      name = "install-${appName}";
-      runtimeInputs = with pkgs; [
-        coreutils
-        git
-        jq
-        nix
-      ];
+      name = fullAppName;
+      inherit runtimeInputs;
       # shellcheck can't follow `source <store-path>` because the helper
       # libraries aren't declared as inputs in the bash sense.
       excludeShellChecks = [
@@ -386,26 +417,43 @@ let
         "SC2016"
         # `nn` inside single-quoted printf strings is literal
         # backtick markup, not an attempt to expand a subshell
-        "SC2034"
-        # owner_app is consumed only by the sourced lock.bash
-        # (lock_upsert), which shellcheck can't follow
-      ];
+      ]
+      ++ extraExcludeShellChecks;
+      # scopePrelude ends with a trailing newline; each piece below is
+      # newline-terminated (or empty) so no two tokens glue together.
       text =
         scopePrelude {
-          appName = "install-${appName}";
+          appName = fullAppName;
           inherit profile;
         }
-        + ''
+        + extraEnv
+        + "\n"
+        + sourceLines
+        + skillsArray
+        + builtins.readFile ./bash/${verb}.sh;
+    };
 
-          owner_app='${appName}'
-
-          source ${./bash/lock.bash}
-
-          declare -a skills_list=(
-          ${skillsArrayBody skills}
-          )
-        ''
-        + builtins.readFile ./bash/install.sh;
+  mkInstaller =
+    system:
+    {
+      appName,
+      skills,
+      profile,
+    }:
+    mkShellApp system {
+      verb = "install";
+      inherit appName profile skills;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
+        coreutils
+        git
+        jq
+        nix
+      ];
+      extraEnv = "owner_app='${appName}'";
+      sourceModules = [ ./bash/lock.bash ];
+      # owner_app is consumed only by the sourced lock.bash (lock_upsert),
+      # which shellcheck can't follow.
+      extraExcludeShellChecks = [ "SC2034" ];
     };
 
   mkReap =
@@ -415,37 +463,19 @@ let
       provenance,
       profile,
     }:
-    let
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
-    pkgs.writeShellApplication {
-      name = "reap-${appName}";
-      runtimeInputs = with pkgs; [
+    mkShellApp system {
+      verb = "reap";
+      inherit appName profile;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
         jq
       ];
-      excludeShellChecks = [
-        "SC1091" # source <store-path> not followable
-        "SC2154"
-        # vars (target_root, gcroots_dir, scope_remaining_args)
-        # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016"
-        # `nn` inside single-quoted printf strings is literal
-        # backtick markup, not an attempt to expand a subshell
+      extraEnv = "upstream_url='${provenance.upstreamUrl}'";
+      sourceModules = [
+        ./bash/ownership.bash
+        ./bash/lock.bash
       ];
-      text =
-        scopePrelude {
-          appName = "reap-${appName}";
-          inherit profile;
-        }
-        + ''
-          upstream_url='${provenance.upstreamUrl}'
-
-          source ${./bash/ownership.bash}
-          source ${./bash/lock.bash}
-        ''
-        + builtins.readFile ./bash/reap.sh;
     };
 
   mkReconcile =
@@ -456,42 +486,22 @@ let
       provenance,
       profile,
     }:
-    let
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
-    pkgs.writeShellApplication {
-      name = "reconcile-${appName}";
-      runtimeInputs = with pkgs; [
+    mkShellApp system {
+      verb = "reconcile";
+      inherit appName profile skills;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
         jq
       ];
-      excludeShellChecks = [
-        "SC1091" # source <store-path> not followable
-        "SC2154"
-        # vars (target_root, gcroots_dir, scope_remaining_args)
-        # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016"
-        # `nn` inside single-quoted printf strings is literal
-        # backtick markup, not an attempt to expand a subshell
+      extraEnv = ''
+        upstream_url='${provenance.upstreamUrl}'
+        owner_app='${appName}'
+      '';
+      sourceModules = [
+        ./bash/ownership.bash
+        ./bash/lock.bash
       ];
-      text =
-        scopePrelude {
-          appName = "reconcile-${appName}";
-          inherit profile;
-        }
-        + ''
-          upstream_url='${provenance.upstreamUrl}'
-          owner_app='${appName}'
-
-          source ${./bash/ownership.bash}
-          source ${./bash/lock.bash}
-
-          declare -a skills_list=(
-          ${skillsArrayBody skills}
-          )
-        ''
-        + builtins.readFile ./bash/reconcile.sh;
     };
 
   # Uninstall: undo a prior install for one or more named skills. Removes
@@ -513,38 +523,22 @@ let
       profile,
       defaultSkillName ? "",
     }:
-    let
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
-    pkgs.writeShellApplication {
-      name = "uninstall-${appName}";
-      runtimeInputs = with pkgs; [
+    mkShellApp system {
+      verb = "uninstall";
+      inherit appName profile;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
         jq
       ];
-      excludeShellChecks = [
-        "SC1091" # source <store-path> not followable
-        "SC2154"
-        # vars (target_root, gcroots_dir, scope_remaining_args)
-        # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016"
-        # `nn` inside single-quoted printf strings is literal
-        # backtick markup, not an attempt to expand a subshell
+      extraEnv = ''
+        upstream_url='${provenance.upstreamUrl}'
+        default_skill='${defaultSkillName}'
+      '';
+      sourceModules = [
+        ./bash/ownership.bash
+        ./bash/lock.bash
       ];
-      text =
-        scopePrelude {
-          appName = "uninstall-${appName}";
-          inherit profile;
-        }
-        + ''
-          upstream_url='${provenance.upstreamUrl}'
-          default_skill='${defaultSkillName}'
-
-          source ${./bash/ownership.bash}
-          source ${./bash/lock.bash}
-        ''
-        + builtins.readFile ./bash/uninstall.sh;
     };
 
   mkPreview =
@@ -555,44 +549,22 @@ let
       skills,
       profile,
     }:
-    let
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
-    pkgs.writeShellApplication {
-      name = "preview-${appName}";
-      runtimeInputs = with pkgs; [
+    mkShellApp system {
+      verb = "preview";
+      inherit appName profile skills;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         findutils
         git
       ];
-      excludeShellChecks = [
-        "SC1091" # source <store-path> not followable
-        "SC2154"
-        # vars (target_root, gcroots_dir, scope_remaining_args)
-        # are assigned by scope.bash, which shellcheck can't follow
-        "SC2016"
-        # `nn` inside single-quoted printf strings is literal
-        # backtick markup, not an attempt to expand a subshell
-      ];
-      text =
-        scopePrelude {
-          appName = "preview-${appName}";
-          inherit profile;
-        }
-        + ''
-          display_name='${displayName}'
-
-          declare -a skills_list=(
-          ${skillsArrayBody skills}
-          )
-        ''
-        + builtins.readFile ./bash/preview.sh;
+      extraEnv = "display_name='${displayName}'";
     };
 in
 {
   inherit
     mkSkill
     mkRenameContext
+    applyRename
     discoverSkills
     mkInstaller
     mkUninstall
@@ -601,5 +573,9 @@ in
     mkReconcile
     resolveAgentProfile
     agentProfiles
+    skillKeysWithPrefix
+    validateNamePrefix
+    assertValidSkillName
+    isValidSkillName
     ;
 }

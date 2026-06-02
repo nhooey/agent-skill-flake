@@ -58,20 +58,17 @@
 let
   inherit (pkgs) lib;
 
-  validPrefix =
-    let
-      ok = builtins.match "[a-z0-9][a-z0-9-]*" namePrefix != null;
-    in
-    if !ok then
-      throw (
-        "flake-skills.lib.withNamePrefix: namePrefix "
-        + builtins.toJSON namePrefix
-        + " is invalid. Must be a non-empty string matching "
-        + "^[a-z0-9][a-z0-9-]*$ (start with a lowercase letter or "
-        + "digit, then any of [a-z0-9-])."
-      )
-    else
-      namePrefix;
+  # Name rules shared with the build-side `mkSkill` (lib/skill-name.nix).
+  validators = import ./skill-name.nix { inherit (pkgs) lib; };
+
+  # The same frontmatter-normalizing awk `mkSkill` uses, written to a file
+  # so we run it with `awk -f` instead of inlining a second copy. See
+  # lib/normalize-frontmatter.nix for the rename contract.
+  normalizeFrontmatterAwk = pkgs.writeText "normalize-skill-frontmatter.awk" (
+    import ./normalize-frontmatter.nix
+  );
+
+  validPrefix = validators.validateNamePrefix namePrefix;
 
   # Wrap a single skill: copy contents under the new directory name,
   # rewrite frontmatter + sentinel, refresh passthru.
@@ -85,9 +82,8 @@ let
           without that attribute.
         '');
       newName = "${validPrefix}-${oldName}";
-      nameOk = builtins.match "[a-z0-9-]{1,64}" newName != null;
     in
-    assert lib.assertMsg nameOk (
+    assert lib.assertMsg (validators.isValidSkillName newName) (
       "flake-skills.lib.withNamePrefix: combined name "
       + builtins.toJSON newName
       + " violates Claude Code's name rule ^[a-z0-9-]{1,64}$ "
@@ -111,25 +107,12 @@ let
         cp -rL --no-preserve=mode,ownership "$srcDir/." "$dstDir/"
         chmod -R u+w "$dstDir"
 
-        # Rewrite SKILL.md frontmatter `name:` only. Same fenced-block
-        # contract as `mkSkill`'s normalize pass: only the first
-        # `---`-delimited block is touched, only a column-0 `name:` key.
-        awk -v newname=${lib.escapeShellArg newName} '
-          BEGIN { state = 0; seen = 0 }
-          NR == 1 && $0 != "---" {
-            print "---"; print "name: " newname; print "---"; print ""
-            print; state = 2; next
-          }
-          NR == 1 { print; state = 1; next }
-          state == 1 && $0 == "---" {
-            if (seen == 0) print "name: " newname
-            print; state = 2; next
-          }
-          state == 1 && /^name[[:blank:]]*:/ {
-            print "name: " newname; seen = 1; next
-          }
-          { print }
-        ' "$dstDir/SKILL.md" > "$dstDir/SKILL.md.tmp"
+        # Rewrite SKILL.md frontmatter `name:` via the shared normalize
+        # pass (lib/normalize-frontmatter.nix) — the same script mkSkill
+        # uses, so the fenced-block contract stays defined in one place.
+        awk -v newname=${lib.escapeShellArg newName} \
+          -f ${normalizeFrontmatterAwk} \
+          "$dstDir/SKILL.md" > "$dstDir/SKILL.md.tmp"
         mv "$dstDir/SKILL.md.tmp" "$dstDir/SKILL.md"
         chmod 644 "$dstDir/SKILL.md"
 
