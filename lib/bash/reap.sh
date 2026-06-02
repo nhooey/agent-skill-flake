@@ -19,14 +19,10 @@ store-path targets no longer exist.
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-  esac
-done
+if wants_help "$@"; then
+  print_help
+  exit 0
+fi
 
 parse_scope_args "$@" || exit $?
 set -- "${scope_remaining_args[@]}"
@@ -45,9 +41,7 @@ if [ -d "$target_root" ]; then
   for entry in "$target_root"/*; do
     if is_ours_broken "$entry" "$gcroots_dir"; then
       name=$(basename "$entry")
-      rm -f "$entry"
-      rm -f "$gcroots_dir/claude-skill-$name"
-      lock_remove "$name"
+      cleanup_skill_entry "$name"
       printf 'reaped (broken target): %s\n' "$entry"
       reaped=$((reaped + 1))
     fi

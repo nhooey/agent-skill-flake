@@ -84,6 +84,26 @@ lock_remove() {
   mv -f "$tmp" "$lock"
 }
 
+# remove_skill_links  $skill_name
+# Remove a skill's user-facing symlink (<target_root>/<name>) and per-user
+# GC root (<gcroots_dir>/claude-skill-<name>). Leaves the lock untouched —
+# reconcile owns the lock and rebuilds it wholesale, so its sweep removes
+# only the links and defers the lock to lock_replace_all.
+remove_skill_links() {
+  local skill_name="$1"
+  rm -f "$target_root/$skill_name"
+  rm -f "$gcroots_dir/claude-skill-$skill_name"
+}
+
+# cleanup_skill_entry  $skill_name
+# Full inverse of an install: drop the symlink, the GC root, and the lock
+# entry. Used by uninstall and by reap's broken-target pass.
+cleanup_skill_entry() {
+  local skill_name="$1"
+  remove_skill_links "$skill_name"
+  lock_remove "$skill_name"
+}
+
 # lock_replace_all  "$@"  -- each arg is "name:store_path"
 # Rebuild .skills from the args (used by reconcile). The rebuild is
 # scoped to `owner_app`: entries owned by *other* appNames (installedBy

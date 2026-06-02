@@ -18,14 +18,10 @@ No files are created or removed.
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-  esac
-done
+if wants_help "$@"; then
+  print_help
+  exit 0
+fi
 
 parse_scope_args "$@" || exit $?
 set -- "${scope_remaining_args[@]}"

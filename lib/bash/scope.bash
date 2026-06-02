@@ -136,3 +136,29 @@ Other flags:
                                 (default: /nix/var/nix/gcroots/per-user/\$USER)
 EOF
 }
+
+# True (0) if argv contains -h or --help. Each app short-circuits to its
+# own print_help on this, before scope parsing, so the help text is
+# obtainable without picking a scope.
+wants_help() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+    -h | --help) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Idempotently point symlink $1 at the literal target $2, announcing the
+# change as "$3: $1 -> $2" only when one was made. Direct `readlink`
+# (no -f) compares the link's literal target, so an already-correct link
+# is left untouched and silent — the install/reconcile no-op fast path.
+ensure_symlink() {
+  local link=$1 dest=$2 label=$3
+  if [ "$(readlink "$link" 2>/dev/null)" != "$dest" ]; then
+    rm -rf "$link"
+    ln -sfn "$dest" "$link"
+    printf '%s: %s -> %s\n' "$label" "$link" "$dest"
+  fi
+}
