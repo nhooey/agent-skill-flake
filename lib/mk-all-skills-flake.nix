@@ -98,15 +98,14 @@ let
   renamed = map (
     s:
     let
-      ctx = internal.mkRenameContext {
+      rename = internal.applyRename {
         inherit (s) name;
-        inherit source;
-        toolingProvenance = provenance;
+        inherit source provenance renameFn;
       };
     in
     {
-      name = renameFn ctx;
-      originalName = s.name;
+      name = rename.effective;
+      originalName = rename.original;
       inherit (s) src;
     }
   ) discovered;

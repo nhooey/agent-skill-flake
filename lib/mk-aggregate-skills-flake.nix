@@ -99,7 +99,7 @@ let
         if prefix == null then
           let
             attrs = source.packages.${system};
-            keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
+            keys = internal.skillKeysWithPrefix attrs packagePrefix;
           in
           map (
             k:
@@ -169,7 +169,7 @@ let
     else
       let
         attrs = base.packages.${system};
-        keys = builtins.filter (lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
+        keys = internal.skillKeysWithPrefix attrs packagePrefix;
       in
       map (k: {
         name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);

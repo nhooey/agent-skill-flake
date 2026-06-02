@@ -74,13 +74,11 @@ let
   # install path, sentinel `skillName`, default package key, and the
   # preview/uninstall default — everything user-facing. `skillName`
   # itself is kept only as the pre-rename `originalSkillName`.
-  effectiveName = renameFn (
-    internal.mkRenameContext {
+  effectiveName =
+    (internal.applyRename {
       name = skillName;
-      inherit source;
-      toolingProvenance = provenance;
-    }
-  );
+      inherit source provenance renameFn;
+    }).effective;
 
   effectivePackageName =
     if packageName == null then "${packagePrefix}${effectiveName}" else packageName;

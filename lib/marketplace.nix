@@ -58,9 +58,10 @@ let
       packagePrefix ? "skill-",
     }:
     let
+      internal = import ./internal.nix { inherit nixpkgs; };
       pkgs = nixpkgs.legacyPackages.${system};
       attrs = source.packages.${system};
-      keys = builtins.filter (nixpkgs.lib.hasPrefix packagePrefix) (builtins.attrNames attrs);
+      keys = internal.skillKeysWithPrefix attrs packagePrefix;
     in
     map (
       k:
