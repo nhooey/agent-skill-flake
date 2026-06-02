@@ -30,14 +30,10 @@ profile separately (\`nix profile remove\`).
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-  esac
-done
+if wants_help "$@"; then
+  print_help
+  exit 0
+fi
 
 parse_scope_args "$@" || exit $?
 set -- "${scope_remaining_args[@]}"
@@ -65,9 +61,7 @@ for name in "$@"; do
 
   if is_ours_live "$entry" "$upstream_url" ||
     is_ours_broken "$entry" "$gcroots_dir"; then
-    rm -f "$entry"
-    rm -f "$gcroots_dir/claude-skill-$name"
-    lock_remove "$name"
+    cleanup_skill_entry "$name"
     printf 'uninstalled: %s\n' "$name"
     removed=$((removed + 1))
   else

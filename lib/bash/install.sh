@@ -53,14 +53,10 @@ EOF
 
 # --help short-circuits before scope parsing so the help text is
 # obtainable without picking a scope.
-for arg in "$@"; do
-  case "$arg" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-  esac
-done
+if wants_help "$@"; then
+  print_help
+  exit 0
+fi
 
 parse_scope_args "$@" || exit $?
 set -- "${scope_remaining_args[@]}"
@@ -114,15 +110,7 @@ symlink)
     target="$target_root/$skill_name"
     gcroot_target="$gcroots_dir/claude-skill-$skill_name"
 
-    # Direct `readlink` (no `-f`): we want the symlink's literal
-    # target, not the fully-resolved path. Equal → state already
-    # matches → skip the rm/ln/printf and stay silent. Missing,
-    # non-symlink, or wrong-target → fall through to rewrite.
-    if [ "$(readlink "$target" 2>/dev/null)" != "$skill_subpath" ]; then
-      rm -rf "$target"
-      ln -sfn "$skill_subpath" "$target"
-      printf 'installed (symlink): %s -> %s\n' "$target" "$skill_subpath"
-    fi
+    ensure_symlink "$target" "$skill_subpath" 'installed (symlink)'
 
     if [ "$gcroots_ok" = "1" ] &&
       [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then

@@ -19,14 +19,10 @@ match the declared set exactly.
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-  esac
-done
+if wants_help "$@"; then
+  print_help
+  exit 0
+fi
 
 parse_scope_args "$@" || exit $?
 set -- "${scope_remaining_args[@]}"
@@ -44,23 +40,16 @@ if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
 fi
 
 # 1. Install / refresh each declared skill (idempotent).
-declare -a keep_names=()
+#    keep_set doubles as the O(1) membership test the step-2 sweep uses to
+#    skip declared entries (vs. a per-entry linear scan of a names list).
+declare -A keep_set=()
 for entry in "${skills_list[@]}"; do
   skill_name=${entry%%:*}
   store_path=${entry#*:}
   skill_subpath="$store_path/share/claude-skills/$skill_name"
-  target="$target_root/$skill_name"
   gcroot_target="$gcroots_dir/claude-skill-$skill_name"
 
-  # Direct `readlink` (no `-f`): we want the symlink's literal target,
-  # not the fully-resolved path. Equal → state already matches →
-  # skip the rm/ln/printf and stay silent. Missing, non-symlink, or
-  # wrong-target → fall through to rewrite.
-  if [ "$(readlink "$target" 2>/dev/null)" != "$skill_subpath" ]; then
-    rm -rf "$target"
-    ln -sfn "$skill_subpath" "$target"
-    printf 'reconciled (install): %s -> %s\n' "$target" "$skill_subpath"
-  fi
+  ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)'
 
   if [ "$gcroots_ok" = "1" ] &&
     [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
@@ -68,7 +57,7 @@ for entry in "${skills_list[@]}"; do
       printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
   fi
 
-  keep_names+=("$skill_name")
+  keep_set["$skill_name"]=1
 done
 
 # 2. Sweep $target_root for managed entries NOT in the declared set.
@@ -85,20 +74,12 @@ if [ -d "$target_root" ]; then
   shopt -s nullglob
   for entry in "$target_root"/*; do
     name=$(basename "$entry")
-    in_keep=0
-    for k in "${keep_names[@]}"; do
-      if [ "$k" = "$name" ]; then
-        in_keep=1
-        break
-      fi
-    done
-    [ "$in_keep" = "1" ] && continue
+    [ -n "${keep_set[$name]+x}" ] && continue
 
     installed_by=$(lock_installed_by "$name")
     if [ -n "$installed_by" ]; then
       if [ "$installed_by" = "${owner_app:-}" ]; then
-        rm -f "$entry"
-        rm -f "$gcroots_dir/claude-skill-$name"
+        remove_skill_links "$name"
         printf 'reconciled (sweep): %s\n' "$entry"
         swept=$((swept + 1))
       fi
@@ -107,13 +88,11 @@ if [ -d "$target_root" ]; then
     fi
 
     if is_ours_live "$entry" "$upstream_url"; then
-      rm -f "$entry"
-      rm -f "$gcroots_dir/claude-skill-$name"
+      remove_skill_links "$name"
       printf 'reconciled (sweep): %s\n' "$entry"
       swept=$((swept + 1))
     elif is_ours_broken "$entry" "$gcroots_dir"; then
-      rm -f "$entry"
-      rm -f "$gcroots_dir/claude-skill-$name"
+      remove_skill_links "$name"
       printf 'reconciled (sweep, broken): %s\n' "$entry"
       swept=$((swept + 1))
     fi
@@ -130,4 +109,4 @@ else
 fi
 
 printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
-  "${#keep_names[@]}" "$swept"
+  "${#keep_set[@]}" "$swept"
