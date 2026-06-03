@@ -32,6 +32,8 @@ let
     fixtureAggCoexistB
     fixtureAggCherryPick
     fixtureAggCherryPickPrefixed
+    fixtureCombination
+    fixtureCombinationReused
     ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
@@ -1029,6 +1031,66 @@ in
       builtins.attrNames fixtureAggCherryPick.packages.${system} == [ "skill-alpha" ]
       && builtins.attrNames fixtureAggCherryPickPrefixed.packages.${system} == [ "skill-px-alpha" ];
     msg = "cherry-pick package set must contain only the selected skill's key";
+  };
+
+  # ──────────────────────────────────────────────────────────────
+  # mkCombination — an aggregate that is also a source, plus an env.
+  # ──────────────────────────────────────────────────────────────
+
+  # Source-ability (the dropped-`packages` regression): re-aggregating a
+  # combination must surface its prefixed key. Fails against the old
+  # hand-wrapped shape (no `packages`); passes with the helper.
+  combination-source-able = mkEvalCheck {
+    name = "combination-source-able";
+    cond = fixtureCombinationReused.packages.${system} ? "skill-cx-gamma";
+    msg =
+      "combination-source-able: re-aggregating a combination as a source "
+      + "must expose its prefixed key (skill-cx-gamma), proving a combination "
+      + "is itself a valid mkAggregateSkillsFlake source. Got keys: "
+      + lib.concatStringsSep ", " (builtins.attrNames fixtureCombinationReused.packages.${system});
+  };
+
+  # The added surface: `env.<sys>` is a single mkSkillsEnv derivation
+  # (`isFlakeSkillsEnv`) whose members are the combination's prefixed skills.
+  combination-env = mkEvalCheck {
+    name = "combination-env";
+    cond =
+      let
+        env = fixtureCombination.env.${system};
+      in
+      lib.isDerivation env
+      && (env.passthru.isFlakeSkillsEnv or false)
+      && (map (m: m.name) env.passthru.flakeSkillsEnv) == [ "cx-gamma" ]
+      && (lib.all (m: m.drv.passthru.isFlakeSkill or false) env.passthru.flakeSkillsEnv);
+    msg =
+      "combination-env: env.<sys> must be a derivation carrying "
+      + "isFlakeSkillsEnv=true with members [cx-gamma], each drv a real "
+      + "flake-skill (isFlakeSkill=true).";
+  };
+
+  # Consumable: the aggregate surface passes through verbatim — a single
+  # `reconcile-combo` one-liner and the full app family (incl. `purge`).
+  combination-consumable = mkEvalCheck {
+    name = "combination-consumable";
+    cond =
+      let
+        script = fixtureCombination.reconcileScript system;
+        apps = fixtureCombination.apps.${system};
+      in
+      lib.hasInfix "/bin/reconcile-combo --scope=project" script
+      && !(lib.hasInfix "\n" script)
+      && builtins.all (a: apps ? ${a}) [
+        "install"
+        "uninstall"
+        "preview"
+        "reap"
+        "purge"
+        "reconcile"
+      ];
+    msg =
+      "combination-consumable: reconcileScript must be a single "
+      + "reconcile-combo --scope=project invocation and apps must expose the "
+      + "full install/uninstall/preview/reap/purge/reconcile family.";
   };
 
   # ──────────────────────────────────────────────────────────────

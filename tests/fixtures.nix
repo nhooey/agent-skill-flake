@@ -18,8 +18,29 @@ let
   # without paying for four distinct source trees.
   extraFilesSrc = ./example-skill-extra-files;
   extraFilesSkillName = "example-skill-extra-files";
+
+  # A combination over a prefixed source: `gamma` under prefix "cx" → key
+  # `skill-cx-gamma`, env member `cx-gamma`. In the `let` so
+  # `fixtureCombinationReused` can feed it back in as a source.
+  fixtureCombination = flakeLib.mkCombination {
+    inherit nixpkgs;
+    name = "combo";
+    envName = "agent-skills-combo";
+    sources = [
+      {
+        source = flakeLib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./example-source-dir;
+          name = "combo-src";
+        };
+        prefix = "cx";
+      }
+    ];
+  };
 in
 {
+  inherit fixtureCombination;
+
   # Single-skill fixture.
   fixture = flakeLib.mkSkillFlake {
     inherit nixpkgs;
@@ -205,5 +226,15 @@ in
         skills = [ "alpha" ];
       }
     ];
+  };
+
+  # ── Combination (mkCombination) ──────────────────────────────────────
+  # Regression guard for the dropped-`packages` smell: feed the combination
+  # back in as a source — the re-aggregated set must contain its prefixed
+  # key (`skill-cx-gamma`). (`fixtureCombination` is in the `let` above.)
+  fixtureCombinationReused = flakeLib.mkAggregateSkillsFlake {
+    inherit nixpkgs;
+    name = "combo-reused";
+    sources = [ { source = fixtureCombination; } ];
   };
 }

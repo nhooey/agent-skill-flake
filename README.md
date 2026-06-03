@@ -591,6 +591,42 @@ bearing *its own* `name`. So multiple aggregates (or a hand-rolled
 installer) can share one `.claude/skills/`, each declaratively owning its
 own slice without sweeping the others'.
 
+### `mkCombination`
+
+A **combination** is a curated, cross-cutting union of skills that is, by
+construction, *both* directly consumable *and* re-composable as a source.
+It is a thin wrapper over [`mkAggregateSkillsFlake`](#mkaggregateskillsflake):
+the aggregate's `packages` / `apps` / `reconcileScript` pass through
+verbatim, plus one home-manager `mkSkillsEnv` `env` per system over the
+aggregate's skills.
+
+```nix
+let
+  authoring = flake-skills.lib.mkCombination {
+    inherit nixpkgs;
+    name    = "skillspkgs-authoring";   # reconcile ownership appName
+    envName = "agent-skills-authoring"; # home-manager env package name
+    sources = [
+      { source = skills-git; }
+      { source = skill-creator; prefix = "anthropic"; }
+    ];
+  };
+in {
+  packages.${system}.authoring-env = authoring.env.${system};
+  devShells.${system}.default = pkgs.mkShell {
+    shellHook = authoring.reconcileScript system;
+  };
+}
+```
+
+Because `packages` is preserved, `{ source = authoring; }` splices the
+*whole* combination into another `mkAggregateSkillsFlake` — prefixes
+intact — instead of forcing a consumer to re-derive its source list by
+hand. It returns `{ packages; apps; reconcileScript; env; }`, all
+system-parametric (`env.<sys>` is the bundled home-manager env). `envName`
+defaults to `name`; `packagePrefix`, `agent`, and `systems` match
+`mkAggregateSkillsFlake`'s defaults.
+
 ## Install scope
 
 Every install/uninstall/reap/purge/reconcile/preview invocation **must** declare
