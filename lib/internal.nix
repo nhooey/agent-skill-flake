@@ -372,8 +372,8 @@ let
       source ${./bash/scope.bash}
     '';
 
-  # Factory behind every installer/reap/reconcile/uninstall/preview app.
-  # The five `<verb>` apps share one shape — `writeShellApplication` whose
+  # Factory behind every installer/reap/purge/reconcile/uninstall/preview app.
+  # The `<verb>` apps share one shape — `writeShellApplication` whose
   # `text` is `scopePrelude` + a few env-var assignments + sourced helper
   # libraries + an optional `skills_list` array + the verb's bash script.
   # Only four things vary per verb, all passed in: `runtimeInputs`, the
@@ -456,16 +456,23 @@ let
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
-  mkReap =
-    system:
+  # Reap + purge are the two lineage-keyed sweeps. Both carry no skill set
+  # (so they run transiently off the bare upstream flake) and share the
+  # walk in ./bash/lineage-sweep.bash, differing only in the predicate
+  # their <verb>.sh defines. Reap removes only GC-broken entries (safe
+  # maintenance); purge removes every lineage entry, live or broken (the
+  # teardown escape hatch). `sweep_label`/`sweep_verb`/`dry_run` are set in
+  # the verb script and consumed only inside the sourced sweep helper, so
+  # both opt into SC2034 the same way the installer does for `owner_app`.
+  mkLineageSweep =
+    verb: system:
     {
       appName,
       provenance,
       profile,
     }:
     mkShellApp system {
-      verb = "reap";
-      inherit appName profile;
+      inherit verb appName profile;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
@@ -475,8 +482,13 @@ let
       sourceModules = [
         ./bash/ownership.bash
         ./bash/lock.bash
+        ./bash/lineage-sweep.bash
       ];
+      extraExcludeShellChecks = [ "SC2034" ];
     };
+
+  mkReap = mkLineageSweep "reap";
+  mkPurge = mkLineageSweep "purge";
 
   mkReconcile =
     system:
@@ -570,6 +582,7 @@ in
     mkUninstall
     mkPreview
     mkReap
+    mkPurge
     mkReconcile
     resolveAgentProfile
     agentProfiles

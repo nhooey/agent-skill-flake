@@ -32,37 +32,14 @@ if [ $# -gt 0 ]; then
   exit 2
 fi
 
-reaped=0
+# reap qualifies only entries whose store path was garbage-collected;
+# live entries are left for reconcile. The walk itself lives in the
+# shared lineage-sweep.bash (purge reuses it with a wider predicate).
+entry_predicate() {
+  is_ours_broken "$1" "$gcroots_dir"
+}
+sweep_label='reaped'
+sweep_verb='reap'
+dry_run=0
 
-# 1. Walk $target_root/* — remove our managed entries whose symlink
-#    target is gone. Live entries are kept (reconcile handles those).
-if [ -d "$target_root" ]; then
-  shopt -s nullglob
-  for entry in "$target_root"/*; do
-    if is_ours_broken "$entry" "$gcroots_dir"; then
-      name=$(basename "$entry")
-      cleanup_skill_entry "$name"
-      printf 'reaped (broken target): %s\n' "$entry"
-      reaped=$((reaped + 1))
-    fi
-  done
-fi
-
-# 2. Walk $gcroots_dir/claude-skill-* — remove orphan GC roots whose
-#    store-path target no longer exists in the store.
-if [ -d "$gcroots_dir" ]; then
-  shopt -s nullglob
-  for gc in "$gcroots_dir"/claude-skill-*; do
-    [ -L "$gc" ] || continue
-    target=$(readlink "$gc")
-    if [ ! -e "$target" ]; then
-      name=${gc##*/claude-skill-}
-      rm -f "$gc"
-      lock_remove "$name"
-      printf 'reaped GC root (target gone): %s\n' "$gc"
-      reaped=$((reaped + 1))
-    fi
-  done
-fi
-
-printf '\n%d entr(y/ies) reaped (managedBy=%s).\n' "$reaped" "$upstream_url"
+lineage_sweep

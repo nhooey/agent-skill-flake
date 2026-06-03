@@ -52,10 +52,11 @@ nix run .#install   -- --scope=custom --root=/tmp/x  # install at the named path
 nix run .#install   -- --scope=personal --profile    # via `nix profile install`
 nix run .#uninstall -- --scope=personal              # remove the skill
 nix run .#reap      -- --scope=personal              # remove broken managed entries
+nix run .#purge     -- --scope=personal              # remove ALL this lineage's skills (teardown)
 nix build .#my-skill                                 # produce $out/share/claude-skills/my-skill/
 ```
 
-`--scope` is **required** on every install/uninstall/reap/reconcile/preview
+`--scope` is **required** on every install/uninstall/reap/purge/reconcile/preview
 invocation — there is no implicit default. See
 [Install scope](#install-scope) for the resolver semantics.
 
@@ -109,6 +110,7 @@ Returns an attrset suitable for use as a flake's `outputs`:
     uninstall = { type = "app"; program = "<uninstall>"; };
     preview   = { type = "app"; program = "<preview>"; };
     reap      = { type = "app"; program = "<reap>"; };
+    purge     = { type = "app"; program = "<purge>"; };
   });
 }
 ```
@@ -231,6 +233,7 @@ Returns:
     uninstall = { type = "app"; program = "<uninstaller>"; };
     preview   = { type = "app"; program = "<aggregate preview>"; };
     reap      = { type = "app"; program = "<reap>"; };
+    purge     = { type = "app"; program = "<purge>"; };
     reconcile = { type = "app"; program = "<reconcile>"; };
   });
 }
@@ -547,7 +550,7 @@ It returns:
 | Field            | Shape                  | Meaning |
 |------------------|------------------------|---------|
 | `packages`       | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>-all` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. |
-| `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union. |
+| `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`purge`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union; `purge` tears the whole lineage's slice out of a scope (see [Retiring flake-skills](#retiring-flake-skills)). |
 | `reconcileScript`| `system → string`       | the declarative dev-shell one-liner: `reconcile-${name} --scope=project`. A single command (one owner of the target). |
 
 `sources` entries are `{ source; skills ? null; prefix ? null; }`:
@@ -590,7 +593,7 @@ own slice without sweeping the others'.
 
 ## Install scope
 
-Every install/uninstall/reap/reconcile/preview invocation **must** declare
+Every install/uninstall/reap/purge/reconcile/preview invocation **must** declare
 its `--scope`. There is no implicit default — the choice is forced at the
 call site so an install can never silently land in a place the caller
 didn't choose. The three scopes:
@@ -797,6 +800,31 @@ user-facing symlink + lock entry, but the entry stays in the Nix
 profile. Run `nix profile remove` separately to drop it from the
 profile.
 
+## Retiring flake-skills
+
+Dropping a skill from a declared set is self-healing — `reconcile` owns the
+entry by `appName` and sweeps it on the next run. Deleting the hook itself
+is not: nothing tagged with its `appName` runs again, so its skills orphan.
+To retire cleanly, clear the scope first. Either converge to empty while the
+hook still exists (set `skills = [ ]` / `sources = [ ]`, keep it enabled —
+in home-manager keep `enable = true;` and `switch` *before* deleting the
+block, since `config` is gated on `enable`), or, once no hook is left, run
+`purge`:
+
+```sh
+nix run github:nhooey/flake-skills#purge -- --scope=personal   # clears ~/.claude/skills/
+nix run github:nhooey/flake-skills#purge -- --scope=project    # clears <repo>/.claude/skills/
+nix run .#purge -- --scope=project --dry-run                   # list what would go; change nothing
+nix run .#purge -- --scope=personal --yes                      # skip the confirmation prompt
+```
+
+`purge` removes every entry this lineage (`managedBy`) installed under the
+scope — live or broken, any `appName`, no declared set or names needed — and
+runs transiently off the bare flake when nothing is installed locally. It
+leaves other lineages and hand-rolled dirs alone, and confirms before
+removing (`--dry-run`/`--yes` skip the prompt; non-interactive without either
+refuses).
+
 ## Lock file
 
 `<target>/.flake-skills-lock.json` is a single-file index of every skill
@@ -826,7 +854,7 @@ indexed by name so you can `cat` it for an overview:
 ```
 
 The lock is **descriptive, not authoritative**: install / reconcile / reap /
-uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
+purge / uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
 no lasting effect. The source of truth is still the symlink + GC root + the
 sentinel inside each store path.
 
