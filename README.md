@@ -654,10 +654,22 @@ The main flake then needs exactly one input and one startup line:
 inputs.skills-devshell = {
   url = "path:./skills-devshell";
   inputs.nixpkgs.follows = "nixpkgs";
+  inputs.flake-skills.follows = "flake-skills";   # see note below
 };
 # … per system, in the dev shell (numtide/devshell shown; plain mkShell uses shellHook):
 devshell.startup.install-skills.text = inputs.skills-devshell.reconcileScript.${system};
 ```
+
+**`flake-skills.follows` is required**, not just tidy: the sub-flake depends
+on `flake-skills`, which itself has its own `skills-devshell` (a relative
+`path:` input). If the sub-flake's `flake-skills` is left to resolve
+independently, locking the parent re-resolves that nested relative path from
+the wrong base and fails with a doubled path (`skills-devshell/skills-devshell/…`).
+Pointing it at the parent's `flake-skills` input collapses the tree to one
+`flake-skills` node, which both fixes the resolution and keeps the whole repo
+on a single `flake-skills` rev (consistent `passthru`). Your main flake must
+therefore have a `flake-skills` input to follow — every skill-building repo
+already does.
 
 The input is dev-shell-only and lazily evaluated, so it never affects the
 library's actual API. This flake's own
