@@ -23,6 +23,15 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # The dev-shell skill set, as its own sub-flake so its skill-source inputs
+    # (skills-git, skillspkgs' authoring combination) stay isolated in
+    # `skills-devshell/flake.lock` rather than in this library's inputs. The
+    # combination is formed there; the dev shell consumes its `reconcileScript`.
+    skills-devshell = {
+      url = "path:./skills-devshell";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -113,6 +122,13 @@
             motd = ''
               {bold}{14}🚀 Entering flake-skills dev shell{reset}
               Run {bold}menu{reset} to list available commands.
+            '';
+            # Install the dev-shell skill set (git/GitHub + the authoring
+            # combination) at project scope on `nix develop`. The skills-devshell
+            # sub-flake outputs the reconcile one-liner as text per system; this
+            # just splices it in — the root knows nothing about how it's built.
+            devshell.startup.install-skills.text = ''
+              ${inputs.skills-devshell.reconcileScript.${system}}
             '';
             packages = [
               batsWith
