@@ -2,7 +2,7 @@
 # skills directory (`skillsDir`, via mkAllSkillsFlake) with several upstream
 # skill flakes (`sources`), each optionally namespace-prefixed, into one
 # package set, a combined app suite over the union (install/uninstall/
-# preview/reap/reconcile), and a devshell-ready reconcile script.
+# preview/reap/purge/reconcile), and a devshell-ready reconcile script.
 #
 # `mkAllSkillsFlake` handles a single `skillsDir`; this handles a list of
 # source flakes plus an optional local dir. It mirrors mk-all-skills-flake's
@@ -50,7 +50,7 @@ let
   inherit (marketplace) withNamePrefixSource;
   # Used directly (not via marketplace) for the combined app suite, since
   # marketplace only re-exports the installer; the union needs the whole
-  # install/uninstall/preview/reap/reconcile family over one skill set.
+  # install/uninstall/preview/reap/purge/reconcile family over one skill set.
   internal = import ./internal.nix { inherit nixpkgs; };
   profile = internal.resolveAgentProfile agent;
 
@@ -182,7 +182,7 @@ let
   unionSkillsFor =
     system: baseRecordsFor system ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
 
-  # The combined install/uninstall/preview/reap/reconcile family over the
+  # The combined install/uninstall/preview/reap/purge/reconcile family over the
   # union, all tagged with the aggregate's `name` as their ownership
   # `appName`. reconcile is the declarative one: it converges the target
   # to exactly the union (install missing, update changed, sweep strays
@@ -212,6 +212,12 @@ let
   combinedReap =
     system:
     internal.mkReap system {
+      appName = name;
+      inherit provenance profile;
+    };
+  combinedPurge =
+    system:
+    internal.mkPurge system {
       appName = name;
       inherit provenance profile;
     };
@@ -250,6 +256,10 @@ in
     reap = {
       type = "app";
       program = "${combinedReap system}/bin/reap-${name}";
+    };
+    purge = {
+      type = "app";
+      program = "${combinedPurge system}/bin/purge-${name}";
     };
     reconcile = {
       type = "app";

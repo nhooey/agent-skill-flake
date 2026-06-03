@@ -129,6 +129,13 @@ let
       inherit provenance profile;
     };
 
+  purgeFor =
+    system:
+    internal.mkPurge system {
+      appName = skillName;
+      inherit provenance profile;
+    };
+
   uninstallFor =
     system:
     internal.mkUninstall system {
@@ -163,6 +170,10 @@ in
     reap = {
       type = "app";
       program = "${reapFor system}/bin/reap-${skillName}";
+    };
+    purge = {
+      type = "app";
+      program = "${purgeFor system}/bin/purge-${skillName}";
     };
   });
 }

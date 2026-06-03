@@ -46,6 +46,7 @@ let
   installApp = fixture.apps.${system}.install.program;
   previewApp = fixture.apps.${system}.preview.program;
   reapSkillApp = fixture.apps.${system}.reap.program;
+  purgeSkillApp = fixture.apps.${system}.purge.program;
   uninstallSkillApp = fixture.apps.${system}.uninstall.program;
 
   # Multi-skill artifacts.
@@ -64,6 +65,7 @@ let
   uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
   previewAllApp = fixtureAll.apps.${system}.preview.program;
   reapAllApp = fixtureAll.apps.${system}.reap.program;
+  purgeAllApp = fixtureAll.apps.${system}.purge.program;
   reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
 
   # Codex-profile fixture: single-skill flake built with
@@ -457,6 +459,33 @@ in
     name = "example-skills-dir-reap-broken";
     extraInputs = [ pkgs.jq ];
     env.REAP_ALL_APP = reapAllApp;
+  };
+
+  # Single-skill flake exposes a purge app (sibling of reap).
+  example-skill-purge-exists = mkBatsCheck {
+    name = "example-skill-purge-exists";
+    env.PURGE_SKILL_APP = purgeSkillApp;
+  };
+
+  # Purge removes EVERY live lineage entry (no declared set, no names) and
+  # their GC roots + lock entries, while leaving unmanaged entries alone.
+  example-skills-dir-purge = mkBatsCheck {
+    name = "example-skills-dir-purge";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      INSTALL_ALL_APP = installAllApp;
+      PURGE_ALL_APP = purgeAllApp;
+    };
+  };
+
+  # Purge --dry-run lists what would go and changes nothing; a
+  # non-interactive run without --yes/--dry-run refuses.
+  example-skills-dir-purge-dry-run = mkBatsCheck {
+    name = "example-skills-dir-purge-dry-run";
+    env = {
+      INSTALL_ALL_APP = installAllApp;
+      PURGE_ALL_APP = purgeAllApp;
+    };
   };
 
   # Reconcile installs the declared set AND sweeps stray managed

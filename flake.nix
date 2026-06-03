@@ -66,6 +66,17 @@
             profile = internal.resolveAgentProfile "claude-code";
           };
 
+          # Lineage-wide teardown, exposed here (like reap) so it runs
+          # transiently with no embedded skill set:
+          #   nix run github:nhooey/flake-skills#purge -- --scope=personal
+          # clears every flake-skills-managed skill from a scope even after
+          # the hooks that installed them are gone.
+          purgeApp = internal.mkPurge system {
+            appName = "flake-skills";
+            inherit (flakeLib) provenance;
+            profile = internal.resolveAgentProfile "claude-code";
+          };
+
           # bats + the assertion/file/support helper libraries — the same set
           # checks.nix builds, so contributors can run the suite by hand.
           batsWith = pkgs.bats.withLibraries (p: [
@@ -78,6 +89,11 @@
           apps.reap = {
             type = "app";
             program = "${reapApp}/bin/reap-flake-skills";
+          };
+
+          apps.purge = {
+            type = "app";
+            program = "${purgeApp}/bin/purge-flake-skills";
           };
 
           checks = import ./checks.nix { inherit self nixpkgs system; };

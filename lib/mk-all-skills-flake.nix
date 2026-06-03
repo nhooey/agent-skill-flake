@@ -156,6 +156,13 @@ let
       inherit provenance profile;
     };
 
+  purgeFor =
+    system:
+    internal.mkPurge system {
+      appName = name;
+      inherit provenance profile;
+    };
+
   uninstallFor =
     system:
     internal.mkUninstall system {
@@ -214,6 +221,10 @@ in
     reap = {
       type = "app";
       program = "${reapFor system}/bin/reap-${name}";
+    };
+    purge = {
+      type = "app";
+      program = "${purgeFor system}/bin/purge-${name}";
     };
     reconcile = {
       type = "app";
