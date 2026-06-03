@@ -28,8 +28,19 @@
     # (skills-git, skillspkgs' authoring combination) stay isolated in
     # `skills-devshell/flake.lock` rather than in this library's inputs. The
     # combination is formed there; the dev shell consumes its `reconcileScript`.
+    #
+    # Referenced via `github:…?dir=` rather than `path:./skills-devshell`: being
+    # the library, this flake has no `flake-skills` input to point the sub-flake
+    # at via `follows`, so a relative `path:` here would leave the sub-flake's
+    # own `flake-skills` (which itself carries this `skills-devshell` input) to
+    # re-resolve a nested relative path from the wrong base and fail with a
+    # doubled `skills-devshell/skills-devshell/…` path. A `github:?dir` ref is
+    # fetched standalone, sidestepping that — at the cost of the dev shell using
+    # the last-pushed skill set rather than local edits (the set rarely changes).
+    # Consumers that DO have a `flake-skills` input should instead use
+    # `path:./skills-devshell` + `inputs.flake-skills.follows` (see README).
     skills-devshell = {
-      url = "path:./skills-devshell";
+      url = "github:nhooey/flake-skills?dir=skills-devshell";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
