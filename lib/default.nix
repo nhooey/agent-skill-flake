@@ -82,4 +82,8 @@ in
   # package set + apps + a devshell-ready install script.
   mkAggregateSkillsFlake =
     args: import ./mk-aggregate-skills-flake.nix (args // { inherit provenance defaultSystems; });
+
+  # A curated combination: an aggregate that is also a valid source, bundled
+  # with one home-manager `env` per system.
+  mkCombination = args: import ./mk-combination.nix (args // { inherit provenance defaultSystems; });
 }
