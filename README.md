@@ -627,6 +627,45 @@ system-parametric (`env.<sys>` is the bundled home-manager env). `envName`
 defaults to `name`; `packagePrefix`, `agent`, and `systems` match
 `mkAggregateSkillsFlake`'s defaults.
 
+### Project-scope dev-shell skills: the `skills-devshell` sub-flake
+
+To install a curated skill set into a repo's dev shell at project scope on
+`nix develop`, **don't** add the skill-source flakes (`skills-git`, a
+combination, …) as inputs of your main flake — your main flake's inputs are
+inherited by everything that consumes it, so a library would drag its
+dev-only skill sources into every downstream lock. Instead isolate them in a
+dedicated **`skills-devshell/` sub-flake** with its own `flake.lock`.
+
+The convention: the sub-flake declares the skill sources as *its own*
+inputs, builds a [`mkCombination`](#mkcombination) over them (one reconcile
+owner for the whole set), and outputs the reconcile one-liner as **text,
+keyed by system** — not a `system → string` function — so the root just
+splices a string and never has to know it is a reconcile script:
+
+```nix
+# skills-devshell/flake.nix (outputs)
+flake.reconcileScript = forSystems (system: combo.reconcileScript system);
+#   forSystems = nixpkgs.lib.genAttrs (import systems);
+```
+
+The main flake then needs exactly one input and one startup line:
+
+```nix
+inputs.skills-devshell = {
+  url = "path:./skills-devshell";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+# … per system, in the dev shell (numtide/devshell shown; plain mkShell uses shellHook):
+devshell.startup.install-skills.text = inputs.skills-devshell.reconcileScript.${system};
+```
+
+The input is dev-shell-only and lazily evaluated, so it never affects the
+library's actual API. This flake's own
+[`skills-devshell/flake.nix`](skills-devshell/flake.nix) is the canonical
+example — it combines the `skills-git` pack with skillspkgs' `authoring`
+combination. **Downstream repos should follow this same convention** when
+installing skills into their dev shells at project scope.
+
 ## Install scope
 
 Every install/uninstall/reap/purge/reconcile/preview invocation **must** declare
