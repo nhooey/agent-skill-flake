@@ -74,7 +74,7 @@ let
 
   profile = internal.resolveAgentProfile agent;
 
-  forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
+  forAllSystems = internal.forAllSystems systems;
 
   # Rename + namespace + key resolution in one place (shared with
   # mkAllSkillsFlake). `effective` is the skill's user-facing identity
@@ -161,30 +161,18 @@ in
     ${effectivePackageName} = skillFor system;
   });
 
-  apps = forAllSystems (system: {
-    default = {
-      type = "app";
-      program = "${previewFor system}/bin/preview-${skillName}";
-    };
-    install = {
-      type = "app";
-      program = "${installerFor system}/bin/install-${skillName}";
-    };
-    uninstall = {
-      type = "app";
-      program = "${uninstallFor system}/bin/uninstall-${skillName}";
-    };
-    preview = {
-      type = "app";
-      program = "${previewFor system}/bin/preview-${skillName}";
-    };
-    reap = {
-      type = "app";
-      program = "${reapFor system}/bin/reap-${skillName}";
-    };
-    purge = {
-      type = "app";
-      program = "${purgeFor system}/bin/purge-${skillName}";
-    };
-  });
+  apps = forAllSystems (
+    system:
+    internal.mkAppSuite {
+      name = skillName;
+      default = true;
+      programs = {
+        install = installerFor system;
+        uninstall = uninstallFor system;
+        preview = previewFor system;
+        reap = reapFor system;
+        purge = purgeFor system;
+      };
+    }
+  );
 }

@@ -64,7 +64,7 @@ let
 
   pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
 
-  forAllSystems = f: lib.genAttrs systems (system: f system);
+  forAllSystems = internal.forAllSystems systems;
 
   # The optional local skills dir, built exactly as a standalone
   # mkAllSkillsFlake would. Null when no `skillsDir` is given.
@@ -272,32 +272,20 @@ in
   # declarative — it converges the target to the full union, so a dev shell
   # wiring `reconcileScript` removes skills a source dropped or renamed.
   # Each app is `<verb>-${name}`.
-  apps = forAllSystems (system: {
-    install = {
-      type = "app";
-      program = "${combinedInstaller system}/bin/install-${name}";
-    };
-    uninstall = {
-      type = "app";
-      program = "${combinedUninstall system}/bin/uninstall-${name}";
-    };
-    preview = {
-      type = "app";
-      program = "${combinedPreview system}/bin/preview-${name}";
-    };
-    reap = {
-      type = "app";
-      program = "${combinedReap system}/bin/reap-${name}";
-    };
-    purge = {
-      type = "app";
-      program = "${combinedPurge system}/bin/purge-${name}";
-    };
-    reconcile = {
-      type = "app";
-      program = "${combinedReconcile system}/bin/reconcile-${name}";
-    };
-  });
+  apps = forAllSystems (
+    system:
+    internal.mkAppSuite {
+      inherit name;
+      programs = {
+        install = combinedInstaller system;
+        uninstall = combinedUninstall system;
+        preview = combinedPreview system;
+        reap = combinedReap system;
+        purge = combinedPurge system;
+        reconcile = combinedReconcile system;
+      };
+    }
+  );
 
   # The declarative dev-shell one-liner: converge the target to the union
   # at `--scope=project`. Only reconcile removes strays, so the shell stays
