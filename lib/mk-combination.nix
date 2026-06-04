@@ -28,13 +28,12 @@
   defaultSystems,
 }:
 let
-  inherit (nixpkgs) lib;
   internal = import ./internal.nix { inherit nixpkgs; };
   mkSkillsEnv = import ./mk-skills-env.nix { };
 
   pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
 
-  forAllSystems = f: lib.genAttrs systems (system: f system);
+  forAllSystems = internal.forAllSystems systems;
 
   # The whole install/reconcile surface AND the source-able package set;
   # a combination *is* this plus an env, so reuse it verbatim.

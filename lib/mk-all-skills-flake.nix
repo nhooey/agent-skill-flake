@@ -101,7 +101,7 @@ let
 
   profile = internal.resolveAgentProfile agent;
 
-  forAllSystems = f: lib.genAttrs systems (system: f system);
+  forAllSystems = internal.forAllSystems systems;
 
   discovered = internal.discoverSkills skillsDir;
 
@@ -267,36 +267,21 @@ in
     )
   );
 
-  apps = forAllSystems (system: {
-    default = {
-      type = "app";
-      program = "${previewFor system}/bin/preview-${aggName}";
-    };
-    install = {
-      type = "app";
-      program = "${installerFor system}/bin/install-${aggName}";
-    };
-    uninstall = {
-      type = "app";
-      program = "${uninstallFor system}/bin/uninstall-${aggName}";
-    };
-    preview = {
-      type = "app";
-      program = "${previewFor system}/bin/preview-${aggName}";
-    };
-    reap = {
-      type = "app";
-      program = "${reapFor system}/bin/reap-${aggName}";
-    };
-    purge = {
-      type = "app";
-      program = "${purgeFor system}/bin/purge-${aggName}";
-    };
-    reconcile = {
-      type = "app";
-      program = "${reconcileFor system}/bin/reconcile-${aggName}";
-    };
-  });
+  apps = forAllSystems (
+    system:
+    internal.mkAppSuite {
+      name = aggName;
+      default = true;
+      programs = {
+        install = installerFor system;
+        uninstall = uninstallFor system;
+        preview = previewFor system;
+        reap = reapFor system;
+        purge = purgeFor system;
+        reconcile = reconcileFor system;
+      };
+    }
+  );
 
   # The declarative dev-shell one-liner: converge the target to this pack's
   # declared skill set at `--scope=project`. Only reconcile removes strays, so

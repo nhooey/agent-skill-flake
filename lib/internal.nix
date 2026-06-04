@@ -2,6 +2,11 @@
 let
   inherit (nixpkgs) lib;
 
+  # Single source of truth for the `systems` fan-out every builder needs
+  # (packages/apps/devShells). `forAllSystems systems (system: …)` →
+  # `{ <system> = …; }`.
+  forAllSystems = systems: f: lib.genAttrs systems (system: f system);
+
   agentProfiles = import ./agent-profiles.nix;
 
   # Shared awk that normalizes installed SKILL.md frontmatter `name:`.
@@ -656,9 +661,31 @@ let
       ];
       extraEnv = "display_name='${displayName}'";
     };
+
+  # Build a flake `apps.<system>` attrset from a verb→derivation map. Each
+  # `programs.<verb>` is an already-system-applied app derivation whose binary
+  # is `<verb>-<name>`; the entry becomes `{ type = "app"; program = …; }`.
+  # `default ? false` aliases `default` to the preview program (the bare
+  # `nix run` entrypoint), matching the single-skill / aggregate builders.
+  mkAppSuite =
+    {
+      name,
+      programs,
+      default ? false,
+    }:
+    let
+      app = verb: drv: {
+        type = "app";
+        program = "${drv}/bin/${verb}-${name}";
+      };
+    in
+    lib.mapAttrs app programs
+    // lib.optionalAttrs default { default = app "preview" programs.preview; };
 in
 {
   inherit
+    forAllSystems
+    mkAppSuite
     mkSkill
     mkRenameContext
     applyRename
