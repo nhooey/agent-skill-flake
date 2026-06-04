@@ -568,8 +568,12 @@ It returns:
 | `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`purge`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union; `purge` tears the whole lineage's slice out of a scope (see [Retiring flake-skills](#retiring-flake-skills)). |
 | `reconcileScript`| `system → string`       | the declarative dev-shell one-liner: `reconcile-${name} --scope=project`. A single command (one owner of the target). |
 
-`sources` entries are `{ source; skills ? null; prefix ? null; }`:
-`skills = null` installs everything (a list cherry-picks);
+`sources` entries are `{ source; skills ? null; pack ? null; prefix ? null; }`:
+`skills = null` installs everything (a list cherry-picks by upstream name);
+`pack` names a skills env (a `mkSkillsEnv` bundle) in the source's
+`packages.<system>` and cherry-picks exactly its members — so a named
+bundle's own membership is the source of truth, instead of restating its
+skill list (mutually exclusive with `skills`).
 `prefix = null` merges the source's packages verbatim, otherwise every
 skill is re-prefixed via `withNamePrefixSource`. `packagePrefix` is
 flake-wide (one value for filtering every source's keys and for re-keying

@@ -17,6 +17,11 @@
   #            flows into both the merged package set and the reconciled union,
   #            so a cherry-picked source contributes only those skills. An
   #            unknown name is a hard eval error listing what the source has.
+  #   pack   — the attribute key of a skills env (mkSkillsEnv result) in the
+  #            source's `packages.<system>`; cherry-picks exactly that pack's
+  #            members, read from its `passthru.flakeSkillsEnv` — so a named
+  #            bundle's membership is the single source of truth instead of a
+  #            restated name list. Mutually exclusive with `skills`.
   #   prefix — null merges the source's packages verbatim; otherwise every
   #            skill is re-prefixed (name, frontmatter, sentinel) via
   #            withNamePrefixSource and a fresh installer is built over it.
@@ -104,9 +109,30 @@ let
       source,
       prefix ? null,
       skills ? null,
+      pack ? null,
       ...
     }:
     let
+      # `pack` selects a named skills env from the source and cherry-picks
+      # exactly its members (by `flakeSkillName`), so the bundle's membership
+      # is the single source of truth. Resolves to a `skills`-style name list.
+      effectiveSkills =
+        if pack == null then
+          skills
+        else if skills != null then
+          throw "mkAggregateSkillsFlake: a source entry sets both `pack` and `skills`; use one."
+        else
+          let
+            env =
+              source.packages.${system}.${pack}
+                or (throw ("mkAggregateSkillsFlake: pack `${pack}` not found in source.packages.${system}."));
+          in
+          map (m: m.name) (
+            env.passthru.flakeSkillsEnv or (throw (
+              "mkAggregateSkillsFlake: `${pack}` is not a skills env (mkSkillsEnv result carrying passthru.flakeSkillsEnv)."
+            ))
+          );
+
       allRecords =
         if prefix == null then
           let
@@ -146,18 +172,18 @@ let
           }) wrapped;
 
       available = map (r: r.upstreamName) allRecords;
-      unknown = lib.subtractLists available skills;
+      unknown = lib.subtractLists available effectiveSkills;
     in
-    if skills == null then
+    if effectiveSkills == null then
       allRecords
     else if unknown != [ ] then
       throw (
-        "mkAggregateSkillsFlake: source `skills` cherry-pick names not found: "
-        + "${lib.concatStringsSep ", " unknown}. "
+        "mkAggregateSkillsFlake: source ${if pack != null then "`pack` (${pack})" else "`skills`"} "
+        + "names not found: ${lib.concatStringsSep ", " unknown}. "
         + "Available in this source: ${lib.concatStringsSep ", " available}."
       )
     else
-      builtins.filter (r: builtins.elem r.upstreamName skills) allRecords;
+      builtins.filter (r: builtins.elem r.upstreamName effectiveSkills) allRecords;
 
   upstreamRecordsFor = system: lib.concatMap (recordsForSource system) sources;
 
