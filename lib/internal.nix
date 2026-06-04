@@ -29,7 +29,16 @@ let
     isValidSkillName
     assertValidSkillName
     validateNamePrefix
+    validateNamespaceSegment
+    assertUniqueSkillNames
     ;
+
+  # Category prefix on every per-skill package attribute key, before the
+  # owner namespace segment and the skill name: `<packagePrefix><owner>-<name>`.
+  # The single default every builder resolves against (they take
+  # `packagePrefix ? null` and fall back here) so the convention lives in
+  # one place. Aggregates/envs use the plural `agent-skills-` form.
+  defaultPackagePrefix = "agent-skill-";
 
   # ── Sentinel ─────────────────────────────────────────────────────────
   # The `.flake-skills-managed.json` record written into every installed
@@ -102,6 +111,17 @@ let
     url:
     let
       noGit = lib.removeSuffix ".git" (lib.removeSuffix "/" url);
+      # Leading `<scheme>:` before any `/`, lowercased (github, gitlab,
+      # git+ssh, git+file, file, path, https, …). null when there is none.
+      schemeMatch = builtins.match "([a-zA-Z][a-zA-Z0-9+.-]*):.*" noGit;
+      scheme = if schemeMatch == null then null else lib.toLower (builtins.head schemeMatch);
+      # A `file`/`path` ref (incl. `git+file`), or a bare local filesystem
+      # path / store path, has no hosting-owner concept — its "owner" must
+      # resolve to null so `namespaceFn`'s default fails loud rather than
+      # fabricating a segment from a directory name.
+      isLocal =
+        (scheme != null && (lib.hasInfix "file" scheme || scheme == "path"))
+        || (scheme == null && (lib.hasPrefix "/" noGit || lib.hasPrefix "." noGit));
       path =
         if lib.hasInfix "://" noGit then
           # scheme://[user@]host[:port]/owner/repo → drop scheme,
@@ -119,7 +139,7 @@ let
       parts = builtins.filter (s: s != "") (lib.splitString "/" path);
       n = builtins.length parts;
     in
-    if n >= 2 then
+    if !isLocal && n >= 2 then
       {
         owner = builtins.elemAt parts (n - 2);
         repo = builtins.elemAt parts (n - 1);
@@ -223,6 +243,71 @@ let
         toolingProvenance = provenance;
       });
       original = name;
+    };
+
+  # Compose a package attribute key from the category prefix, the resolved
+  # owner namespace segment, and the effective skill name. The single
+  # source of truth for the `<packagePrefix><namespace>-<name>` key shape;
+  # an empty namespace yields `<packagePrefix><name>`.
+  mkPackageKey =
+    {
+      packagePrefix,
+      namespace,
+      name,
+    }:
+    if namespace == "" then "${packagePrefix}${name}" else "${packagePrefix}${namespace}-${name}";
+
+  # Resolve the owner namespace segment for a package key from a
+  # `namespaceFn` (default `ctx: ctx.source.owner`) and a rename context.
+  # Fail loud, never invent a name: a null result (no/local/ownerless
+  # source) throws and lists the three escapes; "" passes through as a
+  # deliberate opt-out; a non-empty segment is validated.
+  resolveNamespace =
+    { namespaceFn, ctx }:
+    let
+      segment = namespaceFn ctx;
+    in
+    if segment == null then
+      throw ''
+        flake-skills: could not resolve a package-key namespace for skill ${builtins.toJSON ctx.name}.
+        The namespace defaults to the source owner (`ctx.source.owner`), which is null here — the
+        source is unset, local (file:/path:), or otherwise ownerless. Choose one:
+          • pass `source` with a derivable owner, e.g. { url = "github:owner/repo"; } or { owner = "owner"; };
+          • set `namespaceFn = _: "your-handle"` to name the package keys explicitly; or
+          • set `namespaceFn = _: ""` to ship un-namespaced keys on purpose.
+      ''
+    else
+      validateNamespaceSegment segment;
+
+  # One-stop naming resolution for a single skill, shared by the single-
+  # and multi-skill builders so the rename context, namespace resolution,
+  # and key composition can't drift between them. Returns the effective
+  # (installed) name, the pre-rename original, the resolved namespace, and
+  # the package attribute key.
+  resolveSkillNaming =
+    {
+      name,
+      source ? null,
+      provenance,
+      renameFn,
+      namespaceFn,
+      packagePrefix,
+    }:
+    let
+      ctx = mkRenameContext {
+        inherit name source;
+        toolingProvenance = provenance;
+      };
+      effective = renameFn ctx;
+      namespace = resolveNamespace { inherit namespaceFn ctx; };
+    in
+    {
+      inherit effective namespace;
+      original = name;
+      key = mkPackageKey {
+        inherit packagePrefix namespace;
+        name = effective;
+      };
     };
 
   mkSkill =
@@ -577,6 +662,11 @@ in
     mkSkill
     mkRenameContext
     applyRename
+    resolveSkillNaming
+    resolveNamespace
+    mkPackageKey
+    assertUniqueSkillNames
+    defaultPackagePrefix
     discoverSkills
     mkInstaller
     mkUninstall
@@ -588,6 +678,7 @@ in
     agentProfiles
     skillKeysWithPrefix
     validateNamePrefix
+    validateNamespaceSegment
     assertValidSkillName
     isValidSkillName
     ;

@@ -44,6 +44,8 @@
   skills,
 }:
 let
+  inherit (import ./skill-name.nix { inherit (pkgs) lib; }) assertUniqueSkillNames;
+
   members = map (drv: {
     name =
       drv.passthru.flakeSkillName or (throw ''
@@ -56,12 +58,20 @@ let
       '');
     inherit drv;
   }) skills;
+
+  # Two members installing under the same name would clobber each other at
+  # ~/.claude/skills/<name> (and silently collide in this symlinkJoin); fail
+  # loud at eval with a fix suggestion.
+  checkedMembers = assertUniqueSkillNames {
+    label = "mkSkillsEnv '${name}'";
+    skills = members;
+  };
 in
 pkgs.symlinkJoin {
   inherit name;
-  paths = skills;
+  paths = map (m: m.drv) checkedMembers;
   passthru = {
     isFlakeSkillsEnv = true;
-    flakeSkillsEnv = members;
+    flakeSkillsEnv = checkedMembers;
   };
 }

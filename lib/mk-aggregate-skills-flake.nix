@@ -25,8 +25,16 @@
   skillsDir ? null,
   # Which keys count as skills in each source, and the key prefix the merged
   # per-skill packages are exposed under. Flake-wide (one value for every
-  # source); matches mkAllSkillsFlake's own default.
-  packagePrefix ? "skill-",
+  # source); null uses the library default (`agent-skill-`), matching
+  # mkAllSkillsFlake.
+  packagePrefix ? null,
+  # Owner namespace formula for the optional local `base` (`skillsDir`),
+  # forwarded to mkAllSkillsFlake; see it for semantics. Unused when no
+  # `skillsDir` is given (sources arrive already keyed by their own flakes).
+  namespaceFn ? (ctx: ctx.source.owner),
+  # Origin repo of the local `base`, for `namespaceFn`/`renameFn`. Same
+  # shape as mkAllSkillsFlake's `source`. Only relevant with `skillsDir`.
+  source ? null,
   agent ? "claude-code",
   name ? "agent-skills-all",
   # Systems to fan out over. Defaults to `defaultSystems` (the
@@ -54,6 +62,8 @@ let
   internal = import ./internal.nix { inherit nixpkgs; };
   profile = internal.resolveAgentProfile agent;
 
+  pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
+
   forAllSystems = f: lib.genAttrs systems (system: f system);
 
   # The optional local skills dir, built exactly as a standalone
@@ -68,11 +78,13 @@ let
           skillsDir
           systems
           name
-          packagePrefix
           agent
           provenance
           defaultSystems
+          namespaceFn
+          source
           ;
+        packagePrefix = pp;
       };
 
   # One source's contribution, as `[ { upstreamName; key; name; drv; } ]`
@@ -99,12 +111,12 @@ let
         if prefix == null then
           let
             attrs = source.packages.${system};
-            keys = internal.skillKeysWithPrefix attrs packagePrefix;
+            keys = internal.skillKeysWithPrefix attrs pp;
           in
           map (
             k:
             let
-              upstreamName = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
+              upstreamName = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix pp k);
             in
             {
               inherit upstreamName;
@@ -119,9 +131,9 @@ let
               inherit
                 nixpkgs
                 system
-                packagePrefix
                 source
                 ;
+              packagePrefix = pp;
               namePrefix = prefix;
             };
           in
@@ -129,7 +141,7 @@ let
             # withNamePrefix joins `<prefix>-<oldName>`; strip the prefix
             # back off to recover the upstream name a cherry-pick matches.
             upstreamName = lib.removePrefix "${prefix}-" w.name;
-            key = "${packagePrefix}${w.name}";
+            key = "${pp}${w.name}";
             inherit (w) name drv;
           }) wrapped;
 
@@ -151,12 +163,26 @@ let
 
   upstreamPackagesFor =
     system:
-    lib.listToAttrs (
-      map (r: {
-        name = r.key;
-        value = r.drv;
-      }) (upstreamRecordsFor system)
-    );
+    let
+      records = upstreamRecordsFor system;
+      byKey = lib.groupBy (r: r.key) records;
+      dupKeys = builtins.attrNames (
+        lib.filterAttrs (_: rs: lib.length (lib.unique (map (r: r.drv.outPath) rs)) > 1) byKey
+      );
+    in
+    if dupKeys != [ ] then
+      throw ''
+        mkAggregateSkillsFlake '${name}': sources contribute the same package key for different skills:
+          ${lib.concatStringsSep "\n  " dupKeys}
+        Disambiguate with a per-source `prefix`, or drop the duplicate source.
+      ''
+    else
+      lib.listToAttrs (
+        map (r: {
+          name = r.key;
+          value = r.drv;
+        }) records
+      );
 
   # The base's per-skill `[ { name; drv; } ]` records, drawn from its
   # package set by the same `packagePrefix` filter that drops the
@@ -169,18 +195,24 @@ let
     else
       let
         attrs = base.packages.${system};
-        keys = internal.skillKeysWithPrefix attrs packagePrefix;
+        keys = internal.skillKeysWithPrefix attrs pp;
       in
       map (k: {
-        name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix packagePrefix k);
+        name = attrs.${k}.passthru.flakeSkillName or (lib.removePrefix pp k);
         drv = attrs.${k};
       }) keys;
 
   # The whole declared set: base skills + every source's skills, as the
   # `[ { name; drv; } ]` records mkInstaller / mkReconcile consume. This
-  # is the union the combined installer converges the target to.
+  # is the union the combined installer converges the target to. Guarded so
+  # two skills can't resolve to the same install name (after per-source
+  # `prefix`) and clobber each other under ~/.claude/skills/<name>.
   unionSkillsFor =
-    system: baseRecordsFor system ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
+    system:
+    internal.assertUniqueSkillNames {
+      label = "mkAggregateSkillsFlake '${name}'";
+      skills = baseRecordsFor system ++ map (r: { inherit (r) name drv; }) (upstreamRecordsFor system);
+    };
 
   # The combined install/uninstall/preview/reap/purge/reconcile family over the
   # union, all tagged with the aggregate's `name` as their ownership
