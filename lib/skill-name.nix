@@ -37,4 +37,45 @@
         + "^[a-z0-9][a-z0-9-]*$ (start with a lowercase letter or "
         + "digit, then any of [a-z0-9-])."
       );
+
+  # The owner segment spliced into a package key (`<packagePrefix><segment>-<name>`).
+  # `""` is allowed and means "no segment" (a deliberate opt-out); a non-empty
+  # segment obeys the same rule as a name prefix so the composed key stays a
+  # valid attribute name. Returns the segment unchanged, or throws.
+  validateNamespaceSegment =
+    segment:
+    if segment == "" || builtins.match "[a-z0-9][a-z0-9-]*" segment != null then
+      segment
+    else
+      throw (
+        "flake-skills: namespace segment "
+        + builtins.toJSON segment
+        + " is invalid. Must be \"\" (no namespace) or match "
+        + "^[a-z0-9][a-z0-9-]*$ (start with a lowercase letter or "
+        + "digit, then any of [a-z0-9-])."
+      );
+
+  # Guard an install set against two distinct skills resolving to the same
+  # Claude install name (which would clobber each other at
+  # ~/.claude/skills/<name>). Records are `[ { name; drv; } ]` where `name`
+  # is the install identity. Identical drvs under one name are deduped
+  # (harmless); distinct drvs sharing a name throw with a fix suggestion.
+  # Returns the records unchanged when there is no collision.
+  assertUniqueSkillNames =
+    { label, skills }:
+    let
+      byName = lib.groupBy (s: s.name) skills;
+      clashes = lib.filterAttrs (_: ss: lib.length (lib.unique (map (s: s.drv.outPath) ss)) > 1) byName;
+      names = builtins.attrNames clashes;
+    in
+    if names == [ ] then
+      skills
+    else
+      throw ''
+        flake-skills: ${label} bundles multiple distinct skills that install under the same name:
+          ${lib.concatStringsSep "\n  " names}
+        Claude installs every skill at ~/.claude/skills/<name>, so these would clobber each other.
+        Give the colliding skills distinct install names — e.g. prefix one by its owner via a
+        per-source `prefix` (combinations) or a `renameFn`.
+      '';
 }

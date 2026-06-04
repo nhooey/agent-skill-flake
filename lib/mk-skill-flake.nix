@@ -1,22 +1,28 @@
 {
   nixpkgs,
   skillName,
-  # Nix-flake package attribute name. When null, defaults to
-  # `"${packagePrefix}${effectiveName}"` (the post-rename name) so
-  # `packages.<system>.<name>` is collision-safe by construction — bare
+  # Nix-flake package attribute name. When null, defaults to the composed
+  # `"<packagePrefix><namespace>-<effectiveName>"` key (see `namespaceFn`)
+  # so `packages.<system>.<name>` is collision-safe by construction — bare
   # skill names (`git`, `nix-flakes`, …) routinely shadow same-named
   # entries in nixpkgs or in aggregator flakes re-exporting multiple
-  # skills. Override only if you have a specific reason to deviate from
-  # the `<prefix><name>` convention.
+  # skills. Override only to deviate from the convention.
   packageName ? null,
-  # Prefix applied to the default package attribute key, i.e. the key
-  # becomes `"${packagePrefix}${effectiveName}"`. Lets multi-repo
-  # consumers brand their package keys (e.g. `"agent-skill-"`) without
-  # having to set `packageName` per skill. Ignored when `packageName`
-  # is set explicitly (`packageName` wins). Affects only the package
-  # attribute key — not the installed skill name, `pname`, or the
-  # derivation name.
-  packagePrefix ? "skill-",
+  # Category prefix on the default package attribute key, before the owner
+  # namespace segment: `"<packagePrefix><namespace>-<effectiveName>"`. null
+  # uses the library default (`agent-skill-`). Ignored when `packageName`
+  # is set (`packageName` wins). Affects only the package attribute key —
+  # not the installed skill name, `pname`, or the derivation name.
+  packagePrefix ? null,
+  # Owner namespace segment spliced into the package key, as a formula over
+  # the same `ctx` as `renameFn` (default `ctx: ctx.source.owner`). A
+  # non-empty result yields `<packagePrefix><segment>-<effectiveName>`;
+  # `""` omits the segment; `null` (e.g. the default with no derivable
+  # owner) is a hard eval error — pass `source` with an owner, return a
+  # string, or return `""` on purpose. Like `packagePrefix`, it touches
+  # only the package key, not the installed skill name. Ignored when
+  # `packageName` is set.
+  namespaceFn ? (ctx: ctx.source.owner),
   # Optional rename formula, same shape/context as mkAllSkillsFlake's
   # `renameFn` (see that file for the full context attrset). For a single
   # skill `ctx.name` is `skillName`. Default is identity. The result is
@@ -24,9 +30,9 @@
   # `skillName`, and (when `packageName` is null) the package key. The
   # pre-rename `skillName` is kept in the sentinel as `originalSkillName`.
   renameFn ? (ctx: ctx.name),
-  # The skill's origin repo, for `renameFn`'s `ctx.source.*`. Supplied by
-  # the consumer from their flake `self` (+ owner/repo). See
-  # mk-all-skills-flake.nix for the accepted shape.
+  # The skill's origin repo, for `renameFn`'s and `namespaceFn`'s
+  # `ctx.source.*`. Supplied by the consumer from their flake `self`
+  # (+ owner/repo). See mk-all-skills-flake.nix for the accepted shape.
   source ? null,
   src,
   # Systems to fan out over. Defaults to `defaultSystems` (the
@@ -70,18 +76,23 @@ let
 
   forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
 
-  # The skill's effective identity after the rename formula. Used for the
-  # install path, sentinel `skillName`, default package key, and the
-  # preview/uninstall default — everything user-facing. `skillName`
-  # itself is kept only as the pre-rename `originalSkillName`.
-  effectiveName =
-    (internal.applyRename {
-      name = skillName;
-      inherit source provenance renameFn;
-    }).effective;
+  # Rename + namespace + key resolution in one place (shared with
+  # mkAllSkillsFlake). `effective` is the skill's user-facing identity
+  # (install path, sentinel `skillName`, preview/uninstall default);
+  # `skillName` is kept only as the pre-rename `originalSkillName`.
+  naming = internal.resolveSkillNaming {
+    name = skillName;
+    packagePrefix = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
+    inherit
+      source
+      provenance
+      renameFn
+      namespaceFn
+      ;
+  };
+  effectiveName = naming.effective;
 
-  effectivePackageName =
-    if packageName == null then "${packagePrefix}${effectiveName}" else packageName;
+  effectivePackageName = if packageName == null then naming.key else packageName;
 
   skillFor =
     system:

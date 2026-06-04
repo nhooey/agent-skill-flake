@@ -7,7 +7,10 @@
   # fanout by overriding the `systems` input instead of forking. Pass an
   # explicit list or `import <your systems input>` to override per call.
   systems ? defaultSystems,
-  name ? "agent-skills-all",
+  # Package attribute key (and reconcile-ownership appName) of the
+  # aggregate "all" bundle. null derives `agent-skills-<owner>-all` from
+  # the resolved namespace (`agent-skills-all` when the namespace is "").
+  name ? null,
   # Which agent's filesystem layout to target. Each profile in
   # lib/agent-profiles.nix names a per-scope install suffix
   # (`$HOME/<personalSuffix>` for personal scope,
@@ -15,13 +18,22 @@
   # supports `claude-code`, `codex`, `cursor`. Throws at eval if the
   # name isn't a known profile.
   agent ? "claude-code",
-  # Prefix applied to each per-skill package attribute key, i.e.
-  # `packages.<system>."${packagePrefix}${effectiveName}"`. Lets
-  # multi-repo consumers brand their package keys (e.g. `"agent-skill-"`
-  # or `"agent-skills-pack-"`) without overriding the convention per
-  # skill. Affects only the package attribute key — not the installed
-  # skill names, `pname`s, derivation names, or the aggregate `name`.
-  packagePrefix ? "skill-",
+  # Category prefix on each per-skill package attribute key, before the
+  # owner namespace segment and the skill name:
+  # `packages.<system>."<packagePrefix><namespace>-<effectiveName>"`. null
+  # uses the library default (`agent-skill-`). Affects only the package
+  # attribute key — not the installed skill names, `pname`s, derivation
+  # names, or the aggregate `name`.
+  packagePrefix ? null,
+  # Owner namespace segment spliced into every per-skill package key, as a
+  # formula over the same `ctx` as `renameFn` (default
+  # `ctx: ctx.source.owner`). A non-empty result yields
+  # `<packagePrefix><segment>-<effectiveName>` and `agent-skills-<segment>-all`
+  # for the aggregate; `""` omits the segment; `null` (the default with no
+  # derivable owner) is a hard eval error — pass `source` with an owner,
+  # return a string, or return `""` on purpose. Touches only package keys
+  # and the aggregate `name`, never the installed skill names.
+  namespaceFn ? (ctx: ctx.source.owner),
   # Formula that derives each skill's effective name from a context
   # attrset (NOT a bare string), so a remapped name can encode where the
   # skill came from. Default is identity (no rename). The context is:
@@ -48,8 +60,11 @@
   # `originalSkillName`.
   renameFn ? (ctx: ctx.name),
   # The skills' origin repo, supplied by the consumer from their own
-  # flake `self` (+ owner/repo). Only needed if `renameFn` references
-  # `ctx.source.*`. Shape (all optional except as your formula needs):
+  # flake `self` (+ owner/repo). The default `namespaceFn` reads
+  # `ctx.source.owner` from it, so a hosted source is the no-friction
+  # path; an unset/local/ownerless source makes the namespace null (a
+  # hard error unless `namespaceFn` returns a string or ""). Also feeds
+  # `renameFn`'s `ctx.source.*`. Shape (all optional except as needed):
   #   { owner; repo;            # or `url` (any git URL / flake ref —
   #                             #   host-agnostic, owner/repo best-effort)
   #     rev;                    # self.rev or self.dirtyRev
@@ -90,22 +105,51 @@ let
 
   discovered = internal.discoverSkills skillsDir;
 
-  # Apply the rename formula once, here, so a single canonical post-rename
-  # name flows into every downstream consumer — package keys, the
-  # installer symlink, the GC root, the lock, and reconcile's "is this a
-  # stray?" sweep. If the renamed name didn't propagate consistently,
-  # reconcile would treat the install as undeclared and sweep it.
+  pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
+
+  # The aggregate "all" bundle's owner namespace, resolved once from the
+  # source (the default `namespaceFn` ignores the per-skill name). Drives
+  # the plural `agent-skills-<namespace>-all` key/appName.
+  aggNamespace = internal.resolveNamespace {
+    inherit namespaceFn;
+    ctx = internal.mkRenameContext {
+      name = "all";
+      inherit source;
+      toolingProvenance = provenance;
+    };
+  };
+  aggName =
+    if name != null then
+      name
+    else if aggNamespace == "" then
+      "agent-skills-all"
+    else
+      "agent-skills-${aggNamespace}-all";
+
+  # Resolve rename + namespace + package key once per discovered skill, so
+  # one canonical post-rename name and key flow into every downstream
+  # consumer — package keys, the installer symlink, the GC root, the lock,
+  # and reconcile's "is this a stray?" sweep. If the renamed name didn't
+  # propagate consistently, reconcile would treat the install as undeclared
+  # and sweep it.
   renamed = map (
     s:
     let
-      rename = internal.applyRename {
+      naming = internal.resolveSkillNaming {
         inherit (s) name;
-        inherit source provenance renameFn;
+        packagePrefix = pp;
+        inherit
+          source
+          provenance
+          renameFn
+          namespaceFn
+          ;
       };
     in
     {
-      name = rename.effective;
-      originalName = rename.original;
+      name = naming.effective;
+      key = naming.key;
+      originalName = naming.original;
       inherit (s) src;
     }
   ) discovered;
@@ -113,7 +157,7 @@ let
   skillSetFor =
     system:
     map (s: {
-      inherit (s) name;
+      inherit (s) name key;
       drv = internal.mkSkill system {
         inherit (s) name src;
         originalSkillName = s.originalName;
@@ -121,60 +165,68 @@ let
       };
     }) renamed;
 
+  # The skill set, guarded against a `renameFn` collapsing two skills onto
+  # one install name. Every install/aggregate consumer draws from this.
+  checkedSkillSetFor =
+    system:
+    internal.assertUniqueSkillNames {
+      label = "mkAllSkillsFlake pack '${aggName}'";
+      skills = skillSetFor system;
+    };
+
   aggregateFor =
     system:
     let
       pkgs = nixpkgs.legacyPackages.${system};
-      skillSet = skillSetFor system;
     in
     pkgs.symlinkJoin {
-      inherit name;
-      paths = map (s: s.drv) skillSet;
+      name = aggName;
+      paths = map (s: s.drv) (checkedSkillSetFor system);
     };
 
   installerFor =
     system:
     internal.mkInstaller system {
-      appName = name;
-      skills = skillSetFor system;
+      appName = aggName;
+      skills = checkedSkillSetFor system;
       inherit profile;
     };
 
   previewFor =
     system:
     internal.mkPreview system {
-      appName = name;
-      displayName = name;
-      skills = skillSetFor system;
+      appName = aggName;
+      displayName = aggName;
+      skills = checkedSkillSetFor system;
       inherit profile;
     };
 
   reapFor =
     system:
     internal.mkReap system {
-      appName = name;
+      appName = aggName;
       inherit provenance profile;
     };
 
   purgeFor =
     system:
     internal.mkPurge system {
-      appName = name;
+      appName = aggName;
       inherit provenance profile;
     };
 
   uninstallFor =
     system:
     internal.mkUninstall system {
-      appName = name;
+      appName = aggName;
       inherit provenance profile;
     };
 
   reconcileFor =
     system:
     internal.mkReconcile system {
-      appName = name;
-      skills = skillSetFor system;
+      appName = aggName;
+      skills = checkedSkillSetFor system;
       inherit provenance profile;
     };
 in
@@ -182,53 +234,53 @@ in
   packages = forAllSystems (
     system:
     let
-      # Prefix per-skill package keys with `packagePrefix` (default
-      # `skill-`, matching mkSkillFlake's default) so bare skill names
-      # like `nix-flakes` don't shadow same-named entries in nixpkgs or
-      # aggregator flakes. The skill's user-facing identity (install
+      # Each per-skill package key is the owner-namespaced
+      # `<packagePrefix><namespace>-<effectiveName>` resolved above, so
+      # bare skill names like `nix-flakes` can't shadow nixpkgs entries
+      # and forks can't collide. The skill's user-facing identity (install
       # path, sentinel, slash command) still uses `s.name`.
       perSkill = lib.listToAttrs (
         map (s: {
-          name = "${packagePrefix}${s.name}";
+          name = s.key;
           value = s.drv;
-        }) (skillSetFor system)
+        }) (checkedSkillSetFor system)
       );
     in
     perSkill
     // {
       default = aggregateFor system;
-      agent-skills-all = aggregateFor system;
+      ${aggName} = aggregateFor system;
     }
   );
 
   apps = forAllSystems (system: {
     default = {
       type = "app";
-      program = "${previewFor system}/bin/preview-${name}";
+      program = "${previewFor system}/bin/preview-${aggName}";
     };
     install = {
       type = "app";
-      program = "${installerFor system}/bin/install-${name}";
+      program = "${installerFor system}/bin/install-${aggName}";
     };
     uninstall = {
       type = "app";
-      program = "${uninstallFor system}/bin/uninstall-${name}";
+      program = "${uninstallFor system}/bin/uninstall-${aggName}";
     };
     preview = {
       type = "app";
-      program = "${previewFor system}/bin/preview-${name}";
+      program = "${previewFor system}/bin/preview-${aggName}";
     };
     reap = {
       type = "app";
-      program = "${reapFor system}/bin/reap-${name}";
+      program = "${reapFor system}/bin/reap-${aggName}";
     };
     purge = {
       type = "app";
-      program = "${purgeFor system}/bin/purge-${name}";
+      program = "${purgeFor system}/bin/purge-${aggName}";
     };
     reconcile = {
       type = "app";
-      program = "${reconcileFor system}/bin/reconcile-${name}";
+      program = "${reconcileFor system}/bin/reconcile-${aggName}";
     };
   });
 
@@ -237,5 +289,5 @@ in
   # the shell stays a pure function of the inputs. Mirrors mkAggregateSkillsFlake's
   # `reconcileScript` so consumers can drop either into a devshell startup hook
   # without reaching into `apps.reconcile.program` and appending the scope flag.
-  reconcileScript = system: "${reconcileFor system}/bin/reconcile-${name} --scope=project";
+  reconcileScript = system: "${reconcileFor system}/bin/reconcile-${aggName} --scope=project";
 }

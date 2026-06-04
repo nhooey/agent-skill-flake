@@ -55,13 +55,14 @@ let
       source,
       # Which keys in `source.packages.<system>` count as skills. Defaults
       # to the library's own mkAllSkillsFlake/mkSkillFlake default.
-      packagePrefix ? "skill-",
+      packagePrefix ? null,
     }:
     let
       internal = import ./internal.nix { inherit nixpkgs; };
+      pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
       pkgs = nixpkgs.legacyPackages.${system};
       attrs = source.packages.${system};
-      keys = internal.skillKeysWithPrefix attrs packagePrefix;
+      keys = internal.skillKeysWithPrefix attrs pp;
     in
     map (
       k:
@@ -86,7 +87,7 @@ let
       system,
       source,
       namePrefix,
-      packagePrefix ? "skill-",
+      packagePrefix ? null,
       agent ? "claude-code",
       appName ? "agent-skills-${namePrefix}-all",
     }:
@@ -122,7 +123,7 @@ let
       # null → install everything the installer exposes. Otherwise the
       # named subset.
       skills ? null,
-      packagePrefix ? "skill-",
+      packagePrefix ? null,
       agent ? "claude-code",
       scope ? "project",
     }:

@@ -75,9 +75,11 @@ flake-skills.lib.mkSkillFlake {
   extraFiles     = [ ];           # ship additional top-level files (shell globs evaluated in `src`)
   agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   # rename (optional) — see "Renaming & name collisions" below:
-  renameFn       = ctx: ctx.name; # identity (no rename)
-  source         = null;          # skill's origin repo, for ctx.source.*
-  packageName    = null;          # defaults to "skill-${effectiveName}"
+  renameFn       = ctx: ctx.name;            # identity (no rename)
+  source         = null;                     # skill's origin repo, for ctx.source.* / namespaceFn
+  namespaceFn    = ctx: ctx.source.owner;    # owner segment in the package key
+  packagePrefix  = null;                     # category prefix, default "agent-skill-"
+  packageName    = null;                     # defaults to "<packagePrefix><namespace>-<effectiveName>"
 }
 ```
 
@@ -93,8 +95,10 @@ flake-skills.lib.mkSkillFlake {
 | `extraFiles`  | no       | `[ ]`                                                                | Additional top-level files from `src` to ship at the install root. Each entry is a shell glob evaluated in `src` (nullglob: no-match silently dropped; directory matches are skipped). |
 | `agent`       | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). Throws at eval if the name isn't a known profile. |
 | `renameFn`    | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
-| `source`      | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
-| `packageName` | no       | `null` → `"skill-${effectiveName}"`                                  | Override the `packages.<system>.<key>` attribute name. |
+| `source`      | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). The default `namespaceFn` reads `ctx.source.owner` from it; also feeds `renameFn`'s `ctx.source.*`. |
+| `namespaceFn` | no       | `ctx: ctx.source.owner`                                             | Owner segment spliced into the package key. A non-empty string → `<packagePrefix><segment>-<effectiveName>`; `""` omits it; `null` (default with no derivable owner) is a hard eval error. Touches only the key, not the installed name. |
+| `packagePrefix` | no     | `null` → `"agent-skill-"`                                           | Category prefix on the package key, before the namespace segment. |
+| `packageName` | no       | `null` → `"<packagePrefix><namespace>-<effectiveName>"`             | Override the `packages.<system>.<key>` attribute name (wins over `packagePrefix`/`namespaceFn`). |
 
 Returns an attrset suitable for use as a flake's `outputs`:
 
@@ -194,13 +198,15 @@ flake-skills.lib.mkAllSkillsFlake {
   skillsDir      = ./skills;
   # optional:
   systems        = import systems;  # default: the `nix-systems/default` input; override per "Overriding the target systems"
-  name           = "agent-skills-all";
+  name           = null;                     # default: "agent-skills-<owner>-all"
   agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
   extraFiles     = [ ];           # additional top-level files (shell globs; applied to every discovered skill)
   # rename (optional) — see "Renaming & name collisions" below:
-  renameFn       = ctx: ctx.name; # identity (no rename)
-  source         = null;          # skills' origin repo, for ctx.source.*
+  renameFn       = ctx: ctx.name;            # identity (no rename)
+  source         = null;                     # skills' origin repo, for ctx.source.* / namespaceFn
+  namespaceFn    = ctx: ctx.source.owner;    # owner segment in each package key
+  packagePrefix  = null;                     # category prefix, default "agent-skill-"
 }
 ```
 
@@ -209,12 +215,14 @@ flake-skills.lib.mkAllSkillsFlake {
 | `nixpkgs`    | yes      | —                                                                    | The consumer's `nixpkgs` flake input. |
 | `skillsDir`  | yes      | —                                                                    | Path to a directory whose subdirectories are individual skills. A subdir is a "skill" iff it contains a `SKILL.md`. |
 | `systems`    | no       | `import systems` — the [`nix-systems/default`][nix-systems] input | Systems to build for. Override the `systems` input or pass an explicit list — see [Overriding the target systems](#overriding-the-target-systems). |
-| `name`       | no       | `"agent-skills-all"`                                                 | Aggregate derivation name (also used as the install/preview app suffix). |
+| `name`       | no       | `null` → `"agent-skills-<owner>-all"`                               | Aggregate package key + reconcile-ownership appName (`agent-skills-all` when the namespace is `""`). |
 | `agent`      | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). |
 | `extraDirs`  | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. |
 | `extraFiles` | no       | `[ ]`                                                                | Additional top-level files to ship at each discovered skill's install root. Each entry is a shell glob evaluated per-skill (nullglob: no-match silently dropped; directory matches are skipped). |
 | `renameFn`   | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
-| `source`     | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). Only needed if `renameFn` reads `ctx.source.*`. |
+| `source`     | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). The default `namespaceFn` reads `ctx.source.owner`; also feeds `renameFn`'s `ctx.source.*`. |
+| `namespaceFn`| no       | `ctx: ctx.source.owner`                                             | Owner segment spliced into every per-skill package key (and `agent-skills-<segment>-all`). Non-empty string → used; `""` omits it; `null` (default with no derivable owner) is a hard eval error. Touches only keys, not installed names. |
+| `packagePrefix` | no    | `null` → `"agent-skill-"`                                           | Category prefix on each per-skill package key, before the namespace segment. |
 
 Returns:
 
@@ -390,7 +398,7 @@ old name; chaining wrappers compounds the prefix.
 flake-skills.lib.withNamePrefix {
   pkgs       = nixpkgs.legacyPackages.${system};
   namePrefix = "gstack";
-  skill      = inputs.someones-skills.packages.${system}.skill-foo;
+  skill      = inputs.someones-skills.packages.${system}.agent-skill-foo;
 }
 # → drv with passthru.flakeSkillName = "gstack-foo"
 
@@ -401,8 +409,8 @@ flake-skills.lib.withNamePrefix {
   skill      = flake-skills.lib.mkSkillsEnv {
     inherit pkgs;
     name   = "their-pack";
-    skills = [ inputs.someones-skills.packages.${system}.skill-foo
-               inputs.someones-skills.packages.${system}.skill-bar ];
+    skills = [ inputs.someones-skills.packages.${system}.agent-skill-foo
+               inputs.someones-skills.packages.${system}.agent-skill-bar ];
   };
 }
 # → env whose `flakeSkillsEnv` members are individually prefix-wrapped:
@@ -471,7 +479,7 @@ flake-skills.lib.withNamePrefixSource {
   inherit nixpkgs system;
   namePrefix    = "superpowers";
   source        = inputs.superpowers;  # has .packages.<system>
-  packagePrefix = "skill-";            # which keys count as skills
+  packagePrefix = "agent-skill-";      # which keys count as skills (default)
 }
 # → [ { name = "superpowers-<old>"; drv = wrappedDrv; } … ]
 ```
@@ -490,7 +498,7 @@ flake-skills.lib.mkPrefixedInstaller {
   inherit nixpkgs system;
   source     = inputs.superpowers;
   namePrefix = "superpowers";
-  # packagePrefix ? "skill-", agent ? "claude-code",
+  # packagePrefix ? "agent-skill-", agent ? "claude-code",
   # appName ? "agent-skills-${namePrefix}-all"
 }
 # → installer derivation over the prefix-wrapped source
@@ -525,6 +533,7 @@ let
   agg = flake-skills.lib.mkAggregateSkillsFlake {
     inherit nixpkgs;
     skillsDir     = ./skills;            # optional local skills (base)
+    source        = { owner = "you"; };  # base owner → namespaces the base keys
     packagePrefix = "agent-skill-";
     sources = [
       { source = skills-git; }                              # all skills
@@ -549,7 +558,7 @@ It returns:
 
 | Field            | Shape                  | Meaning |
 |------------------|------------------------|---------|
-| `packages`       | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>-all` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. |
+| `packages`       | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. Two sources contributing the same key (different skills) is a hard error; disambiguate with a per-source `prefix`. |
 | `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`purge`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union; `purge` tears the whole lineage's slice out of a scope (see [Retiring flake-skills](#retiring-flake-skills)). |
 | `reconcileScript`| `system → string`       | the declarative dev-shell one-liner: `reconcile-${name} --scope=project`. A single command (one owner of the target). |
 
@@ -558,7 +567,12 @@ It returns:
 `prefix = null` merges the source's packages verbatim, otherwise every
 skill is re-prefixed via `withNamePrefixSource`. `packagePrefix` is
 flake-wide (one value for filtering every source's keys and for re-keying
-the merged output).
+the merged output). `source` / `namespaceFn` apply to the optional local
+`skillsDir` base, exactly as in `mkAllSkillsFlake`.
+
+Two skills that resolve to the same install name (after any per-source
+`prefix`) are a hard error — they would clobber each other under
+`~/.claude/skills/<name>`. Give one a distinct `prefix`.
 
 For the wrong ways to wire this up — `nix run <input>#install` defeating a
 `follows`, a `packagePrefix` that matches no source keys, a verbatim package
