@@ -24,23 +24,26 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # The dev-shell skill set, as its own sub-flake so its skill-source inputs
-    # (skills-git, skillspkgs' authoring combination) stay isolated in
-    # `skills-devshell/flake.lock` rather than in this library's inputs. The
-    # combination is formed there; the dev shell consumes its `reconcileScript`.
-    #
-    # Referenced via `github:…?dir=` rather than `path:./skills-devshell`: being
-    # the library, this flake has no `flake-skills` input to point the sub-flake
-    # at via `follows`, so a relative `path:` here would leave the sub-flake's
-    # own `flake-skills` (which itself carries this `skills-devshell` input) to
-    # re-resolve a nested relative path from the wrong base and fail with a
-    # doubled `skills-devshell/skills-devshell/…` path. A `github:?dir` ref is
-    # fetched standalone, sidestepping that — at the cost of the dev shell using
-    # the last-pushed skill set rather than local edits (the set rarely changes).
-    # Consumers that DO have a `flake-skills` input should instead use
-    # `path:./skills-devshell` + `inputs.flake-skills.follows` (see README).
-    skills-devshell = {
-      url = "github:nhooey/flake-skills?dir=skills-devshell";
+    # ---------------------------------------------------------------------
+    # Dev-shell skill sources (inlined — consumed only by `devshells` below)
+    # ---------------------------------------------------------------------
+    # The dev shell installs a curated skill set (the git/GitHub pack plus
+    # skillspkgs' `authoring` combination), combined via this flake's own
+    # `lib.mkCombination` in `outputs` (`devshellSkills`). These were
+    # previously isolated in a `skills-devshell/` sub-flake, but a same-repo
+    # sub-flake can only be addressed by a relative `path:` (rejected by
+    # sandboxed/transitive consumers) or a brittle self-URL. Being the library,
+    # this flake has no `flake-skills` input to point the sources at via
+    # `follows`, so each locks its own (published) `flake-skills`; that rev
+    # converges with this repo's on merge. `mkCombination` itself comes from the
+    # local `lib` (`flakeLib`), so the combiner is always this exact tree.
+    skills-git = {
+      url = "github:nhooey/skills-git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    skillspkgs-combinations = {
+      url = "github:nhooey/skillspkgs?dir=sources/combinations";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -61,6 +64,21 @@
       # Internal helpers — used here to expose a top-level `reap` app that
       # works without any embedded skill set (pure cleanup tool).
       internal = import ./lib/internal.nix { inherit nixpkgs; };
+
+      # The dev-shell skill set, combined from the inlined skill sources
+      # (git/GitHub pack + skillspkgs' `authoring` combination) via this
+      # flake's own `lib.mkCombination`. `reconcileScript` is a
+      # `system -> string` function the dev shell splices into a startup hook.
+      devshellSkills = flakeLib.mkCombination {
+        inherit nixpkgs;
+        name = "flake-skills-devshell";
+        envName = "agent-skills-flake-skills-devshell";
+        packagePrefix = "agent-skill-";
+        sources = [
+          { source = inputs.skills-git; }
+          { source = inputs.skillspkgs-combinations.combinations.authoring; }
+        ];
+      };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import systems;
@@ -135,11 +153,11 @@
               Run {bold}menu{reset} to list available commands.
             '';
             # Install the dev-shell skill set (git/GitHub + the authoring
-            # combination) at project scope on `nix develop`. The skills-devshell
-            # sub-flake outputs the reconcile one-liner as text per system; this
-            # just splices it in — the root knows nothing about how it's built.
+            # combination) at project scope on `nix develop`. `devshellSkills`
+            # (above) yields the reconcile one-liner per system; this splices
+            # it in.
             devshell.startup.install-skills.text = ''
-              ${inputs.skills-devshell.reconcileScript.${system}}
+              ${devshellSkills.reconcileScript system}
             '';
             packages = [
               batsWith
