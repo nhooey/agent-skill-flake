@@ -3,10 +3,9 @@
 declare -a all_skill_names=()
 declare -A skill_path_by_name=()
 for entry in "${skills_list[@]}"; do
-  name=${entry%%:*}
-  path=${entry#*:}
-  all_skill_names+=("$name")
-  skill_path_by_name["$name"]="$path"
+  parse_skill_entry "$entry"
+  all_skill_names+=("$skill_name")
+  skill_path_by_name["$skill_name"]="$store_path"
 done
 
 print_help() {
@@ -67,8 +66,7 @@ for arg in "$@"; do
   case "$arg" in
   --profile) mode=profile ;;
   -*)
-    printf '%s: unknown flag: %s\n' "$app_name" "$arg" >&2
-    printf '  See `%s --help` for usage.\n' "$app_name" >&2
+    usage_error "unknown flag: $arg"
     exit 2
     ;;
   *) selected_names+=("$arg") ;;
@@ -104,11 +102,9 @@ symlink)
     printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
   fi
   for entry in "${effective_skills[@]}"; do
-    skill_name=${entry%%:*}
-    store_path=${entry#*:}
-    skill_subpath="$store_path/share/claude-skills/$skill_name"
+    parse_skill_entry "$entry"
     target="$target_root/$skill_name"
-    gcroot_target="$gcroots_dir/claude-skill-$skill_name"
+    gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
 
     ensure_symlink "$target" "$skill_subpath" 'installed (symlink)'
 
@@ -127,13 +123,12 @@ symlink)
 
 profile)
   for entry in "${effective_skills[@]}"; do
-    skill_name=${entry%%:*}
-    store_path=${entry#*:}
+    parse_skill_entry "$entry"
     target="$target_root/$skill_name"
     if ! nix profile install "$store_path" 2>/dev/null; then
       printf 'Note: %s already in profile; use %s to bump it\n' "$skill_name" "'nix profile upgrade'" >&2
     fi
-    profile_subpath="$HOME/.nix-profile/share/claude-skills/$skill_name"
+    profile_subpath="${HOME}/.nix-profile/${SKILLS_SHARE_SUBDIR}/${skill_name}"
     rm -rf "$target"
     ln -sfn "$profile_subpath" "$target"
     printf 'installed (profile): %s -> %s\n' "$target" "$profile_subpath"

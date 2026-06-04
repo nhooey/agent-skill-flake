@@ -33,7 +33,7 @@ lock_init_if_absent() {
 # flake-skills rev) so callers don't need to special-case it.
 lock_read_sentinel() {
   local store_path="$1" skill_name="$2"
-  local sentinel="$store_path/share/claude-skills/$skill_name/.flake-skills-managed.json"
+  local sentinel="${store_path}/${SKILLS_SHARE_SUBDIR}/${skill_name}/${SENTINEL_FILE}"
   if [ -f "$sentinel" ]; then
     cat "$sentinel"
   else
@@ -92,7 +92,7 @@ lock_remove() {
 remove_skill_links() {
   local skill_name="$1"
   rm -f "$target_root/$skill_name"
-  rm -f "$gcroots_dir/claude-skill-$skill_name"
+  rm -f "${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
 }
 
 # cleanup_skill_entry  $skill_name

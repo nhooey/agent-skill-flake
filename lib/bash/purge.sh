@@ -45,8 +45,7 @@ while [ $# -gt 0 ]; do
   --dry-run) dry_run=1 ;;
   -y | --yes) assume_yes=1 ;;
   *)
-    printf '%s: unexpected argument: %s\n' "$app_name" "$1" >&2
-    printf '  See `%s --help` for usage.\n' "$app_name" >&2
+    usage_error "unexpected argument: $1"
     exit 2
     ;;
   esac

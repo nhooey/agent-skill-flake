@@ -43,8 +43,7 @@ if [ $# -eq 0 ]; then
   if [ -n "$default_skill" ]; then
     set -- "$default_skill"
   else
-    printf '%s: skill name required\n' "$app_name" >&2
-    printf '  See `%s --help` for usage.\n' "$app_name" >&2
+    usage_error 'skill name required'
     exit 2
   fi
 fi

@@ -12,6 +12,28 @@
 #   gcroots_dir              — absolute path to per-user GC-roots dir
 #   scope_remaining_args[]   — argv with --scope/--root/--gcroots-dir stripped
 
+# Install-layout constants — single source of truth for the on-disk shapes
+# the verb scripts and the sourced helper modules (ownership/lock/sweep) all
+# share. Sourced first, so they are in scope for every later module.
+SKILLS_SHARE_SUBDIR="share/claude-skills"  # per-skill content path under a skill's store output
+GC_ROOT_PREFIX="claude-skill-"             # per-user GC-root filename prefix
+SENTINEL_FILE=".flake-skills-managed.json" # per-install provenance marker
+
+# Print "<app_name>: <msg>" then the standard "See --help" pointer to stderr —
+# the shared shape behind every verb's argv-validation error.
+usage_error() {
+  printf '%s: %s\n' "$app_name" "$1" >&2
+  printf '  See `%s --help` for usage.\n' "$app_name" >&2
+}
+
+# Split a `name:store_path` skills_list entry into globals: sets skill_name,
+# store_path, and the derived skill_subpath (the installed content dir).
+parse_skill_entry() {
+  skill_name=${1%%:*}
+  store_path=${1#*:}
+  skill_subpath="${store_path}/${SKILLS_SHARE_SUBDIR}/${skill_name}"
+}
+
 # Walk up from $PWD looking for .git/ (preferred) or flake.nix (fallback).
 # Echoes the project root and returns 0; returns 1 if not found.
 find_project_root() {
@@ -75,8 +97,7 @@ parse_scope_args() {
 
   case "$scope" in
   "")
-    printf '%s: --scope is required (one of: personal, project, custom)\n' "$app_name" >&2
-    printf '  See `%s --help` for usage.\n' "$app_name" >&2
+    usage_error '--scope is required (one of: personal, project, custom)'
     return 2
     ;;
   personal)
@@ -117,6 +138,18 @@ parse_scope_args() {
     gcroots_dir="$gcroots"
   else
     gcroots_dir="/nix/var/nix/gcroots/per-user/$USER"
+  fi
+}
+
+# parse_scope_args + require an otherwise-empty argv. The verbs that take no
+# positionals (reconcile, reap, preview) call this; a leftover positional is a
+# hard usage error. On success the scope globals are set and argv is empty.
+parse_scope_no_positionals() {
+  parse_scope_args "$@" || return $?
+  set -- "${scope_remaining_args[@]}"
+  if [ $# -gt 0 ]; then
+    usage_error "unexpected positional argument: $1"
+    return 2
   fi
 }
 

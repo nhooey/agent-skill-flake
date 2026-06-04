@@ -24,13 +24,7 @@ if wants_help "$@"; then
   exit 0
 fi
 
-parse_scope_args "$@" || exit $?
-set -- "${scope_remaining_args[@]}"
-if [ $# -gt 0 ]; then
-  printf '%s: unexpected positional argument: %s\n' "$app_name" "$1" >&2
-  printf '  See `%s --help` for usage.\n' "$app_name" >&2
-  exit 2
-fi
+parse_scope_no_positionals "$@" || exit $?
 
 mkdir -p "$target_root"
 gcroots_ok=1
@@ -44,10 +38,8 @@ fi
 #    skip declared entries (vs. a per-entry linear scan of a names list).
 declare -A keep_set=()
 for entry in "${skills_list[@]}"; do
-  skill_name=${entry%%:*}
-  store_path=${entry#*:}
-  skill_subpath="$store_path/share/claude-skills/$skill_name"
-  gcroot_target="$gcroots_dir/claude-skill-$skill_name"
+  parse_skill_entry "$entry"
+  gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
 
   ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)'
 

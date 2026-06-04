@@ -23,22 +23,14 @@ if wants_help "$@"; then
   exit 0
 fi
 
-parse_scope_args "$@" || exit $?
-set -- "${scope_remaining_args[@]}"
-if [ $# -gt 0 ]; then
-  printf '%s: unexpected positional argument: %s\n' "$app_name" "$1" >&2
-  printf '  See `%s --help` for usage.\n' "$app_name" >&2
-  exit 2
-fi
+parse_scope_no_positionals "$@" || exit $?
 
 printf '%s preview (no changes made)\n\n' "$display_name"
 printf 'Target directory: %s\n\n' "$target_root"
 
 count=0
 for entry in "${skills_list[@]}"; do
-  skill_name=${entry%%:*}
-  store_path=${entry#*:}
-  skill_subpath="$store_path/share/claude-skills/$skill_name"
+  parse_skill_entry "$entry"
   size=$(du -shL "$skill_subpath" 2>/dev/null | cut -f1)
   printf '  %s  (%s)\n' "$skill_name" "$size"
   find -L "$skill_subpath" -mindepth 1 ! -type d | sed "s|^$skill_subpath/|      |"

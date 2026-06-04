@@ -44,11 +44,11 @@ lineage_sweep() {
   #    store-path target no longer exists in the store.
   if [ -d "$gcroots_dir" ]; then
     shopt -s nullglob
-    for gc in "$gcroots_dir"/claude-skill-*; do
+    for gc in "${gcroots_dir}/${GC_ROOT_PREFIX}"*; do
       [ -L "$gc" ] || continue
       target=$(readlink "$gc")
       [ -e "$target" ] && continue
-      name=${gc##*/claude-skill-}
+      name=${gc##*/"${GC_ROOT_PREFIX}"}
       if [ "$dry_run" = "1" ]; then
         printf 'would %s GC root (target gone): %s\n' "$sweep_verb" "$gc"
       else
