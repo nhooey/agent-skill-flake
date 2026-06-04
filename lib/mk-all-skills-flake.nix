@@ -253,6 +253,20 @@ in
     }
   );
 
+  # Per-skill drvs indexed by bare installed name (`flakeSkillName`), the
+  # stable identity — so a consumer assembling a pack with `mkSkillsEnv`
+  # selects skills by bare name without reconstructing the owner-namespaced
+  # package keys. Excludes the `default` / aggregate envs.
+  bySkillName = forAllSystems (
+    system:
+    lib.listToAttrs (
+      map (s: {
+        inherit (s) name;
+        value = s.drv;
+      }) (checkedSkillSetFor system)
+    )
+  );
+
   apps = forAllSystems (system: {
     default = {
       type = "app";
