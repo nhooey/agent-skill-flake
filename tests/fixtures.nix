@@ -12,6 +12,42 @@
   nixpkgs,
 }:
 let
+  # The example sources are local dirs with no hosting owner, so most
+  # fixtures opt out of the owner namespace (`namespaceFn = _: ""`) and
+  # their package keys are the bare `agent-skill-<name>` / `agent-skills-all`.
+  # Fixtures that exercise owner namespacing call `flakeLib` directly and
+  # pass a `source`. These wrappers also bake in `nixpkgs`.
+  mkSkill =
+    args:
+    flakeLib.mkSkillFlake (
+      {
+        inherit nixpkgs;
+        namespaceFn = _: "";
+      }
+      // args
+    );
+  mkAll =
+    args:
+    flakeLib.mkAllSkillsFlake (
+      {
+        inherit nixpkgs;
+        namespaceFn = _: "";
+      }
+      // args
+    );
+  mkAgg =
+    args:
+    flakeLib.mkAggregateSkillsFlake (
+      {
+        inherit nixpkgs;
+        namespaceFn = _: "";
+      }
+      // args
+    );
+  # mkCombination has no local base, so no namespaceFn — its sources arrive
+  # already keyed by their own builds.
+  mkCombo = args: flakeLib.mkCombination ({ inherit nixpkgs; } // args);
+
   # Shared source + name for the four `extraFiles` variants below: the same
   # skill rebuilt with different `extraFiles` settings so the bats tests can
   # assert positive, negative, no-match, and directory-skip behaviour
@@ -20,16 +56,14 @@ let
   extraFilesSkillName = "example-skill-extra-files";
 
   # A combination over a prefixed source: `gamma` under prefix "cx" → key
-  # `skill-cx-gamma`, env member `cx-gamma`. In the `let` so
+  # `agent-skill-cx-gamma`, env member `cx-gamma`. In the `let` so
   # `fixtureCombinationReused` can feed it back in as a source.
-  fixtureCombination = flakeLib.mkCombination {
-    inherit nixpkgs;
+  fixtureCombination = mkCombo {
     name = "combo";
     envName = "agent-skills-combo";
     sources = [
       {
-        source = flakeLib.mkAllSkillsFlake {
-          inherit nixpkgs;
+        source = mkAll {
           skillsDir = ./example-source-dir;
           name = "combo-src";
         };
@@ -42,8 +76,7 @@ in
   inherit fixtureCombination;
 
   # Single-skill fixture.
-  fixture = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixture = mkSkill {
     skillName = "example-skill";
     src = ./example-skill;
   };
@@ -51,22 +84,31 @@ in
   # Multi-skill fixture: directory containing alpha/ + beta/ (and a
   # not-a-skill/ subdir + a top-level README.md to exercise discovery
   # filtering).
-  fixtureAll = flakeLib.mkAllSkillsFlake {
-    inherit nixpkgs;
+  fixtureAll = mkAll {
     skillsDir = ./example-skills-dir;
     name = "example-skills-dir";
   };
 
+  # Owner-namespaced fixture: `source = { owner = "acme"; }` with the default
+  # `namespaceFn` (reads `ctx.source.owner`). Per-skill keys become
+  # `agent-skill-acme-{alpha,beta}` and the aggregate `agent-skills-acme-all`,
+  # while the installed identities stay bare (`alpha`, `beta`).
+  fixtureAllOwner = flakeLib.mkAllSkillsFlake {
+    inherit nixpkgs;
+    skillsDir = ./example-skills-dir;
+    source = {
+      owner = "acme";
+    };
+  };
+
   # Single-skill fixture whose SKILL.md frontmatter `name:` diverges from
   # `skillName` — exercises build-time frontmatter normalization.
-  fixtureRename = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureRename = mkSkill {
     skillName = "example-skill-renamed";
     src = ./example-skill-rename;
   };
 
-  fixtureExtraFiles = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureExtraFiles = mkSkill {
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
     extraFiles = [
@@ -75,13 +117,11 @@ in
       "*.dot"
     ];
   };
-  fixtureExtraFilesOff = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureExtraFilesOff = mkSkill {
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
   };
-  fixtureExtraFilesNoMatch = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureExtraFilesNoMatch = mkSkill {
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
     extraFiles = [ "*.nonexistent" ];
@@ -90,8 +130,7 @@ in
   # (`companion-dir/`) which is NOT in `extraDirs`. The `[ -f ]` guard
   # inside the install loop must skip the directory so only top-level
   # regular files are shipped.
-  fixtureExtraFilesDirSkip = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureExtraFilesDirSkip = mkSkill {
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
     extraFiles = [ "*" ];
@@ -100,8 +139,7 @@ in
   # Single-skill fixture built with `agent = "codex"` so the install scope
   # tests can assert the codex profile's `.codex/skills/` suffix is used
   # (instead of `.claude/skills/`).
-  fixtureCodex = flakeLib.mkSkillFlake {
-    inherit nixpkgs;
+  fixtureCodex = mkSkill {
     skillName = "example-skill";
     src = ./example-skill;
     agent = "codex";
@@ -113,9 +151,10 @@ in
   # deterministic under `nix flake check`:
   #   lastModifiedDate "20240424120000" → compact "20240424"
   #   rev[:7]                            → "0123456"
-  # so alpha → "nhooey-alpha-0123456-20240424".
-  fixtureAllRenamed = flakeLib.mkAllSkillsFlake {
-    inherit nixpkgs;
+  # so alpha → "nhooey-alpha-0123456-20240424". The owner namespace is
+  # opted out (wrapper `namespaceFn = _: ""`) so the package key is the
+  # bare `agent-skill-<renamed>`.
+  fixtureAllRenamed = mkAll {
     skillsDir = ./example-skills-dir;
     name = "renamed-all";
     source = {
@@ -139,14 +178,12 @@ in
 
   # Full union: base example-skills-dir (alpha, beta) + a prefixed source
   # (example-source-dir's gamma → src-gamma). appName "converge".
-  fixtureAggConvergeFull = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggConvergeFull = mkAgg {
     skillsDir = ./example-skills-dir;
     name = "converge";
     sources = [
       {
-        source = flakeLib.mkAllSkillsFlake {
-          inherit nixpkgs;
+        source = mkAll {
           skillsDir = ./example-source-dir;
           name = "converge-src";
         };
@@ -159,8 +196,7 @@ in
   # (alpha, beta) only, so reconciling with it must sweep the now-stray
   # src-gamma left by the full reconcile. This is the regression test for
   # the skills-git stray-leftover bug.
-  fixtureAggConvergeReduced = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggConvergeReduced = mkAgg {
     skillsDir = ./example-skills-dir;
     name = "converge";
     sources = [ ];
@@ -170,19 +206,16 @@ in
   # target. `aggCoexistA` owns alpha+beta (appName "coexist-a"); `aggCoexistB`
   # owns gamma (appName "coexist-b", verbatim source, no local base). Each
   # reconcile must sweep only its own strays and never the other's skills.
-  fixtureAggCoexistA = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggCoexistA = mkAgg {
     skillsDir = ./example-skills-dir;
     name = "coexist-a";
     sources = [ ];
   };
-  fixtureAggCoexistB = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggCoexistB = mkAgg {
     name = "coexist-b";
     sources = [
       {
-        source = flakeLib.mkAllSkillsFlake {
-          inherit nixpkgs;
+        source = mkAll {
           skillsDir = ./example-source-dir;
           name = "coexist-b-src";
         };
@@ -196,13 +229,11 @@ in
   # the named skill and drops its sibling — the field the reconcile rewrite
   # silently ignored. Two variants cover both arms of `recordsForSource`:
   # the verbatim merge and the re-prefixed merge.
-  fixtureAggCherryPick = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggCherryPick = mkAgg {
     name = "cherrypick";
     sources = [
       {
-        source = flakeLib.mkAllSkillsFlake {
-          inherit nixpkgs;
+        source = mkAll {
           skillsDir = ./example-skills-dir;
           name = "cherrypick-src";
         };
@@ -210,13 +241,11 @@ in
       }
     ];
   };
-  fixtureAggCherryPickPrefixed = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  fixtureAggCherryPickPrefixed = mkAgg {
     name = "cherrypick-px";
     sources = [
       {
-        source = flakeLib.mkAllSkillsFlake {
-          inherit nixpkgs;
+        source = mkAll {
           skillsDir = ./example-skills-dir;
           name = "cherrypick-px-src";
         };
@@ -231,10 +260,34 @@ in
   # ── Combination (mkCombination) ──────────────────────────────────────
   # Regression guard for the dropped-`packages` smell: feed the combination
   # back in as a source — the re-aggregated set must contain its prefixed
-  # key (`skill-cx-gamma`). (`fixtureCombination` is in the `let` above.)
-  fixtureCombinationReused = flakeLib.mkAggregateSkillsFlake {
-    inherit nixpkgs;
+  # key (`agent-skill-cx-gamma`). (`fixtureCombination` is in the `let` above.)
+  fixtureCombinationReused = mkAgg {
     name = "combo-reused";
     sources = [ { source = fixtureCombination; } ];
+  };
+
+  # Two sources expose a skill that installs under the same name (`alpha`:
+  # example-skills-dir's alpha vs example-skill's, different content), with
+  # the second re-prefixed to `bx`. The per-source `prefix` resolves what
+  # would otherwise be a duplicate-install-name collision, so the union
+  # builds with `agent-skill-alpha`, `agent-skill-beta`, `agent-skill-bx-alpha`.
+  fixtureCombinationPrefixResolves = mkCombo {
+    name = "combo-resolve";
+    envName = "agent-skills-combo-resolve";
+    sources = [
+      {
+        source = mkAll {
+          skillsDir = ./example-skills-dir;
+          name = "resolve-a";
+        };
+      }
+      {
+        source = mkSkill {
+          skillName = "alpha";
+          src = ./example-skill;
+        };
+        prefix = "bx";
+      }
+    ];
   };
 }

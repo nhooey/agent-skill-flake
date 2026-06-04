@@ -19,7 +19,8 @@
   # Home-manager env package name. Can't be derived from the aggregate
   # (it carries no `name`), so defaults to `name`.
   envName ? name,
-  packagePrefix ? "skill-",
+  # null uses the library default (`agent-skill-`), matching the aggregate.
+  packagePrefix ? null,
   agent ? "claude-code",
   systems ? defaultSystems,
   # Injected by lib/default.nix, as in the other builders.
@@ -31,6 +32,8 @@ let
   internal = import ./internal.nix { inherit nixpkgs; };
   mkSkillsEnv = import ./mk-skills-env.nix { };
 
+  pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
+
   forAllSystems = f: lib.genAttrs systems (system: f system);
 
   # The whole install/reconcile surface AND the source-able package set;
@@ -40,12 +43,12 @@ let
       nixpkgs
       sources
       name
-      packagePrefix
       agent
       systems
       provenance
       defaultSystems
       ;
+    packagePrefix = pp;
   };
 
   # One env per system over the aggregate's prefixed skill drvs. Same
@@ -61,7 +64,7 @@ let
     mkSkillsEnv {
       pkgs = nixpkgs.legacyPackages.${system};
       name = envName;
-      skills = map (k: attrs.${k}) (internal.skillKeysWithPrefix attrs packagePrefix);
+      skills = map (k: attrs.${k}) (internal.skillKeysWithPrefix attrs pp);
     };
 in
 {

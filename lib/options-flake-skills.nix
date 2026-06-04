@@ -16,7 +16,7 @@
     default = [ ];
     example = lib.literalExpression ''
       [
-        inputs.my-skills.packages.''${pkgs.system}.skill-foo
+        inputs.my-skills.packages.''${pkgs.system}.agent-skill-foo
       ]
     '';
     description = ''

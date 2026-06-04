@@ -19,6 +19,7 @@ let
     })
     fixture
     fixtureAll
+    fixtureAllOwner
     fixtureCodex
     fixtureRename
     fixtureAllRenamed
@@ -34,6 +35,7 @@ let
     fixtureAggCherryPickPrefixed
     fixtureCombination
     fixtureCombinationReused
+    fixtureCombinationPrefixResolves
     ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
@@ -53,8 +55,8 @@ let
 
   # Multi-skill artifacts.
   allSkills = fixtureAll.packages.${system}.default;
-  alphaPkg = fixtureAll.packages.${system}."skill-alpha";
-  betaPkg = fixtureAll.packages.${system}."skill-beta";
+  alphaPkg = fixtureAll.packages.${system}."agent-skill-alpha";
+  betaPkg = fixtureAll.packages.${system}."agent-skill-beta";
 
   # Rename fixtures. `renamedSkill` proves frontmatter normalization
   # (its SKILL.md declares a divergent `name:`). `renamedAlphaPkg` proves
@@ -62,7 +64,7 @@ let
   # tests/example-skills-dir becomes `nhooey-alpha-0123456-20240424`.
   renamedSkill = fixtureRename.packages.${system}.default;
   renamedAlphaName = "nhooey-alpha-0123456-20240424";
-  renamedAlphaPkg = fixtureAllRenamed.packages.${system}."skill-${renamedAlphaName}";
+  renamedAlphaPkg = fixtureAllRenamed.packages.${system}."agent-skill-${renamedAlphaName}";
   installAllApp = fixtureAll.apps.${system}.install.program;
   uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
   previewAllApp = fixtureAll.apps.${system}.preview.program;
@@ -150,6 +152,7 @@ let
     inherit nixpkgs;
     skillsDir = ./tests/example-source-dir;
     name = "source-gamma";
+    namespaceFn = _: "";
   };
 
   # The whole marketplace in one call: local base (example-skills-dir) + one
@@ -158,6 +161,7 @@ let
     inherit nixpkgs;
     skillsDir = ./tests/example-skills-dir;
     name = "aggregate-base";
+    namespaceFn = _: "";
     sources = [
       { source = sourceGamma; }
       {
@@ -243,7 +247,7 @@ in
   example-skill-package-named = mkBatsCheck {
     name = "example-skill-package-named";
     env.SKILL_PKG_ROOT = "${
-      fixture.packages.${system}."skill-example-skill"
+      fixture.packages.${system}."agent-skill-example-skill"
     }/share/claude-skills/example-skill";
   };
 
@@ -376,10 +380,11 @@ in
             inherit nixpkgs;
             skillsDir = ./tests/example-skills-dir;
             name = "invalid-rename";
+            namespaceFn = _: "";
             renameFn = _: "Bad_Name";
           };
         in
-        builtins.seq bad.packages.${system}."skill-Bad_Name".drvPath true
+        builtins.seq bad.packages.${system}."agent-skill-Bad_Name".drvPath true
       );
     in
     mkEvalCheck {
@@ -935,29 +940,30 @@ in
     name = "aggregate-skills-flake-merge";
     cond =
       # base skills.
-      (aggPkgs ? "skill-alpha")
-      && (aggPkgs ? "skill-beta")
+      (aggPkgs ? "agent-skill-alpha")
+      && (aggPkgs ? "agent-skill-beta")
       # verbatim (non-prefixed) source.
-      && (aggPkgs ? "skill-gamma")
+      && (aggPkgs ? "agent-skill-gamma")
       # prefixed source.
-      && (aggPkgs ? "skill-src-alpha")
-      && (aggPkgs ? "skill-src-beta")
-      # base aggregate keys present...
+      && (aggPkgs ? "agent-skill-src-alpha")
+      && (aggPkgs ? "agent-skill-src-beta")
+      # base aggregate keys present (the `default` alias + the base's own
+      # `name`)...
       && (aggPkgs ? "default")
-      && (aggPkgs ? "agent-skills-all")
+      && (aggPkgs ? "aggregate-base")
       # ...and they are *base's* (name "aggregate-base"), proving no source
       # default/aggregate overwrote them.
       && lib.hasInfix "aggregate-base" aggPkgs.default.name
-      && lib.hasInfix "aggregate-base" aggPkgs."agent-skills-all".name
+      && lib.hasInfix "aggregate-base" aggPkgs."aggregate-base".name
       # The sources' aggregate names must not have leaked in as keys.
       && !(aggPkgs ? "source-gamma")
       && !(aggPkgs ? "example-skills-dir");
     msg =
       "aggregate-skills-flake-merge: merged package set must contain base "
-      + "(skill-alpha/beta) + verbatim source (skill-gamma) + prefixed source "
-      + "(skill-src-alpha/beta), with default/agent-skills-all still pointing "
-      + "at the base aggregate (aggregate-base) and no source aggregate "
-      + "leaking in.";
+      + "(agent-skill-alpha/beta) + verbatim source (agent-skill-gamma) + "
+      + "prefixed source (agent-skill-src-alpha/beta), with default and the "
+      + "base aggregate key (aggregate-base) still pointing at the base "
+      + "aggregate and no source aggregate leaking in.";
   };
 
   # `reconcileScript system` is the declarative dev-shell one-liner: the
@@ -1023,13 +1029,14 @@ in
 
   # The package-set arm of the same filter: the aggregate exposes exactly the
   # cherry-picked skill's key and not the dropped sibling's, for both the
-  # verbatim (`skill-alpha`) and prefixed (`skill-px-alpha`) sources. Guards
-  # the half of `recordsForSource` the bats check (install side) doesn't see.
+  # verbatim (`agent-skill-alpha`) and prefixed (`agent-skill-px-alpha`)
+  # sources. Guards the half of `recordsForSource` the bats check (install
+  # side) doesn't see.
   aggregate-cherry-pick-packages = mkEvalCheck {
     name = "aggregate-cherry-pick-packages";
     cond =
-      builtins.attrNames fixtureAggCherryPick.packages.${system} == [ "skill-alpha" ]
-      && builtins.attrNames fixtureAggCherryPickPrefixed.packages.${system} == [ "skill-px-alpha" ];
+      builtins.attrNames fixtureAggCherryPick.packages.${system} == [ "agent-skill-alpha" ]
+      && builtins.attrNames fixtureAggCherryPickPrefixed.packages.${system} == [ "agent-skill-px-alpha" ];
     msg = "cherry-pick package set must contain only the selected skill's key";
   };
 
@@ -1042,12 +1049,156 @@ in
   # hand-wrapped shape (no `packages`); passes with the helper.
   combination-source-able = mkEvalCheck {
     name = "combination-source-able";
-    cond = fixtureCombinationReused.packages.${system} ? "skill-cx-gamma";
+    cond = fixtureCombinationReused.packages.${system} ? "agent-skill-cx-gamma";
     msg =
       "combination-source-able: re-aggregating a combination as a source "
-      + "must expose its prefixed key (skill-cx-gamma), proving a combination "
+      + "must expose its prefixed key (agent-skill-cx-gamma), proving a combination "
       + "is itself a valid mkAggregateSkillsFlake source. Got keys: "
       + lib.concatStringsSep ", " (builtins.attrNames fixtureCombinationReused.packages.${system});
+  };
+
+  # ──────────────────────────────────────────────────────────────
+  # Owner-namespaced package keys + duplicate-install-name guards.
+  # ──────────────────────────────────────────────────────────────
+
+  # The default `namespaceFn` (ctx.source.owner) namespaces package keys by
+  # owner while the installed identity stays bare.
+  package-key-owner-namespaced =
+    let
+      ownerPkgs = fixtureAllOwner.packages.${system};
+    in
+    mkEvalCheck {
+      name = "package-key-owner-namespaced";
+      cond =
+        (ownerPkgs ? "agent-skill-acme-alpha")
+        && (ownerPkgs ? "agent-skill-acme-beta")
+        && (ownerPkgs ? "agent-skills-acme-all")
+        && (ownerPkgs ? "default")
+        && ownerPkgs."agent-skill-acme-alpha".passthru.flakeSkillName == "alpha";
+      msg =
+        "package-key-owner-namespaced: the source owner must namespace package "
+        + "keys (agent-skill-acme-alpha, agent-skills-acme-all) while the "
+        + "installed skill name stays bare (alpha).";
+    };
+
+  # `namespaceFn = _: ""` opts out: keys are the bare `agent-skill-<name>`.
+  package-key-namespace-omitted = mkEvalCheck {
+    name = "package-key-namespace-omitted";
+    cond =
+      (fixtureAll.packages.${system} ? "agent-skill-alpha")
+      && !(fixtureAll.packages.${system} ? "agent-skill-acme-alpha");
+    msg = "package-key-namespace-omitted: an empty namespace must yield bare agent-skill-<name> keys.";
+  };
+
+  # No `source` (owner unresolvable) under the default `namespaceFn` is a
+  # hard eval error, never a silently un-namespaced key.
+  namespace-null-throws = mkEvalCheck {
+    name = "namespace-null-throws";
+    cond =
+      (builtins.tryEval (
+        builtins.attrNames
+          (self.lib.mkAllSkillsFlake {
+            inherit nixpkgs;
+            skillsDir = ./tests/example-skills-dir;
+          }).packages.${system}
+      )).success == false;
+    msg = "namespace-null-throws: a null namespace (no source) must fail eval, not produce un-namespaced keys.";
+  };
+
+  # A local/ownerless source URL resolves the owner to null → same hard error.
+  namespace-local-url-throws = mkEvalCheck {
+    name = "namespace-local-url-throws";
+    cond =
+      (builtins.tryEval (
+        builtins.attrNames
+          (self.lib.mkAllSkillsFlake {
+            inherit nixpkgs;
+            skillsDir = ./tests/example-skills-dir;
+            source = {
+              url = "git+file:///Users/me/myrepo";
+            };
+          }).packages.${system}
+      )).success == false;
+    msg = "namespace-local-url-throws: a local (ownerless) source URL must fail eval.";
+  };
+
+  # Two distinct skills that install under the same name must fail when
+  # bundled into one env.
+  env-duplicate-name-throws =
+    let
+      mkDup =
+        src:
+        (self.lib.mkSkillFlake {
+          inherit nixpkgs src;
+          skillName = "dup";
+          namespaceFn = _: "";
+        }).packages.${system}.default;
+      attempt = builtins.tryEval (
+        builtins.seq
+          (self.lib.mkSkillsEnv {
+            inherit pkgs;
+            name = "dup-env";
+            skills = [
+              (mkDup ./tests/example-skill)
+              (mkDup ./tests/example-skill-rename)
+            ];
+          }).drvPath
+          true
+      );
+    in
+    mkEvalCheck {
+      name = "env-duplicate-name-throws";
+      cond = attempt.success == false;
+      msg = "env-duplicate-name-throws: two distinct skills sharing an install name must fail in mkSkillsEnv.";
+    };
+
+  # The same collision across two combination sources (distinct package
+  # keys, same install name) must fail the union guard.
+  combination-duplicate-name-throws =
+    let
+      collide = self.lib.mkCombination {
+        inherit nixpkgs;
+        name = "collide";
+        sources = [
+          {
+            source = self.lib.mkAllSkillsFlake {
+              inherit nixpkgs;
+              skillsDir = ./tests/example-skills-dir;
+              name = "collide-a";
+              namespaceFn = _: "";
+            };
+          }
+          {
+            # Distinct package key (namespace "x") but the same install name
+            # "alpha" as the source above — isolates the install-name guard
+            # from the package-key guard.
+            source = self.lib.mkSkillFlake {
+              inherit nixpkgs;
+              skillName = "alpha";
+              src = ./tests/example-skill;
+              namespaceFn = _: "x";
+            };
+          }
+        ];
+      };
+      attempt = builtins.tryEval (builtins.seq collide.apps.${system}.reconcile.program true);
+    in
+    mkEvalCheck {
+      name = "combination-duplicate-name-throws";
+      cond = attempt.success == false;
+      msg = "combination-duplicate-name-throws: two sources installing the same name must fail the union guard.";
+    };
+
+  # A per-source `prefix` resolves what would otherwise be a duplicate
+  # install name, so the union builds and exposes all three keys.
+  combination-prefix-resolves-collision = mkEvalCheck {
+    name = "combination-prefix-resolves-collision";
+    cond =
+      (fixtureCombinationPrefixResolves.packages.${system} ? "agent-skill-alpha")
+      && (fixtureCombinationPrefixResolves.packages.${system} ? "agent-skill-beta")
+      && (fixtureCombinationPrefixResolves.packages.${system} ? "agent-skill-bx-alpha")
+      && builtins.seq fixtureCombinationPrefixResolves.env.${system}.drvPath true;
+    msg = "combination-prefix-resolves-collision: a per-source prefix must resolve a duplicate install name.";
   };
 
   # The added surface: `env.<sys>` is a single mkSkillsEnv derivation
