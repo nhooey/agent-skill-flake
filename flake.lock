@@ -400,14 +400,20 @@
         "systems": "systems_5"
       },
       "locked": {
-        "path": "./skills-devshell",
-        "type": "path"
+        "dir": "skills-devshell",
+        "lastModified": 1780511743,
+        "narHash": "sha256-yIVj1OZiaG+C/9jgO88TzYDIyhqBnuqB8I6VB5Nsd4M=",
+        "owner": "nhooey",
+        "repo": "flake-skills",
+        "rev": "631ed7465b3f6e269ccc8fe1629def593f16fe08",
+        "type": "github"
       },
       "original": {
-        "path": "./skills-devshell",
-        "type": "path"
-      },
-      "parent": []
+        "dir": "skills-devshell",
+        "owner": "nhooey",
+        "repo": "flake-skills",
+        "type": "github"
+      }
     },
     "skills-git": {
       "inputs": {
