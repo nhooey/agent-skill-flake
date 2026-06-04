@@ -229,11 +229,17 @@ Returns:
 ```nix
 {
   packages = forAllSystems (system: {
-    default       = <symlinkJoin of every discovered skill>;
-    all           = <same>;
+    default                             = <symlinkJoin of every discovered skill>;
+    "agent-skills-<owner>-all"          = <same aggregate>;
+    "agent-skill-<owner>-${skillName1}" = <skill 1 derivation>;
+    "agent-skill-<owner>-${skillName2}" = <skill 2 derivation>;
+    # ...one owner-namespaced entry per discovered skill
+  });
+  # Per-skill drvs keyed by bare installed name (namespace-independent) —
+  # pick skills for a pack with `mkSkillsEnv` without rebuilding keys.
+  bySkillName = forAllSystems (system: {
     ${skillName1} = <skill 1 derivation>;
     ${skillName2} = <skill 2 derivation>;
-    # ...one entry per discovered skill
   });
   apps = forAllSystems (system: {
     default   = { type = "app"; program = "<aggregate preview>"; };

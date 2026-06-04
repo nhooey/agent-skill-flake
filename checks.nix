@@ -1081,6 +1081,21 @@ in
         + "installed skill name stays bare (alpha).";
     };
 
+  # `bySkillName` indexes per-skill drvs by bare installed name, excluding
+  # the aggregate envs, regardless of how the package keys are namespaced.
+  by-skill-name-output = mkEvalCheck {
+    name = "by-skill-name-output";
+    cond =
+      (fixtureAll.bySkillName.${system} ? "alpha")
+      && (fixtureAll.bySkillName.${system} ? "beta")
+      && !(fixtureAll.bySkillName.${system} ? "default")
+      && (fixtureAllOwner.bySkillName.${system} ? "alpha")
+      && fixtureAllOwner.bySkillName.${system}.alpha.passthru.flakeSkillName == "alpha";
+    msg =
+      "by-skill-name-output: bySkillName must index per-skill drvs by bare "
+      + "installed name (excluding aggregates), regardless of key namespace.";
+  };
+
   # `namespaceFn = _: ""` opts out: keys are the bare `agent-skill-<name>`.
   package-key-namespace-omitted = mkEvalCheck {
     name = "package-key-namespace-omitted";
