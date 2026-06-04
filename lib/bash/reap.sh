@@ -24,13 +24,7 @@ if wants_help "$@"; then
   exit 0
 fi
 
-parse_scope_args "$@" || exit $?
-set -- "${scope_remaining_args[@]}"
-if [ $# -gt 0 ]; then
-  printf '%s: unexpected positional argument: %s\n' "$app_name" "$1" >&2
-  printf '  See `%s --help` for usage.\n' "$app_name" >&2
-  exit 2
-fi
+parse_scope_no_positionals "$@" || exit $?
 
 # reap qualifies only entries whose store path was garbage-collected;
 # live entries are left for reconcile. The walk itself lives in the

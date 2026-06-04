@@ -14,7 +14,7 @@ is_ours_live() {
   local entry="$1" upstream="$2" sentinel managed_by
   [ -L "$entry" ] || return 1
   [ -e "$entry" ] || return 1
-  sentinel="$entry/.flake-skills-managed.json"
+  sentinel="${entry}/${SENTINEL_FILE}"
   [ -f "$sentinel" ] || return 1
   managed_by=$(jq -r '.managedBy // empty' "$sentinel" 2>/dev/null) || return 1
   [ "$managed_by" = "$upstream" ]
@@ -28,5 +28,5 @@ is_ours_broken() {
   [ -L "$entry" ] || return 1
   [ -e "$entry" ] && return 1
   name=$(basename "$entry")
-  [ -L "$gcdir/claude-skill-$name" ] || [ -e "$gcdir/claude-skill-$name" ]
+  [ -L "${gcdir}/${GC_ROOT_PREFIX}${name}" ] || [ -e "${gcdir}/${GC_ROOT_PREFIX}${name}" ]
 }
