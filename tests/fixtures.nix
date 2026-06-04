@@ -290,4 +290,40 @@ in
       }
     ];
   };
+
+  # A source that exposes a named pack env (`agent-skills-pack-mini`, just
+  # `alpha`) in its `packages`. A combination selects it via `pack`, so the
+  # cherry-pick comes from the bundle's membership; `prefix = "fp"` brands it.
+  # The union must contain `agent-skill-fp-alpha` and not `…-beta`.
+  fixtureCombinationFromPack =
+    let
+      base = mkAll {
+        skillsDir = ./example-skills-dir;
+        name = "from-pack-src";
+      };
+      packSource = base // {
+        packages = nixpkgs.lib.mapAttrs (
+          system: pkgs:
+          pkgs
+          // {
+            agent-skills-pack-mini = flakeLib.mkSkillsEnv {
+              pkgs = nixpkgs.legacyPackages.${system};
+              name = "agent-skills-pack-mini";
+              skills = [ base.bySkillName.${system}.alpha ];
+            };
+          }
+        ) base.packages;
+      };
+    in
+    mkCombo {
+      name = "from-pack";
+      envName = "agent-skills-from-pack";
+      sources = [
+        {
+          source = packSource;
+          pack = "agent-skills-pack-mini";
+          prefix = "fp";
+        }
+      ];
+    };
 }

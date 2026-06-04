@@ -36,6 +36,7 @@ let
     fixtureCombination
     fixtureCombinationReused
     fixtureCombinationPrefixResolves
+    fixtureCombinationFromPack
     ;
 
   # bats + the assertion/file/support helper libraries on BATS_LIB_PATH.
@@ -1214,6 +1215,17 @@ in
       && (fixtureCombinationPrefixResolves.packages.${system} ? "agent-skill-bx-alpha")
       && builtins.seq fixtureCombinationPrefixResolves.env.${system}.drvPath true;
     msg = "combination-prefix-resolves-collision: a per-source prefix must resolve a duplicate install name.";
+  };
+
+  # A source entry's `pack` cherry-picks exactly the named bundle's members
+  # (here `agent-skills-pack-mini` = just `alpha`), read from the env, then
+  # `prefix` brands them — so the union has `agent-skill-fp-alpha` and not beta.
+  combination-pack-selects-bundle-members = mkEvalCheck {
+    name = "combination-pack-selects-bundle-members";
+    cond =
+      (fixtureCombinationFromPack.packages.${system} ? "agent-skill-fp-alpha")
+      && !(fixtureCombinationFromPack.packages.${system} ? "agent-skill-fp-beta");
+    msg = "combination-pack-selects-bundle-members: `pack` must cherry-pick exactly the bundle's members.";
   };
 
   # The added surface: `env.<sys>` is a single mkSkillsEnv derivation
