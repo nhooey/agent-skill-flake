@@ -156,10 +156,25 @@ let
     };
 in
 {
-  packages = forAllSystems (system: {
-    default = skillFor system;
-    ${effectivePackageName} = skillFor system;
-  });
+  packages = forAllSystems (
+    system:
+    let
+      # Expose the resolved package attribute key as `passthru.packageKey`
+      # so aggregating consumers can re-key by it directly instead of
+      # rediscovering it (string-rebuilding the `agent-skill-<owner>-<name>`
+      # convention, or prefix-filtering `attrNames`). Both the `default`
+      # alias and the namespaced key point at this same derivation.
+      drv = (skillFor system).overrideAttrs (old: {
+        passthru = (old.passthru or { }) // {
+          packageKey = effectivePackageName;
+        };
+      });
+    in
+    {
+      default = drv;
+      ${effectivePackageName} = drv;
+    }
+  );
 
   apps = forAllSystems (
     system:
