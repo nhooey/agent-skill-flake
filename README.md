@@ -651,56 +651,105 @@ system-parametric (`env.<sys>` is the bundled home-manager env). `envName`
 defaults to `name`; `packagePrefix`, `agent`, and `systems` match
 `mkAggregateSkillsFlake`'s defaults.
 
+### `mkDevshellSkillsFlake`
+
+Builds the *whole* `outputs` of a per-repo [`skills-devshell/`
+sub-flake](#project-scope-dev-shell-skills-the-skills-devshell-sub-flake) in
+one call: a [`mkCombination`](#mkcombination) over the listed `sources`,
+surfaced as `apps` (`reconcile` / `install` / `uninstall` / `preview` /
+`reap` / `purge`, each binary suffixed `-<name>`), `packages` (so the sub-
+flake is itself a valid `{ source = …; }` for further composition), and
+`combinations.default`. A sub-flake's `outputs` is just a call to this:
+
+```nix
+# skills-devshell/flake.nix
+outputs = { nixpkgs, agent-skill-flake, ... }@inputs:
+  agent-skill-flake.lib.mkDevshellSkillsFlake {
+    inherit nixpkgs;
+    systems = import inputs.systems;
+    name    = "myrepo-devshell";     # reconcile-ownership appName (the single owner)
+    sources = [ { source = inputs.skillspkgs-combinations.combinations.authoring-with-git; } ];
+  };
+```
+
+Args mirror [`mkCombination`](#mkcombination) (`sources`, `name`, `envName`,
+`packagePrefix`, `agent`, `systems`). The single `name` owner means one
+`purge` (or `reap`) removes the whole set. See
+[`skills-devshell/flake.nix`](skills-devshell/flake.nix) for the live example.
+
+### `devshellSkillsHook`
+
+Root-side wiring for a `skills-devshell/` sub-flake invoked at runtime.
+Returns `{ startup; commands; }` so the `nix run "$PRJ_ROOT/<dir>#<app>"`
+strings and the repo-agnostic `skills`-category commands live in one place
+instead of being hand-rolled (and drifting) per repo:
+
+- `startup` — splice into `devshell.startup.<name>.text` (a plain `mkShell`
+  uses `shellHook`); reconciles the skill set on `nix develop`.
+- `commands` — `++` onto the devshell `commands` list; adds `reap-skills`
+  (remove the whole set) and `update-skills-devshell` (bump the sub-flake
+  lock).
+
+Params (all optional): `dir` (`"skills-devshell"`), `scope` (`"project"`),
+`reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`). Pure — no provenance
+threading. Assumes numtide/devshell, which exports `$PRJ_ROOT`. Usage is
+shown under [the `skills-devshell`
+section](#project-scope-dev-shell-skills-the-skills-devshell-sub-flake) below.
+
 ### Project-scope dev-shell skills: the `skills-devshell` sub-flake
 
-To install a curated skill set into a repo's dev shell at project scope on
-`nix develop`, **don't** add the skill-source flakes (`git-skills`, a
-combination, …) as inputs of your main flake — your main flake's inputs are
-inherited by everything that consumes it, so a library would drag its
-dev-only skill sources into every downstream lock. Instead isolate them in a
-dedicated **`skills-devshell/` sub-flake** with its own `flake.lock`.
+**Recommendation: always install a repo's dev-shell skills through a
+dedicated `skills-devshell/` sub-flake — never add the skill-source flakes
+(`git-skills`, a combination, …) as inputs of your main flake.** A main
+flake's inputs are inherited by everything that consumes it, so a library or
+skills repo would drag its dev-only skill sources into every downstream lock.
+Even for a leaf application that nothing imports, keep the sub-flake the
+default: it keeps the skill mesh out of your root lock and out of every
+`nix build` / `nix flake check` evaluation, and decouples skill-set bumps
+from your software's `nix flake update`. The one cost — a second `flake.lock`
+to bump — is what `update-skills-devshell` exists to make cheap.
 
-The convention: the sub-flake declares the skill sources as *its own*
-inputs, builds a [`mkCombination`](#mkcombination) over them (one reconcile
-owner for the whole set), and outputs the reconcile one-liner as **text,
-keyed by system** — not a `system → string` function — so the root just
-splices a string and never has to know it is a reconcile script:
+How the isolation works:
+
+- The **`skills-devshell/` sub-flake** declares the skill sources as *its
+  own* inputs and calls [`mkDevshellSkillsFlake`](#mkdevshellskillsflake),
+  which surfaces the whole set as runnable apps (`reconcile`, `install`,
+  `purge`, …) under one reconcile owner. The sub-flake has its **own
+  `flake.lock`**, so the skill sources live only there.
+- The **root flake invokes those apps at runtime by path** —
+  `nix run "$PRJ_ROOT/skills-devshell#reconcile"` — rather than taking
+  the sub-flake as an input. The root therefore keeps **zero skill inputs**;
+  the skill closure is realized only when the dev shell actually installs.
+
+The root-side wiring is two splices, both produced by
+[`devshellSkillsHook`](#devshellskillshook) so the `nix run` strings and the
+repo-agnostic `skills`-category commands live in one place:
 
 ```nix
-# skills-devshell/flake.nix (outputs)
-flake.reconcileScript = forSystems (system: combo.reconcileScript system);
-#   forSystems = nixpkgs.lib.genAttrs (import systems);
+# main flake.nix — needs only agent-skill-flake as an input (a zero-skill-input
+# leaf lib), NOT the sub-flake or any skill source.
+let devshellSkills = agent-skill-flake.lib.devshellSkillsHook { };
+in {
+  # numtide/devshell shown; a plain mkShell uses shellHook for the startup line.
+  devshell.startup.install-skills.text = devshellSkills.startup;          # reconcile on `nix develop`
+  commands = [ /* your repo's own ci/dev/… commands */ ]
+    ++ devshellSkills.commands;                                           # reap-skills + update-skills-devshell
+}
 ```
 
-The main flake then needs exactly one input and one startup line:
+**Don't duplicate the sub-flake in your repo from scratch — copy and adapt
+this repo's canonical pair:**
 
-```nix
-inputs.skills-devshell = {
-  url = "path:./skills-devshell";
-  inputs.nixpkgs.follows = "nixpkgs";
-  inputs.agent-skill-flake.follows = "agent-skill-flake";   # see note below
-};
-# … per system, in the dev shell (numtide/devshell shown; plain mkShell uses shellHook):
-devshell.startup.install-skills.text = inputs.skills-devshell.reconcileScript.${system};
-```
+- [`skills-devshell/flake.nix`](skills-devshell/flake.nix) — the sub-flake.
+  Adapt its `sources` to the skill set you want, and point its
+  `agent-skill-flake.url` at `github:nhooey/agent-skill-flake` (this repo
+  uses `path:..` only because it dogfoods its own in-progress lib).
+- [`flake.nix`](flake.nix) — the root-side `devshellSkillsHook` wiring shown
+  above, in context.
 
-**`agent-skill-flake.follows` is required**, not just tidy: the sub-flake depends
-on `agent-skill-flake`, which itself has its own `skills-devshell` (a relative
-`path:` input). If the sub-flake's `agent-skill-flake` is left to resolve
-independently, locking the parent re-resolves that nested relative path from
-the wrong base and fails with a doubled path (`skills-devshell/skills-devshell/…`).
-Pointing it at the parent's `agent-skill-flake` input collapses the tree to one
-`agent-skill-flake` node, which both fixes the resolution and keeps the whole repo
-on a single `agent-skill-flake` rev (consistent `passthru`). Your main flake must
-therefore have a `agent-skill-flake` input to follow — every skill-building repo
-already does.
-
-The input is dev-shell-only and lazily evaluated, so it never affects the
-library's actual API. This flake's own
-[`skills-devshell/flake.nix`](skills-devshell/flake.nix) is the canonical
-example — it combines the `git-skills` pack with skillspkgs' `authoring`
-combination. **Downstream repos should follow this same convention** when
-installing skills into their dev shells at project scope.
+This repo's own `skills-devshell/` is the live example: it sources skillspkgs'
+`authoring-with-git` combination (the git/GitHub pack plus the authoring
+tooling) as the dev shell's entire skill set.
 
 ## Install scope
 
