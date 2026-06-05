@@ -97,6 +97,7 @@
 }:
 let
   internal = import ./internal.nix { inherit nixpkgs; };
+  mkSkillsEnv = import ./mk-skills-env.nix { };
   inherit (nixpkgs) lib;
 
   profile = internal.resolveAgentProfile agent;
@@ -174,14 +175,19 @@ let
       skills = skillSetFor system;
     };
 
+  # The aggregate "all" bundle, built through mkSkillsEnv rather than a bare
+  # symlinkJoin so it carries `passthru.isFlakeSkillsEnv` +
+  # `passthru.flakeSkillsEnv`. Those records are what the home-manager module
+  # uses to expand the env back into per-skill installs; without them the
+  # aggregate (and the `default` package that aliases it) silently installs
+  # nothing under home-manager. mkSkillsEnv re-derives the member names from
+  # each drv's `passthru.flakeSkillName`.
   aggregateFor =
     system:
-    let
+    mkSkillsEnv {
       pkgs = nixpkgs.legacyPackages.${system};
-    in
-    pkgs.symlinkJoin {
       name = aggName;
-      paths = map (s: s.drv) (checkedSkillSetFor system);
+      skills = map (s: s.drv) (checkedSkillSetFor system);
     };
 
   installerFor =
