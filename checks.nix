@@ -1156,6 +1156,47 @@ in
       msg = "devshell-skills-flake: must surface reconcile/purge/reap apps and the union's per-skill packages.";
     };
 
+  # `devshellSkillsHook` exposes `standardCommands` — the repo-agnostic
+  # ci/dev/maintenance trio (check / fmt / update-flake) every consumer
+  # otherwise re-hand-rolls. Imports the hook as the pure function it is
+  # and asserts all three entries verbatim — including `help`, so help-text
+  # drift breaks CI too (the whole point of factoring them out).
+  devshell-hook-standard-commands =
+    let
+      cmds = (import ./lib/devshell-skills-hook.nix { }).standardCommands;
+    in
+    mkEvalCheck {
+      name = "devshell-hook-standard-commands";
+      cond =
+        builtins.length cmds == 3
+        &&
+          cmds == [
+            {
+              category = "ci";
+              name = "check";
+              help = "Run the full test suite via nix flake check";
+              command = ''nix flake check "$@"'';
+            }
+            {
+              category = "dev";
+              name = "fmt";
+              help = "Format the tree with treefmt (nixfmt + shfmt)";
+              command = ''nix fmt "$@"'';
+            }
+            {
+              category = "maintenance";
+              name = "update-flake";
+              help = "Update all flake inputs and rewrite flake.lock";
+              command = ''nix flake update "$@"'';
+            }
+          ];
+      msg =
+        "devshell-hook-standard-commands: standardCommands must be exactly the "
+        + "ci/dev/maintenance trio (check / fmt / update-flake) with matching "
+        + "category, name, help, and command. Got:\n"
+        + builtins.toJSON cmds;
+    };
+
   # No `source` (owner unresolvable) under the default `namespaceFn` is a
   # hard eval error, never a silently un-namespaced key.
   namespace-null-throws = mkEvalCheck {

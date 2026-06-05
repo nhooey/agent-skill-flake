@@ -134,37 +134,13 @@
               pkgs.git
               pkgs.jq
             ];
-            # The `skills`-category commands (reap-skills, update-skills-devshell)
-            # carry no repo-specific data, so they come verbatim from
-            # `devshellSkills.commands` rather than being re-hand-rolled here.
+            # All these commands carry no repo-specific data, so they come
+            # verbatim from the hook rather than being re-hand-rolled here:
+            # `standardCommands` is the ci/dev/maintenance trio, `commands` the
+            # `skills`-category pair (reap-skills, update-skills-devshell).
             # To purge EVERY agent-skill-flake-managed skill (any owner, strays
             # included), not just this set: nix run "$PRJ_ROOT#purge" -- --scope=project
-            commands = [
-              # ci
-              {
-                category = "ci";
-                name = "check";
-                help = "Run the full test suite via nix flake check";
-                command = ''nix flake check "$@"'';
-              }
-
-              # dev
-              {
-                category = "dev";
-                name = "fmt";
-                help = "Format the tree with treefmt (nixfmt + shfmt)";
-                command = ''nix fmt "$@"'';
-              }
-
-              # maintenance
-              {
-                category = "maintenance";
-                name = "update-flake";
-                help = "Update all flake inputs and rewrite flake.lock";
-                command = ''nix flake update "$@"'';
-              }
-            ]
-            ++ devshellSkills.commands;
+            commands = devshellSkills.standardCommands ++ devshellSkills.commands;
           };
         };
     };
