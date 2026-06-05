@@ -2,7 +2,7 @@
 # environment-style derivation, the same way `pkgs.buildEnv` /
 # `pkgs.symlinkJoin` combine packages into one filesystem tree.
 #
-# Why this exists: `programs.flake-skills.skills` is a flat list of
+# Why this exists: `programs.agent-skill-flake.skills` is a flat list of
 # packages. Without a multi-skill carrier, consumers either list 11
 # skills inline at every call site or hand-roll a `symlinkJoin` whose
 # `passthru` is empty and breaks the reconcile loop ("attribute
@@ -24,7 +24,7 @@
 #
 # Usage:
 #
-#   flake-skills.lib.mkSkillsEnv {
+#   agent-skill-flake.lib.mkSkillsEnv {
 #     pkgs = nixpkgs.legacyPackages.${system};
 #     name = "agent-skills-git-all";
 #     skills = map (n: base.packages.${system}."agent-skill-${n}") [
@@ -50,7 +50,7 @@ let
     name =
       drv.passthru.flakeSkillName or (throw ''
         mkSkillsEnv '${name}': every member of `skills` must be a
-        derivation produced by flake-skills' `mkSkillFlake` /
+        derivation produced by agent-skill-flake' `mkSkillFlake` /
         `mkAllSkillsFlake` (carrying `passthru.flakeSkillName`). Got
         a derivation without that attribute; if you're trying to nest
         a `mkSkillsEnv` inside another, inline the member skills

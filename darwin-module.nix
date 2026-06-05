@@ -1,11 +1,11 @@
-# nix-darwin shim: forwards `services.flake-skills.*` into the home-manager
-# module under `home-manager.users.<user>.programs.flake-skills.*`.
+# nix-darwin shim: forwards `services.agent-skill-flake.*` into the home-manager
+# module under `home-manager.users.<user>.programs.agent-skill-flake.*`.
 #
 # The activation itself lives in the home-manager module (see
 # `home-manager-module.nix`) — `system.userActivationScripts`, the previous
 # integration point, was removed in nix-darwin 25.05, and the activation is
 # inherently per-user anyway. This shim exists so darwin configurations can
-# wire flake-skills with one import.
+# wire agent-skill-flake with one import.
 #
 # Requires home-manager's nix-darwin integration
 # (`inputs.home-manager.darwinModules.home-manager`) to be imported by the
@@ -16,9 +16,9 @@
 #
 #   modules = [
 #     inputs.home-manager.darwinModules.home-manager
-#     inputs.flake-skills.darwinModules.default
+#     inputs.agent-skill-flake.darwinModules.default
 #     {
-#       services.flake-skills = {
+#       services.agent-skill-flake = {
 #         enable = true;
 #         user   = "alice";
 #         scope  = "personal";
@@ -37,11 +37,11 @@
   ...
 }:
 let
-  cfg = config.services.flake-skills;
+  cfg = config.services.agent-skill-flake;
 in
 {
-  options.services.flake-skills = {
-    enable = lib.mkEnableOption "flake-skills user-activation hook (via home-manager)";
+  options.services.agent-skill-flake = {
+    enable = lib.mkEnableOption "agent-skill-flake user-activation hook (via home-manager)";
 
     user = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
@@ -54,21 +54,21 @@ in
         owns this machine"); override to target a different user, or
         set explicitly when `system.primaryUser` isn't configured.
         Must resolve to a non-null, non-empty string when
-        `services.flake-skills.enable = true`.
+        `services.agent-skill-flake.enable = true`.
       '';
     };
   }
   # The data options forwarded verbatim into the home-manager module
   # (`skills`, `autoDiscover`, `agent`, `scope`, `root`) — shared so the
   # shim's option types stay in lockstep with what it forwards into.
-  // import ./lib/options-flake-skills.nix { inherit lib; };
+  // import ./lib/options-agent-skill-flake.nix { inherit lib; };
 
   config = lib.mkIf cfg.enable (
     let
       resolvedUser = lib.throwIf (cfg.user == null || cfg.user == "") ''
-        services.flake-skills.user resolved to null/empty. Either
+        services.agent-skill-flake.user resolved to null/empty. Either
         set `system.primaryUser` in your nix-darwin configuration,
-        or pass `services.flake-skills.user = "<username>";`
+        or pass `services.agent-skill-flake.user = "<username>";`
         explicitly. The activation is per-user, so the module needs
         to know which user's home-manager session to attach to.
       '' cfg.user;
@@ -76,7 +76,7 @@ in
     {
       home-manager.users.${resolvedUser} = {
         imports = [ (import ./home-manager-module.nix { inherit self nixpkgs; }) ];
-        programs.flake-skills = {
+        programs.agent-skill-flake = {
           enable = true;
           inherit (cfg)
             skills

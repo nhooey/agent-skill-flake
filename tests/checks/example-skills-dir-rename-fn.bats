@@ -19,7 +19,7 @@ setup() { source "$BATS_HELPERS"; }
 }
 
 @test "sentinel records renamed name + original name as provenance" {
-  local s="$RENAMED_ALPHA_PKG/share/claude-skills/$RENAMED_ALPHA_NAME/.flake-skills-managed.json"
+  local s="$RENAMED_ALPHA_PKG/share/claude-skills/$RENAMED_ALPHA_NAME/.agent-skill-flake-managed.json"
   assert [ -f "$s" ]
   assert_equal "$(jq -r '.skillName' "$s")" "$RENAMED_ALPHA_NAME"
   assert_equal "$(jq -r '.originalSkillName' "$s")" "alpha"

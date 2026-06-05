@@ -8,13 +8,13 @@ setup() {
 
 @test "reconcile rewrites the lock to exactly the declared set" {
   printf '%s' \
-    '{"schemaVersion":1,"skills":{"stale":{"managedBy":"github:nhooey/flake-skills","skillName":"stale"}}}' \
-    > "$CUSTOM_TARGET/.flake-skills-lock.json"
+    '{"schemaVersion":1,"skills":{"stale":{"managedBy":"github:nhooey/agent-skill-flake","skillName":"stale"}}}' \
+    > "$CUSTOM_TARGET/.agent-skill-flake-lock.json"
 
   run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
   assert_equal "$(jq -r '.skills | keys | sort | join(",")' "$lock")" "alpha,beta"
   assert_equal "$(jq '.skills | has("stale")' "$lock")" "false"
 

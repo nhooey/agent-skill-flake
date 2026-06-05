@@ -9,8 +9,8 @@ setup() {
 @test "reap drops the lock entry with the symlink + GC root" {
   # Stale lock entry: a prior install whose store path was since GC'd.
   printf '%s' \
-    '{"schemaVersion":1,"skills":{"foo":{"managedBy":"github:nhooey/flake-skills","skillName":"foo"}}}' \
-    > "$CUSTOM_TARGET/.flake-skills-lock.json"
+    '{"schemaVersion":1,"skills":{"foo":{"managedBy":"github:nhooey/agent-skill-flake","skillName":"foo"}}}' \
+    > "$CUSTOM_TARGET/.agent-skill-flake-lock.json"
 
   local bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
   ln -sfn "$bogus/share/claude-skills/foo" "$CUSTOM_TARGET/foo"
@@ -22,6 +22,6 @@ setup() {
   refute [ -L "$CUSTOM_TARGET/foo" ]
   refute [ -e "$GCROOTS_DIR/claude-skill-foo" ]
   assert_equal \
-    "$(jq '.skills | has("foo")' "$CUSTOM_TARGET/.flake-skills-lock.json")" \
+    "$(jq '.skills | has("foo")' "$CUSTOM_TARGET/.agent-skill-flake-lock.json")" \
     "false"
 }

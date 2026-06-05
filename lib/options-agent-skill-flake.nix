@@ -1,7 +1,7 @@
-# Shared option declarations for the flake-skills consumer modules.
+# Shared option declarations for the agent-skill-flake consumer modules.
 #
-# Both the home-manager module (`programs.flake-skills.*`) and the
-# nix-darwin shim (`services.flake-skills.*`, which forwards values into
+# Both the home-manager module (`programs.agent-skill-flake.*`) and the
+# nix-darwin shim (`services.agent-skill-flake.*`, which forwards values into
 # the home-manager module) expose the same five data options. Defining
 # their types / defaults / docs once here keeps the two surfaces from
 # drifting — the darwin shim forwards these values verbatim, so its option
@@ -38,7 +38,7 @@
     type = lib.types.bool;
     default = false;
     description = ''
-      When `true`, also reconcile every flake-skills-tagged package in
+      When `true`, also reconcile every agent-skill-flake-tagged package in
       `home.packages` (in addition to whatever is listed in `skills`).
       Mirrors the auto-discovery the deprecated darwin module did over
       `environment.systemPackages`. Off by default — consumers usually

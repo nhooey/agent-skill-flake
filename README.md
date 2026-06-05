@@ -1,6 +1,6 @@
-# flake-skills
+# agent-skill-flake
 
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fflake-skills)](https://garnix.io/repo/nhooey/flake-skills)
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fnhooey%2Fagent-skill-flake)](https://garnix.io/repo/nhooey/agent-skill-flake)
 
 A tiny Nix flake providing two functions for building installable Nix flakes
 from [Claude Code agent-skill][skills] directories:
@@ -27,13 +27,13 @@ A per-skill `flake.nix` is ten lines:
   description = "my-skill: Claude Code skill for X";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills = {
-      url = "github:nhooey/flake-skills";
+    agent-skill-flake = {
+      url = "github:nhooey/agent-skill-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { nixpkgs, flake-skills, ... }:
-    flake-skills.lib.mkSkillFlake {
+  outputs = { nixpkgs, agent-skill-flake, ... }:
+    agent-skill-flake.lib.mkSkillFlake {
       inherit nixpkgs;
       skillName = "my-skill";
       src = ./.;
@@ -63,7 +63,7 @@ invocation — there is no implicit default. See
 ### `mkSkillFlake` API
 
 ```nix
-flake-skills.lib.mkSkillFlake {
+agent-skill-flake.lib.mkSkillFlake {
   nixpkgs        = <flake input>;
   skillName      = "my-skill";
   src            = ./.;
@@ -123,15 +123,15 @@ Returns an attrset suitable for use as a flake's `outputs`:
 
 By default every builder fans out over the [`nix-systems/default`][nix-systems]
 set — the library never hardcodes a platform list. Retarget it without
-forking by pointing flake-skills' `systems` input at your own:
+forking by pointing agent-skill-flake' `systems` input at your own:
 
 ```nix
 inputs = {
   systems.url = "github:nix-systems/x86_64-linux";   # or any nix-systems fork / subset
-  flake-skills = {
-    url = "github:nhooey/flake-skills";
+  agent-skill-flake = {
+    url = "github:nhooey/agent-skill-flake";
     inputs.nixpkgs.follows = "nixpkgs";
-    inputs.systems.follows = "systems";              # flake-skills tracks your set
+    inputs.systems.follows = "systems";              # agent-skill-flake tracks your set
   };
 };
 ```
@@ -140,7 +140,7 @@ Or pass `systems` directly at the call site — `import systems` from your own
 input, or an explicit list:
 
 ```nix
-flake-skills.lib.mkSkillFlake {
+agent-skill-flake.lib.mkSkillFlake {
   inherit nixpkgs;
   systems   = import systems;   # your own nix-systems input (a list literal also works)
   skillName = "my-skill";
@@ -160,13 +160,13 @@ The top-level repo flake stays ~10 lines:
   description = "skills-nix: Claude Code skills marketplace";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-skills = {
-      url = "github:nhooey/flake-skills";
+    agent-skill-flake = {
+      url = "github:nhooey/agent-skill-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { nixpkgs, flake-skills, ... }:
-    flake-skills.lib.mkAllSkillsFlake {
+  outputs = { nixpkgs, agent-skill-flake, ... }:
+    agent-skill-flake.lib.mkAllSkillsFlake {
       inherit nixpkgs;
       skillsDir = ./skills;
     };
@@ -193,7 +193,7 @@ exactly the same machinery as the single-skill installer.
 ### `mkAllSkillsFlake` API
 
 ```nix
-flake-skills.lib.mkAllSkillsFlake {
+agent-skill-flake.lib.mkAllSkillsFlake {
   nixpkgs        = <flake input>;
   skillsDir      = ./skills;
   # optional:
@@ -314,7 +314,7 @@ from a context attrset to the effective name — not a fixed string, so a
 derived name can encode where the skill came from:
 
 ```nix
-flake-skills.lib.mkAllSkillsFlake {
+agent-skill-flake.lib.mkAllSkillsFlake {
   inherit nixpkgs;
   skillsDir = ./skills;
   source = {                       # from YOUR flake's `self` + owner/repo
@@ -347,7 +347,7 @@ The context passed to `renameFn`:
     lastModifiedCompact;            # "YYYYMMDD"    (UTC)
   };
 
-  tooling = {                       # the flake-skills lineage that built it
+  tooling = {                       # the agent-skill-flake lineage that built it
     owner; repo; url; rev; shortRev; dirty; narHash;
   };
 }
@@ -376,7 +376,7 @@ Rules and guarantees:
   `name:` (rewritten in place), the sentinel `skillName`, the GC root,
   the lock entry, and (unless `packageName` is set) the package key.
 - The pre-rename name is preserved in each skill's
-  `.flake-skills-managed.json` sentinel as `originalSkillName`, so a
+  `.agent-skill-flake-managed.json` sentinel as `originalSkillName`, so a
   remapped install is still traceable to what it was called upstream.
 - For `mkSkillFlake`, `ctx.name` is `skillName`; "specifying a new name"
   is just setting `skillName` (or a constant `renameFn`). For
@@ -393,7 +393,7 @@ to rename it without rebuilding the upstream source.
 `lib.withNamePrefix` is the consumer-side escape hatch. It takes a
 pre-built skill (or skills env), copies its contents under a
 `<prefix>-<oldName>` directory, rewrites `SKILL.md` frontmatter `name:`
-and the `.flake-skills-managed.json` sentinel `skillName`, and refreshes
+and the `.agent-skill-flake-managed.json` sentinel `skillName`, and refreshes
 passthru so the wrapped drv behaves like a first-class `mkSkill` output
 everywhere downstream (home-manager activation, installer, reconcile,
 `mkSkillsEnv`). A `-` separator is auto-inserted between prefix and
@@ -401,7 +401,7 @@ old name; chaining wrappers compounds the prefix.
 
 ```nix
 # Wrap a single skill:
-flake-skills.lib.withNamePrefix {
+agent-skill-flake.lib.withNamePrefix {
   pkgs       = nixpkgs.legacyPackages.${system};
   namePrefix = "gstack";
   skill      = inputs.someones-skills.packages.${system}.agent-skill-foo;
@@ -409,10 +409,10 @@ flake-skills.lib.withNamePrefix {
 # → drv with passthru.flakeSkillName = "gstack-foo"
 
 # Wrap a skills env (every member gets the same prefix):
-flake-skills.lib.withNamePrefix {
+agent-skill-flake.lib.withNamePrefix {
   pkgs       = nixpkgs.legacyPackages.${system};
   namePrefix = "superpowers";
-  skill      = flake-skills.lib.mkSkillsEnv {
+  skill      = agent-skill-flake.lib.mkSkillsEnv {
     inherit pkgs;
     name   = "their-pack";
     skills = [ inputs.someones-skills.packages.${system}.agent-skill-foo
@@ -460,7 +460,7 @@ already-built `[ { name; drv; } ]` list, resolving the agent profile for
 you.
 
 ```nix
-flake-skills.lib.mkInstaller {
+agent-skill-flake.lib.mkInstaller {
   inherit nixpkgs system;
   appName = "my-pack";                 # → bin/install-my-pack
   skills  = [ { name = "foo"; drv = fooDrv; }
@@ -481,7 +481,7 @@ Prefix-wraps every skill package a source exposes, returning
 `[ { name; drv; } ]` records keyed by the prefixed name.
 
 ```nix
-flake-skills.lib.withNamePrefixSource {
+agent-skill-flake.lib.withNamePrefixSource {
   inherit nixpkgs system;
   namePrefix    = "superpowers";
   source        = inputs.superpowers;  # has .packages.<system>
@@ -500,7 +500,7 @@ sealed against un-prefixed names at build time, so a fresh one is built
 over the wrapped set.
 
 ```nix
-flake-skills.lib.mkPrefixedInstaller {
+agent-skill-flake.lib.mkPrefixedInstaller {
   inherit nixpkgs system;
   source     = inputs.superpowers;
   namePrefix = "superpowers";
@@ -516,7 +516,7 @@ Independent of any devshell, so a consumer can assemble its own startup
 script / Makefile / app. Covers prefix-or-not and all-or-subset.
 
 ```nix
-flake-skills.lib.installCommandFor {
+agent-skill-flake.lib.installCommandFor {
   inherit nixpkgs system;
   source = inputs.skills-nix;
   prefix ? null;        # null → the source's own install app
@@ -536,7 +536,7 @@ a combined app suite over the union, and a devshell-ready
 
 ```nix
 let
-  agg = flake-skills.lib.mkAggregateSkillsFlake {
+  agg = agent-skill-flake.lib.mkAggregateSkillsFlake {
     inherit nixpkgs;
     skillsDir     = ./skills;            # optional local skills (base)
     source        = { owner = "you"; };  # base owner → namespaces the base keys
@@ -565,7 +565,7 @@ It returns:
 | Field            | Shape                  | Meaning |
 |------------------|------------------------|---------|
 | `packages`       | `forAllSystems` attrset | base per-skill keys + base `default`/`<name>` aggregates + every source's `packagePrefix`-keys, merged. Sources contribute **only** skill keys — their own `default`/aggregate keys are filtered out, so they can't clobber the base aggregate. Two sources contributing the same key (different skills) is a hard error; disambiguate with a per-source `prefix`. |
-| `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`purge`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union; `purge` tears the whole lineage's slice out of a scope (see [Retiring flake-skills](#retiring-flake-skills)). |
+| `apps`           | `forAllSystems` attrset | the combined `install`/`uninstall`/`preview`/`reap`/`purge`/`reconcile` apps over the **union** (base + every source), all under `<verb>-${name}`. `reconcile` converges the target to the whole union; `purge` tears the whole lineage's slice out of a scope (see [Retiring agent-skill-flake](#retiring-agent-skill-flake)). |
 | `reconcileScript`| `system → string`       | the declarative dev-shell one-liner: `reconcile-${name} --scope=project`. A single command (one owner of the target). |
 
 `sources` entries are `{ source; skills ? null; pack ? null; prefix ? null; }`:
@@ -597,7 +597,7 @@ symlinks, so when a skill is **renamed or dropped** from the
 declared set its stale symlink lingers — e.g. after superpowers skills
 gained a `superpowers-` prefix, the old un-prefixed `brainstorming` would
 survive next to the new `superpowers-brainstorming`. A per-source
-`reconcile` can't fix this either: every source shares one `flake-skills`
+`reconcile` can't fix this either: every source shares one `agent-skill-flake`
 lineage, so any one source's reconcile would sweep the *other* sources'
 skills as strays.
 
@@ -626,7 +626,7 @@ aggregate's skills.
 
 ```nix
 let
-  authoring = flake-skills.lib.mkCombination {
+  authoring = agent-skill-flake.lib.mkCombination {
     inherit nixpkgs;
     name    = "skillspkgs-authoring";   # reconcile ownership appName
     envName = "agent-skills-authoring"; # home-manager env package name
@@ -678,21 +678,21 @@ The main flake then needs exactly one input and one startup line:
 inputs.skills-devshell = {
   url = "path:./skills-devshell";
   inputs.nixpkgs.follows = "nixpkgs";
-  inputs.flake-skills.follows = "flake-skills";   # see note below
+  inputs.agent-skill-flake.follows = "agent-skill-flake";   # see note below
 };
 # … per system, in the dev shell (numtide/devshell shown; plain mkShell uses shellHook):
 devshell.startup.install-skills.text = inputs.skills-devshell.reconcileScript.${system};
 ```
 
-**`flake-skills.follows` is required**, not just tidy: the sub-flake depends
-on `flake-skills`, which itself has its own `skills-devshell` (a relative
-`path:` input). If the sub-flake's `flake-skills` is left to resolve
+**`agent-skill-flake.follows` is required**, not just tidy: the sub-flake depends
+on `agent-skill-flake`, which itself has its own `skills-devshell` (a relative
+`path:` input). If the sub-flake's `agent-skill-flake` is left to resolve
 independently, locking the parent re-resolves that nested relative path from
 the wrong base and fails with a doubled path (`skills-devshell/skills-devshell/…`).
-Pointing it at the parent's `flake-skills` input collapses the tree to one
-`flake-skills` node, which both fixes the resolution and keeps the whole repo
-on a single `flake-skills` rev (consistent `passthru`). Your main flake must
-therefore have a `flake-skills` input to follow — every skill-building repo
+Pointing it at the parent's `agent-skill-flake` input collapses the tree to one
+`agent-skill-flake` node, which both fixes the resolution and keeps the whole repo
+on a single `agent-skill-flake` rev (consistent `passthru`). Your main flake must
+therefore have a `agent-skill-flake` input to follow — every skill-building repo
 already does.
 
 The input is dev-shell-only and lazily evaluated, so it never affects the
@@ -757,7 +757,7 @@ The Nix-native install. Three things happen:
    store path from `nix-store --gc`. Override the gcroots dir with
    `--gcroots-dir=<path>` (test-suite use; rarely useful in practice).
 3. **Aggregate lock entry.**
-   An entry is upserted into `<target>/.flake-skills-lock.json`
+   An entry is upserted into `<target>/.agent-skill-flake-lock.json`
    summarizing what was installed (provenance from the per-skill
    sentinel + the resolved `storePath` + an `installedAt` timestamp).
    See [Lock file](#lock-file) below.
@@ -797,7 +797,7 @@ likely each is to bite and how quiet the failure is.
 using **its own** `flake.lock`. The `inputs.<x>.follows` you declared only
 applies when you reach the input through *your* evaluation. So
 `nix run ${superpowers}#install` builds an installer against superpowers'
-pinned `flake-skills`, not yours — defeating the `follows` and risking a
+pinned `agent-skill-flake`, not yours — defeating the `follows` and risking a
 double-evaluated, mismatched toolchain.
 
 **Do instead:** reference the already-resolved app path from your own
@@ -812,7 +812,7 @@ exists.
 `ln -s /nix/store/…-skill-foo ~/.claude/skills/foo` (or copying it) skips
 the two things the installer does for you: the **per-user GC root** (so the
 next `nix-store --gc` can delete the store path out from under your symlink)
-and the **`.flake-skills-lock.json` entry** (so `uninstall` / `reap` /
+and the **`.agent-skill-flake-lock.json` entry** (so `uninstall` / `reap` /
 `reconcile` can't see it as managed and refuse to touch it).
 
 **Do instead:** `nix run .#install -- --scope=…` (or the aggregate
@@ -865,7 +865,7 @@ hard-errors if no `.git/` or `flake.nix` marker is found walking up from
 **Do instead:** always state the scope explicitly at the call site. See
 [Install scope](#install-scope).
 
-### 7. Don't hand-edit `.flake-skills-lock.json` or delete a GC root manually
+### 7. Don't hand-edit `.agent-skill-flake-lock.json` or delete a GC root manually
 
 `uninstall` identifies managed entries via the sentinel + lock + GC root.
 Hand-editing the lock or `rm`-ing the GC root breaks that detection, leaving
@@ -897,21 +897,21 @@ Removes all three install-side artifacts:
 
 - the user-facing symlink at `<target>/<name>`,
 - the per-user GC root at `<gcroots-dir>/claude-skill-<name>`,
-- the entry in `<target>/.flake-skills-lock.json`.
+- the entry in `<target>/.agent-skill-flake-lock.json`.
 
 It refuses to touch entries it can't confidently identify as managed by
-this flake-skills lineage (the sentinel must say `managedBy=<this
+this agent-skill-flake lineage (the sentinel must say `managedBy=<this
 lineage>`, or — if the symlink target has been GC'd — a same-named GC
 root must exist as a naming-convention fallback). A user's hand-rolled
 `~/.claude/skills/foo` directory is therefore safe even if `foo`
-happens to match a flake-skills skill name.
+happens to match a agent-skill-flake skill name.
 
 For `--profile`-mode installs, `nix run .#uninstall` removes the
 user-facing symlink + lock entry, but the entry stays in the Nix
 profile. Run `nix profile remove` separately to drop it from the
 profile.
 
-## Retiring flake-skills
+## Retiring agent-skill-flake
 
 Dropping a skill from a declared set is self-healing — `reconcile` owns the
 entry by `appName` and sweeps it on the next run. Deleting the hook itself
@@ -923,8 +923,8 @@ block, since `config` is gated on `enable`), or, once no hook is left, run
 `purge`:
 
 ```sh
-nix run github:nhooey/flake-skills#purge -- --scope=personal   # clears ~/.claude/skills/
-nix run github:nhooey/flake-skills#purge -- --scope=project    # clears <repo>/.claude/skills/
+nix run github:nhooey/agent-skill-flake#purge -- --scope=personal   # clears ~/.claude/skills/
+nix run github:nhooey/agent-skill-flake#purge -- --scope=project    # clears <repo>/.claude/skills/
 nix run .#purge -- --scope=project --dry-run                   # list what would go; change nothing
 nix run .#purge -- --scope=personal --yes                      # skip the confirmation prompt
 ```
@@ -938,9 +938,9 @@ refuses).
 
 ## Lock file
 
-`<target>/.flake-skills-lock.json` is a single-file index of every skill
-this flake-skills lineage has installed under that target. Same data as
-the per-skill sentinels (`<target>/<name>/.flake-skills-managed.json`),
+`<target>/.agent-skill-flake-lock.json` is a single-file index of every skill
+this agent-skill-flake lineage has installed under that target. Same data as
+the per-skill sentinels (`<target>/<name>/.agent-skill-flake-managed.json`),
 indexed by name so you can `cat` it for an overview:
 
 ```json
@@ -949,7 +949,7 @@ indexed by name so you can `cat` it for an overview:
   "skills": {
     "garnix-ci": {
       "schemaVersion": 2,
-      "managedBy": "github:nhooey/flake-skills",
+      "managedBy": "github:nhooey/agent-skill-flake",
       "managedByRev": "abc123...",
       "managedByDirty": false,
       "managedByNarHash": "sha256-...",
@@ -988,7 +988,7 @@ The defaults target Claude Code's `~/.claude/skills/` directory via the
 same skill format, pick a different `agent`:
 
 ```nix
-flake-skills.lib.mkSkillFlake {
+agent-skill-flake.lib.mkSkillFlake {
   inherit nixpkgs;
   skillName = "my-skill";
   src       = ./.;
@@ -1023,8 +1023,8 @@ override. All of those are gone:
   `nix run .#install -- --scope=custom --root=/some/custom/path`.
 - Replace `CLAUDE_SKILLS_DIR=…` env overrides with the same
   `--scope=custom --root=…` flags.
-- Replace `services.flake-skills.installRoot` /
-  `programs.flake-skills.installRoot` module options with
+- Replace `services.agent-skill-flake.installRoot` /
+  `programs.agent-skill-flake.installRoot` module options with
   `scope = "personal" | "project" | "custom";` (and `root = "..."` when
   `scope = "custom"`).
 

@@ -1,6 +1,6 @@
 # lineage-sweep.bash — the shared target-dir sweep behind `reap` and `purge`.
 #
-# Both verbs remove entries this flake-skills lineage owns
+# Both verbs remove entries this agent-skill-flake lineage owns
 # (managedBy == $upstream_url) from $target_root, then prune orphan GC
 # roots. They differ ONLY in which managed entries qualify in pass 1:
 #   reap  → only entries whose store path was GC'd      (is_ours_broken)

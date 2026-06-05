@@ -11,7 +11,7 @@ setup() { source "$BATS_HELPERS"; }
 }
 
 @test "sentinel has all required fields and sane values" {
-  local sentinel="$SKILL_ROOT/.flake-skills-managed.json"
+  local sentinel="$SKILL_ROOT/.agent-skill-flake-managed.json"
   assert [ -f "$sentinel" ]
 
   local field

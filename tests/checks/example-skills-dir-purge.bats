@@ -22,7 +22,7 @@ setup() {
   assert_success
   assert_output --partial "2 entr"
 
-  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
   for name in alpha beta; do
     refute [ -L "$CUSTOM_TARGET/$name" ]
     refute [ -e "$GCROOTS_DIR/claude-skill-$name" ]

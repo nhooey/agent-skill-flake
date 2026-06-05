@@ -20,8 +20,8 @@ setup() { source "$BATS_HELPERS"; }
 }
 
 @test "sentinels carry prefixed skillName + preserved originalSkillName" {
-  local a="$WRAPPED_ENV_ROOT/superpowers-alpha/.flake-skills-managed.json"
-  local b="$WRAPPED_ENV_ROOT/superpowers-beta/.flake-skills-managed.json"
+  local a="$WRAPPED_ENV_ROOT/superpowers-alpha/.agent-skill-flake-managed.json"
+  local b="$WRAPPED_ENV_ROOT/superpowers-beta/.agent-skill-flake-managed.json"
   assert_equal "$(jq -r '.skillName' "$a")" "superpowers-alpha"
   assert_equal "$(jq -r '.originalSkillName' "$a")" "alpha"
   assert_equal "$(jq -r '.skillName' "$b")" "superpowers-beta"

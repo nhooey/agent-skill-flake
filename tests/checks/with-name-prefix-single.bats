@@ -16,7 +16,7 @@ setup() { source "$BATS_HELPERS"; }
 }
 
 @test "sentinel skillName matches; originalSkillName + managedBy preserved" {
-  local s="$WRAPPED_SKILL_ROOT/.flake-skills-managed.json"
+  local s="$WRAPPED_SKILL_ROOT/.agent-skill-flake-managed.json"
   assert [ -f "$s" ]
   assert_equal "$(jq -r '.skillName' "$s")" "gstack-example-skill"
   # originalSkillName is the *upstream* name (pre-prefix, pre-rename).
@@ -24,7 +24,7 @@ setup() { source "$BATS_HELPERS"; }
   # has to survive consumer-side re-prefixing.
   assert_equal "$(jq -r '.originalSkillName' "$s")" "example-skill"
   # managedBy is the original lineage. Wrapper must not claim authorship.
-  assert_equal "$(jq -r '.managedBy' "$s")" "github:nhooey/flake-skills"
+  assert_equal "$(jq -r '.managedBy' "$s")" "github:nhooey/agent-skill-flake"
   assert_equal "$(jq -r '.schemaVersion' "$s")" "2"
 }
 

@@ -1,7 +1,7 @@
 # Bash helpers for the aggregate lock file at
-# `$target_root/.flake-skills-lock.json`. The lock is a denormalized index
+# `$target_root/.agent-skill-flake-lock.json`. The lock is a denormalized index
 # of installed skills (one entry per `$target_root/<skillName>`) drawn from
-# each skill's per-install `.flake-skills-managed.json` sentinel — same
+# each skill's per-install `.agent-skill-flake-managed.json` sentinel — same
 # data, indexed by name for human inspection (`cat $target_root/.flake-
 # skills-lock.json`). It is descriptive, not authoritative; install and
 # reconcile rebuild it from the symlinks + sentinels.
@@ -17,7 +17,7 @@
 # reconcile sweep only the strays it owns and leave a coexisting
 # aggregate's entries alone.
 
-lock_path() { printf '%s/.flake-skills-lock.json' "$target_root"; }
+lock_path() { printf '%s/.agent-skill-flake-lock.json' "$target_root"; }
 
 lock_init_if_absent() {
   local lock
@@ -30,7 +30,7 @@ lock_init_if_absent() {
 
 # Read the per-install sentinel for $store_path/$skill_name. Returns
 # `{}` if the sentinel is missing (e.g. skill built by an older
-# flake-skills rev) so callers don't need to special-case it.
+# agent-skill-flake rev) so callers don't need to special-case it.
 lock_read_sentinel() {
   local store_path="$1" skill_name="$2"
   local sentinel="${store_path}/${SKILLS_SHARE_SUBDIR}/${skill_name}/${SENTINEL_FILE}"

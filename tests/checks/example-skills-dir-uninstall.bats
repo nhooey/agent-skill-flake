@@ -11,7 +11,7 @@ setup() {
   run "$UNINSTALL_ALL_APP" "${scope_args[@]}" alpha
   assert_success
 
-  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
 
   refute [ -L "$CUSTOM_TARGET/alpha" ]
   refute [ -e "$GCROOTS_DIR/claude-skill-alpha" ]

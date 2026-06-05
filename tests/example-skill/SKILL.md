@@ -1,6 +1,6 @@
 ---
 name: example-skill
-description: Test fixture for flake-skills. Builds via lib.mkSkillFlake during nix flake check; not intended to be installed.
+description: Test fixture for agent-skill-flake. Builds via lib.mkSkillFlake during nix flake check; not intended to be installed.
 ---
 
 # example-skill

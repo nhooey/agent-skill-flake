@@ -24,7 +24,7 @@ setup() { source "$BATS_HELPERS"; }
 @test "store dir + sentinel agree on the canonical name" {
   assert_equal "$(basename "$RENAME_SKILL_ROOT")" "example-skill-renamed"
 
-  local s="$RENAME_SKILL_ROOT/.flake-skills-managed.json"
+  local s="$RENAME_SKILL_ROOT/.agent-skill-flake-managed.json"
   assert [ -f "$s" ]
   assert_equal "$(jq -r '.skillName' "$s")" "example-skill-renamed"
   assert_equal "$(jq -r '.schemaVersion' "$s")" "2"

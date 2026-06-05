@@ -45,7 +45,7 @@
   #       lastModified;             # raw epoch seconds, passed through
   #       lastModifiedDate;         # "YYYY-MM-DD" (UTC)
   #       lastModifiedCompact; };   # "YYYYMMDD" (UTC)
-  #     tooling = {                 # the flake-skills lineage that built it
+  #     tooling = {                 # the agent-skill-flake lineage that built it
   #       owner; repo; url; rev; shortRev; dirty; narHash; }; }
   #
   # `lastModifiedDate` / `lastModifiedCompact` are sliced from the

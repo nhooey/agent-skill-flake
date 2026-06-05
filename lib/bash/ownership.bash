@@ -1,12 +1,12 @@
 # Shared bash helpers used by reap, reconcile, and uninstall to identify
-# which `$target_root` entries are "ours" (built by this flake-skills
+# which `$target_root` entries are "ours" (built by this agent-skill-flake
 # lineage). The check is layered:
-#   1. If the symlink target is live, read `.flake-skills-managed.json` and
+#   1. If the symlink target is live, read `.agent-skill-flake-managed.json` and
 #      verify `managedBy == upstream_url`. This is the strict signal.
 #   2. If the symlink target is broken (store path GC'd), fall back to
 #      checking for a `$gcroots_dir/claude-skill-<name>` entry. This is a
 #      naming-convention signal — single-lineage assumption: a user with
-#      forks of flake-skills could see false-positives across lineages.
+#      forks of agent-skill-flake could see false-positives across lineages.
 
 # is_ours_live  $entry  $upstream_url
 # Returns 0 if the symlink is alive AND its sentinel matches upstream_url.

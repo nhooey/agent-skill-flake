@@ -16,5 +16,5 @@ setup() {
   refute [ -L "$CUSTOM_TARGET/example-skill" ]
   refute [ -e "$GCROOTS_DIR/claude-skill-example-skill" ]
   assert_equal \
-    "$(jq '.skills | length' "$CUSTOM_TARGET/.flake-skills-lock.json")" "0"
+    "$(jq '.skills | length' "$CUSTOM_TARGET/.agent-skill-flake-lock.json")" "0"
 }

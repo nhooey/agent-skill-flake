@@ -16,7 +16,7 @@
   assertValidSkillName =
     name: what:
     lib.assertMsg (builtins.match "[a-z0-9-]{1,64}" name != null) (
-      "flake-skills: ${what} ${builtins.toJSON name} is invalid. "
+      "agent-skill-flake: ${what} ${builtins.toJSON name} is invalid. "
       + "Claude Code skill names must match ^[a-z0-9-]{1,64}$ "
       + "(lowercase letters, digits, hyphens; ≤64 chars)."
     );
@@ -31,7 +31,7 @@
       namePrefix
     else
       throw (
-        "flake-skills.lib.withNamePrefix: namePrefix "
+        "agent-skill-flake.lib.withNamePrefix: namePrefix "
         + builtins.toJSON namePrefix
         + " is invalid. Must be a non-empty string matching "
         + "^[a-z0-9][a-z0-9-]*$ (start with a lowercase letter or "
@@ -48,7 +48,7 @@
       segment
     else
       throw (
-        "flake-skills: namespace segment "
+        "agent-skill-flake: namespace segment "
         + builtins.toJSON segment
         + " is invalid. Must be \"\" (no namespace) or match "
         + "^[a-z0-9][a-z0-9-]*$ (start with a lowercase letter or "
@@ -72,7 +72,7 @@
       skills
     else
       throw ''
-        flake-skills: ${label} bundles multiple distinct skills that install under the same name:
+        agent-skill-flake: ${label} bundles multiple distinct skills that install under the same name:
           ${lib.concatStringsSep "\n  " names}
         Claude installs every skill at ~/.claude/skills/<name>, so these would clobber each other.
         Give the colliding skills distinct install names — e.g. prefix one by its owner via a
