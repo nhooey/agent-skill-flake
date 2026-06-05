@@ -11,10 +11,10 @@ from [Claude Code agent-skill][skills] directories:
 
 Use these to skip the boilerplate of wiring up `packages` / `apps` /
 install / preview by hand. The canonical multi-skill consumer is
-[`nhooey/skills-nix`][skills-nix].
+[`nhooey/nix-skills`][nix-skills].
 
 [skills]: https://www.anthropic.com/engineering/agent-skills
-[skills-nix]: https://github.com/nhooey/skills-nix
+[nix-skills]: https://github.com/nhooey/nix-skills
 [nix-systems]: https://github.com/nix-systems/default
 
 ## Single-skill: `mkSkillFlake`
@@ -123,7 +123,7 @@ Returns an attrset suitable for use as a flake's `outputs`:
 
 By default every builder fans out over the [`nix-systems/default`][nix-systems]
 set — the library never hardcodes a platform list. Retarget it without
-forking by pointing agent-skill-flake' `systems` input at your own:
+forking by pointing agent-skill-flake's `systems` input at your own:
 
 ```nix
 inputs = {
@@ -157,7 +157,7 @@ The top-level repo flake stays ~10 lines:
 ```nix
 # repo-root/flake.nix
 {
-  description = "skills-nix: Claude Code skills marketplace";
+  description = "nix-skills: Claude Code skills marketplace";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     agent-skill-flake = {
@@ -319,7 +319,7 @@ agent-skill-flake.lib.mkAllSkillsFlake {
   skillsDir = ./skills;
   source = {                       # from YOUR flake's `self` + owner/repo
     owner = "nhooey";
-    repo  = "skills-nix";
+    repo  = "nix-skills";
     rev              = self.rev or self.dirtyRev;
     lastModifiedDate = self.lastModifiedDate;   # "%Y%m%d%H%M%S"
     narHash          = self.narHash;
@@ -518,7 +518,7 @@ script / Makefile / app. Covers prefix-or-not and all-or-subset.
 ```nix
 agent-skill-flake.lib.installCommandFor {
   inherit nixpkgs system;
-  source = inputs.skills-nix;
+  source = inputs.nix-skills;
   prefix ? null;        # null → the source's own install app
   skills ? null;        # null → install all
   scope  ? "project";   # personal | project | custom
@@ -542,8 +542,8 @@ let
     source        = { owner = "you"; };  # base owner → namespaces the base keys
     packagePrefix = "agent-skill-";
     sources = [
-      { source = skills-git; }                              # all skills
-      { source = skills-nix; skills = [ "nix-flakes" ]; }   # subset
+      { source = git-skills; }                              # all skills
+      { source = nix-skills; skills = [ "nix-flakes" ]; }   # subset
       { source = skill-creator; prefix = "anthropic"; }     # namespaced
       { source = superpowers;   prefix = "superpowers"; }
     ];
@@ -631,7 +631,7 @@ let
     name    = "skillspkgs-authoring";   # reconcile ownership appName
     envName = "agent-skills-authoring"; # home-manager env package name
     sources = [
-      { source = skills-git; }
+      { source = git-skills; }
       { source = skill-creator; prefix = "anthropic"; }
     ];
   };
@@ -654,7 +654,7 @@ defaults to `name`; `packagePrefix`, `agent`, and `systems` match
 ### Project-scope dev-shell skills: the `skills-devshell` sub-flake
 
 To install a curated skill set into a repo's dev shell at project scope on
-`nix develop`, **don't** add the skill-source flakes (`skills-git`, a
+`nix develop`, **don't** add the skill-source flakes (`git-skills`, a
 combination, …) as inputs of your main flake — your main flake's inputs are
 inherited by everything that consumes it, so a library would drag its
 dev-only skill sources into every downstream lock. Instead isolate them in a
@@ -698,7 +698,7 @@ already does.
 The input is dev-shell-only and lazily evaluated, so it never affects the
 library's actual API. This flake's own
 [`skills-devshell/flake.nix`](skills-devshell/flake.nix) is the canonical
-example — it combines the `skills-git` pack with skillspkgs' `authoring`
+example — it combines the `git-skills` pack with skillspkgs' `authoring`
 combination. **Downstream repos should follow this same convention** when
 installing skills into their dev shells at project scope.
 
@@ -1042,7 +1042,7 @@ for the swap.
 
 ## Canonical consumer
 
-[`nhooey/skills-nix`][skills-nix] uses `mkAllSkillsFlake` for its top-level
+[`nhooey/nix-skills`][nix-skills] uses `mkAllSkillsFlake` for its top-level
 flake and `mkSkillFlake` for each per-skill flake. It is the reference
 example of the multi-skill aggregation pattern.
 

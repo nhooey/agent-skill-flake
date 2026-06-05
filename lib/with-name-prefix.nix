@@ -159,7 +159,7 @@ else if isSkill then
 else
   throw ''
     agent-skill-flake.lib.withNamePrefix: `skill` must be a derivation
-    produced by agent-skill-flake' `mkSkillFlake` / `mkAllSkillsFlake` /
+    produced by agent-skill-flake's `mkSkillFlake` / `mkAllSkillsFlake` /
     `mkSkillsEnv` (carrying `passthru.isFlakeSkill` or
     `passthru.isFlakeSkillsEnv`). Got a derivation with neither.
   ''

@@ -983,7 +983,7 @@ in
         + "reconcile-aggregate-base --scope=project invocation. Got:\n${script}";
     };
 
-  # Convergence (the skills-git stray-leftover regression): the full union
+  # Convergence (the git-skills stray-leftover regression): the full union
   # installs base + a prefixed source (src-gamma); reconciling with the
   # reduced aggregate (same appName, source dropped) sweeps src-gamma and
   # leaves base alone. Both reconciles share appName "converge" so the
