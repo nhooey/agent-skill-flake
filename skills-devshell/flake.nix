@@ -11,18 +11,10 @@
     # `github:nhooey/flake-skills` (and `follows` it from the sources below).
     flake-skills.url = "path:..";
 
-    # The consolidated first-party skills, cherry-picked to the git/GitHub
-    # packs below. Follows the parent flake-skills so the whole sub-flake
-    # resolves to one builder rev.
-    agent-skills = {
-      url = "github:nhooey/agent-skills";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-skills.follows = "flake-skills";
-    };
-
-    # skillspkgs' curated `authoring` combination (nix + humanizer + anthropic
-    # /daymade skill-creation + superpowers), surfaced through its own subdir
-    # flake so it stays re-composable as a source.
+    # skillspkgs' curated `authoring-with-git` combination (nix + humanizer +
+    # anthropic/daymade skill-creation + superpowers + the whole git/GitHub
+    # pack), surfaced through its own subdir flake so it stays re-composable as
+    # a source. This is the dev shell's entire skill set in one combination.
     skillspkgs-combinations = {
       url = "github:nhooey/skillspkgs?dir=sources/combinations";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -30,15 +22,13 @@
   };
 
   # One `mkDevshellSkillsFlake` call: the dev shell's whole skill set as a
-  # single combination, surfaced as runnable apps (reconcile / purge / …). The
-  # git/GitHub skills are selected as the two origin packs so they don't drag
-  # in (and collide with) the nix skills the `authoring` combination already
-  # carries.
+  # single combination, surfaced as runnable apps (reconcile / purge / …).
+  # `authoring-with-git` already bundles the git/GitHub pack alongside the
+  # authoring tooling, deduped into one consistent set, so it's the lone source.
   outputs =
     {
       nixpkgs,
       flake-skills,
-      agent-skills,
       skillspkgs-combinations,
       ...
     }@inputs:
@@ -49,15 +39,7 @@
       envName = "agent-skills-flake-skills-devshell";
       packagePrefix = "agent-skill-";
       sources = [
-        {
-          source = agent-skills;
-          pack = "agent-skills-git-all";
-        }
-        {
-          source = agent-skills;
-          pack = "agent-skills-github-all";
-        }
-        { source = skillspkgs-combinations.combinations.authoring; }
+        { source = skillspkgs-combinations.combinations.authoring-with-git; }
       ];
     };
 }
