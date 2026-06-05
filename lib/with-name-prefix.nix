@@ -10,7 +10,7 @@
 #
 # Behavior: produces a new derivation with the same on-disk contents as
 # the input but moved to `share/claude-skills/<prefix>-<oldName>/`. The
-# `SKILL.md` frontmatter `name:` and the `.flake-skills-managed.json`
+# `SKILL.md` frontmatter `name:` and the `.agent-skill-flake-managed.json`
 # sentinel `skillName` are rewritten to the prefixed name; everything
 # else in the sentinel (managedBy*, originalSkillName, version, ...)
 # is preserved verbatim so traceability back to the upstream lineage
@@ -24,7 +24,7 @@
 #
 # Usage (single skill):
 #
-#   flake-skills.lib.withNamePrefix {
+#   agent-skill-flake.lib.withNamePrefix {
 #     pkgs       = nixpkgs.legacyPackages.${system};
 #     namePrefix = "gstack";
 #     skill      = skillspkgs.packages.${system}.skill-foo;
@@ -33,7 +33,7 @@
 #
 # Usage (skills env from mkAllSkillsFlake / mkSkillsEnv):
 #
-#   flake-skills.lib.withNamePrefix {
+#   agent-skill-flake.lib.withNamePrefix {
 #     pkgs       = nixpkgs.legacyPackages.${system};
 #     namePrefix = "superpowers";
 #     skill      = skillspkgs.packages.${system}.default;
@@ -77,14 +77,14 @@ let
     let
       oldName =
         drv.passthru.flakeSkillName or (throw ''
-          flake-skills.lib.withNamePrefix: input drv must be a flake-skills
+          agent-skill-flake.lib.withNamePrefix: input drv must be a agent-skill-flake
           skill (carrying `passthru.flakeSkillName`). Got a derivation
           without that attribute.
         '');
       newName = "${validPrefix}-${oldName}";
     in
     assert lib.assertMsg (validators.isValidSkillName newName) (
-      "flake-skills.lib.withNamePrefix: combined name "
+      "agent-skill-flake.lib.withNamePrefix: combined name "
       + builtins.toJSON newName
       + " violates Claude Code's name rule ^[a-z0-9-]{1,64}$ "
       + "(lowercase letters, digits, hyphens; ≤64 chars). "
@@ -121,14 +121,14 @@ let
         # trace back to the original lineage. mkSkill guarantees the
         # file exists, but the `-f` guard keeps us robust if the input
         # was hand-built without one.
-        if [ -f "$dstDir/.flake-skills-managed.json" ]; then
+        if [ -f "$dstDir/.agent-skill-flake-managed.json" ]; then
           jq --arg n ${lib.escapeShellArg newName} \
              '.skillName = $n' \
-             "$dstDir/.flake-skills-managed.json" \
-             > "$dstDir/.flake-skills-managed.json.tmp"
-          mv "$dstDir/.flake-skills-managed.json.tmp" \
-             "$dstDir/.flake-skills-managed.json"
-          chmod 644 "$dstDir/.flake-skills-managed.json"
+             "$dstDir/.agent-skill-flake-managed.json" \
+             > "$dstDir/.agent-skill-flake-managed.json.tmp"
+          mv "$dstDir/.agent-skill-flake-managed.json.tmp" \
+             "$dstDir/.agent-skill-flake-managed.json"
+          chmod 644 "$dstDir/.agent-skill-flake-managed.json"
         fi
         runHook postInstall
       '';
@@ -158,8 +158,8 @@ else if isSkill then
   wrapOne skill
 else
   throw ''
-    flake-skills.lib.withNamePrefix: `skill` must be a derivation
-    produced by flake-skills' `mkSkillFlake` / `mkAllSkillsFlake` /
+    agent-skill-flake.lib.withNamePrefix: `skill` must be a derivation
+    produced by agent-skill-flake' `mkSkillFlake` / `mkAllSkillsFlake` /
     `mkSkillsEnv` (carrying `passthru.isFlakeSkill` or
     `passthru.isFlakeSkillsEnv`). Got a derivation with neither.
   ''

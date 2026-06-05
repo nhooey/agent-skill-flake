@@ -578,9 +578,9 @@ in
           self.homeManagerModules.default
           {
             _module.args.pkgs = pkgs;
-            programs.flake-skills.enable = true;
-            programs.flake-skills.scope = "personal";
-            programs.flake-skills.skills = [
+            programs.agent-skill-flake.enable = true;
+            programs.agent-skill-flake.scope = "personal";
+            programs.agent-skill-flake.skills = [
               alphaPkg
               betaPkg
             ];
@@ -621,10 +621,10 @@ in
             self.homeManagerModules.default
             {
               _module.args.pkgs = pkgs;
-              programs.flake-skills.enable = true;
-              programs.flake-skills.scope = "personal";
-              programs.flake-skills.skills = skills;
-              programs.flake-skills.autoDiscover = autoDiscover;
+              programs.agent-skill-flake.enable = true;
+              programs.agent-skill-flake.scope = "personal";
+              programs.agent-skill-flake.skills = skills;
+              programs.agent-skill-flake.autoDiscover = autoDiscover;
               home.packages = homePackages;
             }
           ];
@@ -717,7 +717,7 @@ in
         + "each member's drv carrying isFlakeSkill=true.";
     };
 
-  # Passing a skills-env into `programs.flake-skills.skills` must expand
+  # Passing a skills-env into `programs.agent-skill-flake.skills` must expand
   # back into its member skills in the reconcile script — so a single
   # env entry installs N separate `~/.claude/skills/<name>/` trees, not
   # one nested env tree.
@@ -738,9 +738,9 @@ in
           self.homeManagerModules.default
           {
             _module.args.pkgs = pkgs;
-            programs.flake-skills.enable = true;
-            programs.flake-skills.scope = "personal";
-            programs.flake-skills.skills = [ env ];
+            programs.agent-skill-flake.enable = true;
+            programs.agent-skill-flake.scope = "personal";
+            programs.agent-skill-flake.skills = [ env ];
           }
         ];
       };
@@ -802,7 +802,7 @@ in
       + "each drv carrying isFlakeSkill=true.";
   };
 
-  # A wrapped env passed into `programs.flake-skills.skills` must expand
+  # A wrapped env passed into `programs.agent-skill-flake.skills` must expand
   # back into its prefixed members in the reconcile script — so home-manager
   # activation actually installs `superpowers-alpha/` and `superpowers-beta/`,
   # not a nested env tree.
@@ -815,9 +815,9 @@ in
           self.homeManagerModules.default
           {
             _module.args.pkgs = pkgs;
-            programs.flake-skills.enable = true;
-            programs.flake-skills.scope = "personal";
-            programs.flake-skills.skills = [ wrappedEnv ];
+            programs.agent-skill-flake.enable = true;
+            programs.agent-skill-flake.scope = "personal";
+            programs.agent-skill-flake.skills = [ wrappedEnv ];
           }
         ];
       };
@@ -1325,8 +1325,8 @@ in
   # darwinModules.default — forwarding shim into home-manager.
   # ──────────────────────────────────────────────────────────────
 
-  # The darwin shim copies `services.flake-skills.*` through to
-  # `home-manager.users.<user>.programs.flake-skills.*`. Asserts on the
+  # The darwin shim copies `services.agent-skill-flake.*` through to
+  # `home-manager.users.<user>.programs.agent-skill-flake.*`. Asserts on the
   # propagated values, not on activation text — the home-manager
   # module's tests already cover that side.
   darwin-shim-forwards =
@@ -1337,7 +1337,7 @@ in
           self.darwinModules.default
           {
             _module.args.pkgs = pkgs;
-            services.flake-skills = {
+            services.agent-skill-flake = {
               enable = true;
               user = "alice";
               skills = [
@@ -1353,7 +1353,7 @@ in
         ];
       };
 
-      forwarded = eval.config.home-manager.users.alice.programs.flake-skills;
+      forwarded = eval.config.home-manager.users.alice.programs.agent-skill-flake;
       importsList = eval.config.home-manager.users.alice.imports;
     in
     mkEvalCheck {
@@ -1381,7 +1381,7 @@ in
         };
     };
 
-  # `services.flake-skills.user` defaults to `system.primaryUser` so
+  # `services.agent-skill-flake.user` defaults to `system.primaryUser` so
   # darwin consumers with that option set don't have to name the user
   # twice. Explicit overrides still win (covered by
   # darwin-shim-forwards).
@@ -1393,17 +1393,17 @@ in
           self.darwinModules.default
           {
             _module.args.pkgs = pkgs;
-            # No explicit `services.flake-skills.user` — it must pick up
+            # No explicit `services.agent-skill-flake.user` — it must pick up
             # "bob" from system.primaryUser below.
-            services.flake-skills.enable = true;
-            services.flake-skills.scope = "personal";
-            services.flake-skills.skills = [ alphaPkg ];
+            services.agent-skill-flake.enable = true;
+            services.agent-skill-flake.scope = "personal";
+            services.agent-skill-flake.skills = [ alphaPkg ];
             system.primaryUser = "bob";
           }
         ];
       };
 
-      forwarded = eval.config.home-manager.users.bob.programs.flake-skills;
+      forwarded = eval.config.home-manager.users.bob.programs.agent-skill-flake;
     in
     mkEvalCheck {
       name = "darwin-shim-defaults-user";

@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "agent-skill-flake": {
+      "inputs": {
+        "devshell": "devshell",
+        "flake-parts": "flake-parts",
+        "nixpkgs": "nixpkgs",
+        "systems": "systems",
+        "treefmt-nix": "treefmt-nix"
+      },
+      "locked": {
+        "path": "..",
+        "type": "path"
+      },
+      "original": {
+        "path": "..",
+        "type": "path"
+      },
+      "parent": []
+    },
     "anthropics-skills-src": {
       "flake": false,
       "locked": {
@@ -255,7 +273,7 @@
     "devshell": {
       "inputs": {
         "nixpkgs": [
-          "flake-skills",
+          "agent-skill-flake",
           "nixpkgs"
         ]
       },
@@ -588,7 +606,7 @@
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": [
-          "flake-skills",
+          "agent-skill-flake",
           "nixpkgs"
         ]
       },
@@ -970,24 +988,6 @@
     },
     "flake-skills": {
       "inputs": {
-        "devshell": "devshell",
-        "flake-parts": "flake-parts",
-        "nixpkgs": "nixpkgs",
-        "systems": "systems",
-        "treefmt-nix": "treefmt-nix"
-      },
-      "locked": {
-        "path": "..",
-        "type": "path"
-      },
-      "original": {
-        "path": "..",
-        "type": "path"
-      },
-      "parent": []
-    },
-    "flake-skills_2": {
-      "inputs": {
         "devshell": "devshell_2",
         "flake-parts": "flake-parts_2",
         "nixpkgs": [
@@ -1013,7 +1013,7 @@
         "type": "github"
       }
     },
-    "flake-skills_3": {
+    "flake-skills_2": {
       "inputs": {
         "devshell": "devshell_4",
         "flake-parts": "flake-parts_4",
@@ -1041,7 +1041,7 @@
         "type": "github"
       }
     },
-    "flake-skills_4": {
+    "flake-skills_3": {
       "inputs": {
         "devshell": "devshell_5",
         "flake-parts": "flake-parts_6",
@@ -1070,7 +1070,7 @@
         "type": "github"
       }
     },
-    "flake-skills_5": {
+    "flake-skills_4": {
       "inputs": {
         "devshell": "devshell_7",
         "flake-parts": "flake-parts_8",
@@ -1097,7 +1097,7 @@
         "type": "github"
       }
     },
-    "flake-skills_6": {
+    "flake-skills_5": {
       "inputs": {
         "devshell": "devshell_11",
         "flake-parts": "flake-parts_12",
@@ -1125,7 +1125,7 @@
         "type": "github"
       }
     },
-    "flake-skills_7": {
+    "flake-skills_6": {
       "inputs": {
         "devshell": "devshell_12",
         "flake-parts": "flake-parts_14",
@@ -1154,7 +1154,7 @@
         "type": "github"
       }
     },
-    "flake-skills_8": {
+    "flake-skills_7": {
       "inputs": {
         "devshell": "devshell_14",
         "flake-parts": "flake-parts_16",
@@ -1723,7 +1723,7 @@
     },
     "root": {
       "inputs": {
-        "flake-skills": "flake-skills",
+        "agent-skill-flake": "agent-skill-flake",
         "nixpkgs": "nixpkgs_2",
         "skillspkgs-combinations": "skillspkgs-combinations",
         "systems": "systems_27"
@@ -2080,7 +2080,7 @@
     "skills-devshell": {
       "inputs": {
         "flake-parts": "flake-parts_5",
-        "flake-skills": "flake-skills_4",
+        "flake-skills": "flake-skills_3",
         "nixpkgs": [
           "skillspkgs-combinations",
           "flake-skills",
@@ -2111,7 +2111,7 @@
     "skills-devshell_2": {
       "inputs": {
         "flake-parts": "flake-parts_13",
-        "flake-skills": "flake-skills_7",
+        "flake-skills": "flake-skills_6",
         "nixpkgs": [
           "skillspkgs-combinations",
           "skills-nix",
@@ -2143,7 +2143,7 @@
       "inputs": {
         "devshell": "devshell_3",
         "flake-parts": "flake-parts_3",
-        "flake-skills": "flake-skills_3",
+        "flake-skills": "flake-skills_2",
         "nixpkgs": [
           "skillspkgs-combinations",
           "flake-skills",
@@ -2239,7 +2239,7 @@
       "inputs": {
         "devshell": "devshell_10",
         "flake-parts": "flake-parts_11",
-        "flake-skills": "flake-skills_6",
+        "flake-skills": "flake-skills_5",
         "nixpkgs": [
           "skillspkgs-combinations",
           "skills-nix",
@@ -2628,7 +2628,7 @@
     "skillspkgs-combinations": {
       "inputs": {
         "daymade": "daymade",
-        "flake-skills": "flake-skills_2",
+        "flake-skills": "flake-skills",
         "humanizer": "humanizer_5",
         "nixpkgs": [
           "nixpkgs"
@@ -2657,7 +2657,7 @@
     },
     "skillspkgs-combinations_10": {
       "inputs": {
-        "flake-skills": "flake-skills_8",
+        "flake-skills": "flake-skills_7",
         "humanizer": "humanizer_10",
         "nixpkgs": [
           "skillspkgs-combinations",
@@ -2805,7 +2805,7 @@
     },
     "skillspkgs-combinations_5": {
       "inputs": {
-        "flake-skills": "flake-skills_5",
+        "flake-skills": "flake-skills_4",
         "humanizer": "humanizer_4",
         "nixpkgs": [
           "skillspkgs-combinations",
@@ -3902,7 +3902,7 @@
     "treefmt-nix": {
       "inputs": {
         "nixpkgs": [
-          "flake-skills",
+          "agent-skill-flake",
           "nixpkgs"
         ]
       },

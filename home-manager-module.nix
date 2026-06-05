@@ -8,8 +8,8 @@
 #
 # Usage in standalone home-manager:
 #
-#     imports = [ inputs.flake-skills.homeManagerModules.default ];
-#     programs.flake-skills = {
+#     imports = [ inputs.agent-skill-flake.homeManagerModules.default ];
+#     programs.agent-skill-flake = {
 #       enable = true;
 #       scope  = "personal";
 #       skills = [ inputs.my-skills.packages.${pkgs.system}.skill-foo ];
@@ -17,7 +17,7 @@
 #
 # nix-darwin / NixOS consumers should import the system-level shim
 # (`darwinModules.default` / `nixosModules.default`) instead — it forwards
-# `services.flake-skills.*` to this module under `home-manager.users.<user>`.
+# `services.agent-skill-flake.*` to this module under `home-manager.users.<user>`.
 {
   self,
   nixpkgs,
@@ -32,7 +32,7 @@ let
   internal = import ./lib/internal.nix { inherit nixpkgs; };
   flakeLib = import ./lib { inherit self; };
 
-  cfg = config.programs.flake-skills;
+  cfg = config.programs.agent-skill-flake;
   system = pkgs.stdenv.hostPlatform.system;
 
   profile = internal.resolveAgentProfile cfg.agent;
@@ -92,20 +92,20 @@ let
   scopeArgs =
     if cfg.scope == "custom" then
       (lib.throwIf (cfg.root == null || cfg.root == "") ''
-        programs.flake-skills.scope = "custom" requires
-        programs.flake-skills.root = "<path>".
+        programs.agent-skill-flake.scope = "custom" requires
+        programs.agent-skill-flake.root = "<path>".
       '' "--scope=custom --root=${lib.escapeShellArg (cfg.root or "")}")
     else
       (lib.throwIf (cfg.root != null) ''
-        programs.flake-skills.root is only valid when scope = "custom"
+        programs.agent-skill-flake.root is only valid when scope = "custom"
         (got scope = ${builtins.toJSON cfg.scope}).
       '' "--scope=${cfg.scope}");
 in
 {
-  options.programs.flake-skills = {
-    enable = lib.mkEnableOption "flake-skills home-manager activation hook";
+  options.programs.agent-skill-flake = {
+    enable = lib.mkEnableOption "agent-skill-flake home-manager activation hook";
   }
-  // import ./lib/options-flake-skills.nix { inherit lib; };
+  // import ./lib/options-agent-skill-flake.nix { inherit lib; };
 
   config = lib.mkIf cfg.enable {
     home.activation.flakeSkillsReconcile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

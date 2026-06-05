@@ -15,9 +15,9 @@
 # Install-layout constants — single source of truth for the on-disk shapes
 # the verb scripts and the sourced helper modules (ownership/lock/sweep) all
 # share. Sourced first, so they are in scope for every later module.
-SKILLS_SHARE_SUBDIR="share/claude-skills"  # per-skill content path under a skill's store output
-GC_ROOT_PREFIX="claude-skill-"             # per-user GC-root filename prefix
-SENTINEL_FILE=".flake-skills-managed.json" # per-install provenance marker
+SKILLS_SHARE_SUBDIR="share/claude-skills"       # per-skill content path under a skill's store output
+GC_ROOT_PREFIX="claude-skill-"                  # per-user GC-root filename prefix
+SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
 
 # Print "<app_name>: <msg>" then the standard "See --help" pointer to stderr —
 # the shared shape behind every verb's argv-validation error.

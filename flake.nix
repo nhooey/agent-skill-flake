@@ -1,5 +1,5 @@
 {
-  description = "flake-skills: lib.mkSkillFlake + lib.mkAllSkillsFlake for building Claude Code skill flakes";
+  description = "agent-skill-flake: lib.mkSkillFlake + lib.mkAllSkillsFlake for building Claude Code skill flakes";
 
   inputs = {
     # Pinned to the rolling `nixos-unstable` branch for recent toolchains;
@@ -45,7 +45,7 @@
       # Root-side wiring for the `skills-devshell/` sub-flake: the runtime
       # `nix run "$PRJ_ROOT/skills-devshell#<app>"` snippets spliced into the
       # dev shell below. Defaults target the `skills-devshell/` dir at project
-      # scope. flake-skills dogfoods its own helper here.
+      # scope. agent-skill-flake dogfoods its own helper here.
       devshellSkills = flakeLib.devshellSkillsHook { };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -67,18 +67,18 @@
         { pkgs, system, ... }:
         let
           reapApp = internal.mkReap system {
-            appName = "flake-skills";
+            appName = "agent-skill-flake";
             inherit (flakeLib) provenance;
             profile = internal.resolveAgentProfile "claude-code";
           };
 
           # Lineage-wide teardown, exposed here (like reap) so it runs
           # transiently with no embedded skill set:
-          #   nix run github:nhooey/flake-skills#purge -- --scope=personal
-          # clears every flake-skills-managed skill from a scope even after
+          #   nix run github:nhooey/agent-skill-flake#purge -- --scope=personal
+          # clears every agent-skill-flake-managed skill from a scope even after
           # the hooks that installed them are gone.
           purgeApp = internal.mkPurge system {
-            appName = "flake-skills";
+            appName = "agent-skill-flake";
             inherit (flakeLib) provenance;
             profile = internal.resolveAgentProfile "claude-code";
           };
@@ -94,12 +94,12 @@
         {
           apps.reap = {
             type = "app";
-            program = "${reapApp}/bin/reap-flake-skills";
+            program = "${reapApp}/bin/reap-agent-skill-flake";
           };
 
           apps.purge = {
             type = "app";
-            program = "${purgeApp}/bin/purge-flake-skills";
+            program = "${purgeApp}/bin/purge-agent-skill-flake";
           };
 
           checks = import ./checks.nix { inherit self nixpkgs system; };
@@ -115,15 +115,15 @@
           };
 
           devshells.default = {
-            name = "flake-skills";
+            name = "agent-skill-flake";
             motd = ''
-              {bold}{14}🚀 Entering flake-skills dev shell{reset}
+              {bold}{14}🚀 Entering agent-skill-flake dev shell{reset}
               Run {bold}menu{reset} to list available commands.
             '';
             # Reconcile the dev-shell skill set at project scope on `nix
             # develop`. The set is defined in the isolated `skills-devshell/`
             # sub-flake and invoked here at RUNTIME (not a root input), so
-            # flake-skills keeps zero skill inputs while still dogfooding the
+            # agent-skill-flake keeps zero skill inputs while still dogfooding the
             # skills. `reap-skills` (below) removes the whole set in one
             # command. The skills land in `.claude/skills/` (gitignored).
             devshell.startup.install-skills.text = devshellSkills.startup;
@@ -160,7 +160,7 @@
               }
 
               # skills
-              # To purge EVERY flake-skills-managed skill (any owner, strays
+              # To purge EVERY agent-skill-flake-managed skill (any owner, strays
               # included), not just this set: nix run "$PRJ_ROOT#purge" -- --scope=project
               {
                 category = "skills";

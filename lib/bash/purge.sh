@@ -15,7 +15,7 @@ Optional:
   -y, --yes                     Skip the confirmation prompt.
   -h, --help                    Show this help and exit.
 
-Removes EVERY skill this flake-skills lineage (managedBy=$upstream_url)
+Removes EVERY skill this agent-skill-flake lineage (managedBy=$upstream_url)
 installed under the target dir — live or broken — regardless of which
 hook/appName installed it, and prunes orphan GC roots. Unlike reconcile,
 purge ignores any declared set; unlike uninstall, it needs no skill names.
@@ -23,7 +23,7 @@ purge ignores any declared set; unlike uninstall, it needs no skill names.
 The scope-uniform teardown escape hatch: the SAME command clears the
 user-global and project dirs (only --scope differs), and it can run
 transiently (e.g. \`nix run $upstream_url#purge -- --scope=personal\`)
-to clear a scope before removing all references to flake-skills — when
+to clear a scope before removing all references to agent-skill-flake — when
 no reconcile hook is left to converge the dir to empty.
 
 Leaves entries NOT managed by this lineage untouched.
@@ -70,7 +70,7 @@ if [ "$dry_run" != "1" ] && [ "$assume_yes" != "1" ]; then
       "$app_name" >&2
     exit 2
   fi
-  printf 'About to remove ALL flake-skills-managed skills (managedBy=%s)\n' "$upstream_url" >&2
+  printf 'About to remove ALL agent-skill-flake-managed skills (managedBy=%s)\n' "$upstream_url" >&2
   printf 'from %s, regardless of which hook installed them.\n' "$target_root" >&2
   printf 'Proceed? [y/N] ' >&2
   read -r reply

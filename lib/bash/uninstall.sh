@@ -16,9 +16,9 @@ Optional:
 Removes the install-side artifacts for each named skill:
   - <target>/<name>                  (symlink into the Nix store)
   - <gcroots>/claude-skill-<name>    (per-user GC root)
-  - the entry in <target>/.flake-skills-lock.json
+  - the entry in <target>/.agent-skill-flake-lock.json
 
-Refuses to touch entries that aren't managed by this flake-skills
+Refuses to touch entries that aren't managed by this agent-skill-flake
 lineage (managedBy=$upstream_url).
 
 With no positional args: uninstalls "$default_skill" (the default

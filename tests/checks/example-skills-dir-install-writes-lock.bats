@@ -9,7 +9,7 @@ setup() {
   run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  local lock="$CUSTOM_TARGET/.flake-skills-lock.json"
+  local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
   assert [ -f "$lock" ]
 
   assert_equal "$(jq -r '.schemaVersion' "$lock")" "1"

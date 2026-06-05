@@ -9,7 +9,7 @@ let
 
   # Hardcoded canonical URL for this lineage. Forks should rewrite this
   # (run `nix run .#init` to do so automatically based on `git remote`).
-  upstreamUrl = "github:nhooey/flake-skills";
+  upstreamUrl = "github:nhooey/agent-skill-flake";
 
   # Per-build provenance baked into every skill derivation's sentinel.
   # - `rev`: parent commit, clean SHA whether the build was clean or dirty.
@@ -30,7 +30,7 @@ let
   # rather than a hardcoded list. Threaded into every builder as the default
   # for `systems`, so the fanout is never an inline platform list and
   # downstream consumers can retarget it by overriding the `systems` input
-  # (`flake-skills.inputs.systems.follows = "systems"`) without forking.
+  # (`agent-skill-flake.inputs.systems.follows = "systems"`) without forking.
   defaultSystems = import self.inputs.systems;
 
   # Marketplace / aggregation helpers. Defined in their own module so

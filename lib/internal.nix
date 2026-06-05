@@ -21,7 +21,7 @@ let
       agentProfiles.${agent}
     else
       throw (
-        "flake-skills: unknown agent profile ${builtins.toJSON agent}. "
+        "agent-skill-flake: unknown agent profile ${builtins.toJSON agent}. "
         + "Known agents: "
         + lib.concatStringsSep ", " (builtins.attrNames agentProfiles)
         + ". Add a new profile to lib/agent-profiles.nix to extend this set."
@@ -46,7 +46,7 @@ let
   defaultPackagePrefix = "agent-skill-";
 
   # ── Sentinel ─────────────────────────────────────────────────────────
-  # The `.flake-skills-managed.json` record written into every installed
+  # The `.agent-skill-flake-managed.json` record written into every installed
   # skill. Single source of truth for the schema/field set; `mkSkill`
   # builds it at eval, and `withNamePrefix` rewrites only `skillName` on an
   # already-built file via jq (see lib/with-name-prefix.nix) — keep the two
@@ -157,7 +157,7 @@ let
 
   # Assemble the attrset passed to `renameFn`. `source` is the *skill's*
   # origin repo (the consumer fills it from their own flake `self` +
-  # owner/repo); `toolingProvenance` is the flake-skills lineage that
+  # owner/repo); `toolingProvenance` is the agent-skill-flake lineage that
   # built the tooling (already threaded everywhere as `provenance`).
   # Kept distinct on purpose: in a marketplace flake the skills and the
   # build tooling routinely live in different repos.
@@ -274,7 +274,7 @@ let
     in
     if segment == null then
       throw ''
-        flake-skills: could not resolve a package-key namespace for skill ${builtins.toJSON ctx.name}.
+        agent-skill-flake: could not resolve a package-key namespace for skill ${builtins.toJSON ctx.name}.
         The namespace defaults to the source owner (`ctx.source.owner`), which is null here — the
         source is unset, local (file:/path:), or otherwise ownerless. Choose one:
           • pass `source` with a derivable owner, e.g. { url = "github:owner/repo"; } or { owner = "owner"; };
@@ -346,10 +346,10 @@ let
       # still be traced back to what it was called upstream. Defaults to
       # `name` (no rename).
       originalSkillName ? name,
-      # Provenance from lib/default.nix: which flake-skills lineage built
+      # Provenance from lib/default.nix: which agent-skill-flake lineage built
       # this, what rev / dirty state, and the source narHash for
       # differentiation across dirty builds. Written verbatim into the
-      # `.flake-skills-managed.json` sentinel so reconcile/reap can decide
+      # `.agent-skill-flake-managed.json` sentinel so reconcile/reap can decide
       # what's "ours" without needing flake metadata at runtime.
       provenance,
     }:
@@ -418,7 +418,7 @@ let
           fi
         done
         install -Dm644 "$sentinelPath" \
-          "$out/share/claude-skills/${name}/.flake-skills-managed.json"
+          "$out/share/claude-skills/${name}/.agent-skill-flake-managed.json"
         runHook postInstall
       '';
       meta = with pkgs.lib; {
