@@ -1106,6 +1106,56 @@ in
     msg = "package-key-namespace-omitted: an empty namespace must yield bare agent-skill-<name> keys.";
   };
 
+  # Recursive discovery: skills nested under grouping folders
+  # (group-one/nested-alpha, group-two/deeper/nested-beta) are found at any
+  # depth, a depth-1 skill (top-flat) still works alongside them, and a
+  # grouping folder with no SKILL.md beneath it contributes nothing.
+  discover-skills-recursive =
+    let
+      nested =
+        (self.lib.mkAllSkillsFlake {
+          inherit nixpkgs;
+          skillsDir = ./tests/example-nested-dir;
+          namespaceFn = _: "";
+        }).packages.${system};
+    in
+    mkEvalCheck {
+      name = "discover-skills-recursive";
+      cond =
+        (nested ? "agent-skill-top-flat")
+        && (nested ? "agent-skill-nested-alpha")
+        && (nested ? "agent-skill-nested-beta")
+        && !(nested ? "agent-skill-group-one")
+        && !(nested ? "agent-skill-group-two")
+        && !(nested ? "agent-skill-deeper")
+        && !(nested ? "agent-skill-empty-group")
+        && !(nested ? "agent-skill-not-a-skill");
+      msg = "discover-skills-recursive: skills must be discovered at any depth and group folders must never become skills.";
+    };
+
+  # mkDevshellSkillsFlake surfaces a single combination as runnable apps
+  # (reconcile = converge, purge = remove-all — the verbs the root devShell
+  # wiring invokes at runtime; reap = prune-broken) and re-exposes the union's
+  # per-skill packages as a composable source.
+  devshell-skills-flake =
+    let
+      dsf = self.lib.mkDevshellSkillsFlake {
+        inherit nixpkgs;
+        name = "fixture-devshell";
+        sources = [ { source = fixtureAll; } ];
+      };
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake";
+      cond =
+        (dsf.apps.${system} ? reconcile)
+        && (dsf.apps.${system} ? purge)
+        && (dsf.apps.${system} ? reap)
+        && (dsf.packages.${system} ? "agent-skill-alpha")
+        && (dsf.combinations ? default);
+      msg = "devshell-skills-flake: must surface reconcile/purge/reap apps and the union's per-skill packages.";
+    };
+
   # No `source` (owner unresolvable) under the default `namespaceFn` is a
   # hard eval error, never a silently un-namespaced key.
   namespace-null-throws = mkEvalCheck {

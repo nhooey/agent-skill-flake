@@ -86,4 +86,18 @@ in
   # A curated combination: an aggregate that is also a valid source, bundled
   # with one home-manager `env` per system.
   mkCombination = args: import ./mk-combination.nix (args // { inherit provenance defaultSystems; });
+
+  # The outputs of a per-repo `skills-devshell/` sub-flake: one combination
+  # surfaced as runnable apps + a composable source. A leaf repo defines its
+  # dev-shell skill set here (isolated lock) and invokes it from the root
+  # devShell at runtime, so the root stays free of skill inputs. Pair with
+  # `devshellSkillsHook` for the root-side wiring.
+  mkDevshellSkillsFlake =
+    args: import ./mk-devshell-skills-flake.nix (args // { inherit provenance defaultSystems; });
+
+  # Root-side devShell wiring for a `skills-devshell/` sub-flake: string
+  # snippets for the startup (reconcile) hook and a reap (remove-all) command,
+  # so consumers don't hand-roll the `nix run "$PRJ_ROOT/<dir>#<app>"` calls.
+  # Pure — no provenance threading.
+  devshellSkillsHook = import ./devshell-skills-hook.nix;
 }
