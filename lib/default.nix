@@ -95,9 +95,10 @@ in
   mkDevshellSkillsFlake =
     args: import ./mk-devshell-skills-flake.nix (args // { inherit provenance defaultSystems; });
 
-  # Root-side devShell wiring for a `skills-devshell/` sub-flake: string
-  # snippets for the startup (reconcile) hook and a reap (remove-all) command,
-  # so consumers don't hand-roll the `nix run "$PRJ_ROOT/<dir>#<app>"` calls.
-  # Pure — no provenance threading.
+  # Root-side devShell wiring for a `skills-devshell/` sub-flake: the startup
+  # (reconcile) hook snippet plus the repo-agnostic `skills`-category commands
+  # list, so consumers splice `startup` and `++ commands` instead of hand-
+  # rolling the `nix run "$PRJ_ROOT/<dir>#<app>"` calls. Pure — no provenance
+  # threading.
   devshellSkillsHook = import ./devshell-skills-hook.nix;
 }
