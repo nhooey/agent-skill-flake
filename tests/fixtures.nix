@@ -159,7 +159,7 @@ in
     name = "renamed-all";
     source = {
       owner = "nhooey";
-      repo = "skills-nix";
+      repo = "nix-skills";
       rev = "0123456789abcdef0123456789abcdef01234567";
       # Nix hands this to consumers as `self.lastModifiedDate`
       # ("%Y%m%d%H%M%S", UTC); we just slice it.
@@ -195,7 +195,7 @@ in
   # Same appName "converge", source dropped — the union shrinks to base
   # (alpha, beta) only, so reconciling with it must sweep the now-stray
   # src-gamma left by the full reconcile. This is the regression test for
-  # the skills-git stray-leftover bug.
+  # the git-skills stray-leftover bug.
   fixtureAggConvergeReduced = mkAgg {
     skillsDir = ./example-skills-dir;
     name = "converge";

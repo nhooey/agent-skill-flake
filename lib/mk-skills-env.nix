@@ -50,7 +50,7 @@ let
     name =
       drv.passthru.flakeSkillName or (throw ''
         mkSkillsEnv '${name}': every member of `skills` must be a
-        derivation produced by agent-skill-flake' `mkSkillFlake` /
+        derivation produced by agent-skill-flake's `mkSkillFlake` /
         `mkAllSkillsFlake` (carrying `passthru.flakeSkillName`). Got
         a derivation without that attribute; if you're trying to nest
         a `mkSkillsEnv` inside another, inline the member skills

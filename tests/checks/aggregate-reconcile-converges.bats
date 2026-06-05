@@ -3,7 +3,7 @@
 #         RECONCILE_REDUCED_APP — same appName "converge", source dropped,
 #                                 so the union shrinks to alpha, beta.
 #
-# The regression test for the skills-git stray-leftover bug: a skill that
+# The regression test for the git-skills stray-leftover bug: a skill that
 # leaves the declared union (here src-gamma, the prefixed source dropped
 # from the aggregate) must be swept on the next reconcile, leaving exactly
 # the new union — not the old one plus the new.
