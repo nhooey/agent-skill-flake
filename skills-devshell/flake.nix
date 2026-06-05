@@ -35,8 +35,9 @@
     agent-skill-flake.lib.mkDevshellSkillsFlake {
       inherit nixpkgs;
       systems = import inputs.systems;
+      # envName is omitted: the default `agent-skills-${name}` already yields
+      # `agent-skills-agent-skill-flake-devshell`, dogfooding the lib default.
       name = "agent-skill-flake-devshell";
-      envName = "agent-skills-agent-skill-flake-devshell";
       packagePrefix = "agent-skill-";
       sources = [
         { source = skillspkgs-combinations.combinations.authoring-with-git; }

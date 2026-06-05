@@ -17,7 +17,9 @@
   # Reconcile-ownership appName, e.g. "skillspkgs-authoring".
   name,
   # Home-manager env package name. Can't be derived from the aggregate
-  # (it carries no `name`), so defaults to `name`.
+  # (it carries no `name`), so defaults to `name`. (mkDevshellSkillsFlake
+  # overrides this with an `agent-skills-`-prefixed default; a raw
+  # combination keeps the bare `name` — it has no repo-namespace convention.)
   envName ? name,
   # null uses the library default (`agent-skill-`), matching the aggregate.
   packagePrefix ? null,

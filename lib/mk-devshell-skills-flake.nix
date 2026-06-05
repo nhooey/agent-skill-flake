@@ -20,8 +20,15 @@
   # Reconcile-ownership appName — the single owner, so one `purge` (or `reap`)
   # sweeps the whole set. Also the `<verb>-<name>` suffix on each app's binary.
   name ? "devshell-skills",
-  # Home-manager env package name; defaults to `name`.
-  envName ? name,
+  # Home-manager env package name. Defaults to `agent-skills-${name}` —
+  # the shared `agent-skills-` namespace prefix mkAllSkillsFlake uses for its
+  # `agent-skills-<owner>-all` key — so consumers (whose `name` is already
+  # `<repo>-devshell`) can omit it and get `agent-skills-<repo>-devshell`.
+  # This deliberately diverges from the bare `envName ? name` of the wrapped
+  # `mkCombination`: a raw combination has no repo-namespace convention to
+  # lean on, whereas a per-repo dev-shell set always does. The wrapper passes
+  # this through explicitly below, so the two defaults never both fire.
+  envName ? "agent-skills-${name}",
   # null uses the library default (`agent-skill-`).
   packagePrefix ? null,
   agent ? "claude-code",

@@ -1156,6 +1156,27 @@ in
       msg = "devshell-skills-flake: must surface reconcile/purge/reap apps and the union's per-skill packages.";
     };
 
+  # With `envName` omitted, mkDevshellSkillsFlake's default must be
+  # `agent-skills-${name}` — the shared `agent-skills-` namespace prefix
+  # mkAllSkillsFlake uses — so consumers can drop the (mechanical) explicit
+  # envName and still get the identical home-manager env package name.
+  devshell-skills-flake-default-env-name =
+    let
+      dsf = self.lib.mkDevshellSkillsFlake {
+        inherit nixpkgs;
+        name = "fixture-devshell";
+        sources = [ { source = fixtureAll; } ];
+      };
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake-default-env-name";
+      cond = dsf.combinations.default.env.${system}.name == "agent-skills-fixture-devshell";
+      msg =
+        "devshell-skills-flake-default-env-name: with envName omitted, the env "
+        + "name must default to agent-skills-<name>. Got: "
+        + dsf.combinations.default.env.${system}.name;
+    };
+
   # `devshellSkillsHook` exposes `standardCommands` — the repo-agnostic
   # ci/dev/maintenance trio (check / fmt / update-flake) every consumer
   # otherwise re-hand-rolls. Imports the hook as the pure function it is
