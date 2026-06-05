@@ -23,29 +23,6 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    # ---------------------------------------------------------------------
-    # Dev-shell skill sources (inlined — consumed only by `devshells` below)
-    # ---------------------------------------------------------------------
-    # The dev shell installs a curated skill set (the git/GitHub pack plus
-    # skillspkgs' `authoring` combination), combined via this flake's own
-    # `lib.mkCombination` in `outputs` (`devshellSkills`). These were
-    # previously isolated in a `skills-devshell/` sub-flake, but a same-repo
-    # sub-flake can only be addressed by a relative `path:` (rejected by
-    # sandboxed/transitive consumers) or a brittle self-URL. Being the library,
-    # this flake has no `flake-skills` input to point the sources at via
-    # `follows`, so each locks its own (published) `flake-skills`; that rev
-    # converges with this repo's on merge. `mkCombination` itself comes from the
-    # local `lib` (`flakeLib`), so the combiner is always this exact tree.
-    skills-git = {
-      url = "github:nhooey/skills-git";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    skillspkgs-combinations = {
-      url = "github:nhooey/skillspkgs?dir=sources/combinations";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -65,20 +42,11 @@
       # works without any embedded skill set (pure cleanup tool).
       internal = import ./lib/internal.nix { inherit nixpkgs; };
 
-      # The dev-shell skill set, combined from the inlined skill sources
-      # (git/GitHub pack + skillspkgs' `authoring` combination) via this
-      # flake's own `lib.mkCombination`. `reconcileScript` is a
-      # `system -> string` function the dev shell splices into a startup hook.
-      devshellSkills = flakeLib.mkCombination {
-        inherit nixpkgs;
-        name = "flake-skills-devshell";
-        envName = "agent-skills-flake-skills-devshell";
-        packagePrefix = "agent-skill-";
-        sources = [
-          { source = inputs.skills-git; }
-          { source = inputs.skillspkgs-combinations.combinations.authoring; }
-        ];
-      };
+      # Root-side wiring for the `skills-devshell/` sub-flake: the runtime
+      # `nix run "$PRJ_ROOT/skills-devshell#<app>"` snippets spliced into the
+      # dev shell below. Defaults target the `skills-devshell/` dir at project
+      # scope. flake-skills dogfoods its own helper here.
+      devshellSkills = flakeLib.devshellSkillsHook { };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import systems;
@@ -152,13 +120,13 @@
               {bold}{14}🚀 Entering flake-skills dev shell{reset}
               Run {bold}menu{reset} to list available commands.
             '';
-            # Install the dev-shell skill set (git/GitHub + the authoring
-            # combination) at project scope on `nix develop`. `devshellSkills`
-            # (above) yields the reconcile one-liner per system; this splices
-            # it in.
-            devshell.startup.install-skills.text = ''
-              ${devshellSkills.reconcileScript system}
-            '';
+            # Reconcile the dev-shell skill set at project scope on `nix
+            # develop`. The set is defined in the isolated `skills-devshell/`
+            # sub-flake and invoked here at RUNTIME (not a root input), so
+            # flake-skills keeps zero skill inputs while still dogfooding the
+            # skills. `reap-skills` (below) removes the whole set in one
+            # command. The skills land in `.claude/skills/` (gitignored).
+            devshell.startup.install-skills.text = devshellSkills.startup;
             packages = [
               batsWith
               pkgs.coreutils
@@ -189,6 +157,22 @@
                 name = "update-flake";
                 help = "Update all flake inputs and rewrite flake.lock";
                 command = ''nix flake update "$@"'';
+              }
+
+              # skills
+              # To purge EVERY flake-skills-managed skill (any owner, strays
+              # included), not just this set: nix run "$PRJ_ROOT#purge" -- --scope=project
+              {
+                category = "skills";
+                name = "reap-skills";
+                help = "Remove every skill this dev shell installed (one owner)";
+                command = devshellSkills.reap;
+              }
+              {
+                category = "skills";
+                name = "update-skills-devshell";
+                help = "Bump the skills-devshell/ sub-flake lock (the skill set)";
+                command = ''nix flake update --flake "$PRJ_ROOT/skills-devshell" "$@"'';
               }
             ];
           };

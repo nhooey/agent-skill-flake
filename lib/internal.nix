@@ -430,19 +430,36 @@ let
 
   # A subdirectory of `skillsDir` is a "skill" iff it contains a SKILL.md.
   # Returns a sorted list of { name; src; } records.
+  # Recursively find skills under `skillsDir`. A directory containing a
+  # SKILL.md is a skill and a leaf — its own references/ scripts/ subdirs
+  # are not re-scanned; any other directory is a grouping folder whose
+  # children are scanned. This lets skills be organized into subdirectories
+  # (e.g. skills/<group>/<skill>/) without the group dirs being mistaken for
+  # skills or a skill's internal subdirs spawning phantom skills. A skill's
+  # `name` is its own directory's basename, independent of any enclosing
+  # group, so the on-disk grouping never leaks into skill identity or
+  # package keys. A flat skills/<skill>/ layout still works (it is just the
+  # depth-1 case), so this is backward compatible.
   discoverSkills =
     skillsDir:
     let
-      entries = builtins.readDir skillsDir;
-      isDir = n: entries.${n} == "directory";
-      hasSkillMd = n: builtins.pathExists (skillsDir + "/${n}/SKILL.md");
-      dirNames = builtins.attrNames (lib.filterAttrs (n: _: isDir n) entries);
-      skillNames = builtins.filter hasSkillMd dirNames;
+      go =
+        dir:
+        if builtins.pathExists (dir + "/SKILL.md") then
+          [
+            {
+              name = baseNameOf dir;
+              src = dir;
+            }
+          ]
+        else
+          let
+            entries = builtins.readDir dir;
+            subdirs = builtins.attrNames (lib.filterAttrs (_: t: t == "directory") entries);
+          in
+          lib.concatMap (n: go (dir + "/${n}")) subdirs;
     in
-    map (n: {
-      name = n;
-      src = skillsDir + "/${n}";
-    }) skillNames;
+    go skillsDir;
 
   # Bash-array body: one `"name:store_path"` line per skill, indented.
   skillsArrayBody =
