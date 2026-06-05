@@ -448,7 +448,12 @@ let
         if builtins.pathExists (dir + "/SKILL.md") then
           [
             {
-              name = baseNameOf dir;
+              # Discard string context: when `skillsDir` is a store-path string
+              # (e.g. a flake input passed as `"${src}"`), `baseNameOf` carries
+              # that context into the name, which then throws when used as an
+              # attribute key (groupBy in assertUniqueSkillNames, package keys).
+              # The name is a logical identifier, so the context is never wanted.
+              name = builtins.unsafeDiscardStringContext (baseNameOf dir);
               src = dir;
             }
           ]
@@ -691,10 +696,24 @@ let
       default ? false,
     }:
     let
-      app = verb: drv: {
-        type = "app";
-        program = "${drv}/bin/${verb}-${name}";
+      # One-line `meta.description` per verb, surfaced by `nix flake show` and
+      # `nix run … -- --help`. Keyed by program verb; an unlisted verb just
+      # gets no description (the prior behavior).
+      descriptions = {
+        install = "Install this flake's skill(s) into the agent's skill directory.";
+        uninstall = "Remove the named skill(s) this flake installed from the agent's skill directory.";
+        preview = "Show what installing this flake's skill(s) would change, without writing anything.";
+        reconcile = "Converge the agent's skill directory to exactly this flake's declared skill set.";
+        reap = "Remove only garbage-collected (broken) skill entries this flake's lineage owns.";
+        purge = "Remove every skill entry this flake's lineage owns, live or broken.";
       };
+      app =
+        verb: drv:
+        {
+          type = "app";
+          program = "${drv}/bin/${verb}-${name}";
+        }
+        // lib.optionalAttrs (descriptions ? ${verb}) { meta.description = descriptions.${verb}; };
     in
     lib.mapAttrs app programs
     // lib.optionalAttrs default { default = app "preview" programs.preview; };
