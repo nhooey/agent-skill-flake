@@ -1,6 +1,7 @@
 # Root-side wiring for a `skills-devshell/` sub-flake invoked at runtime.
-# Returns the two shell snippets a repo's ROOT devShell splices in, so the
-# `nix run "$PRJ_ROOT/<dir>#<app>"` strings live in one place instead of being
+# Returns the dev-shell startup snippet plus the whole `skills`-category
+# `commands` list, so the `nix run "$PRJ_ROOT/<dir>#<app>"` strings AND the
+# repo-agnostic command definitions live in one place instead of being
 # hand-rolled (and drifting) per repo.
 #
 # Assumes numtide/devshell, which exports `$PRJ_ROOT` (the project root) into
@@ -26,6 +27,24 @@ in
 {
   # Splice into `devshell.startup.<name>.text` (reconcile on `nix develop`).
   startup = run reconcileApp;
-  # Splice into a devshell `commands` entry's `command` (remove the whole set).
-  reap = run removeApp;
+  # Concatenate onto a devshell `commands` list (`++ devshellSkills.commands`).
+  # Both entries are fully repo-agnostic — they only reference `dir`/`scope`,
+  # which this hook already owns — so every consuming repo shares them verbatim.
+  commands = [
+    {
+      category = "skills";
+      name = "reap-skills";
+      # The detached form (`nix run "$PRJ_ROOT#purge"`) needs no dev shell and
+      # clears EVERY managed skill in the scope, strays included — surfaced here
+      # so users know a more thorough removal exists.
+      help = ''Remove every skill this dev shell installed (one owner); for a detached, thorough purge of ALL managed skills run: nix run "$PRJ_ROOT#${removeApp}" -- --scope=${scope}'';
+      command = run removeApp;
+    }
+    {
+      category = "skills";
+      name = "update-skills-devshell";
+      help = "Bump the ${dir}/ sub-flake lock (the skill set)";
+      command = ''nix flake update --flake "$PRJ_ROOT/${dir}" "$@"'';
+    }
+  ];
 }
