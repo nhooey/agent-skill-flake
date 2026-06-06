@@ -129,14 +129,16 @@
           ]);
         in
         {
-          apps.reap = {
-            type = "app";
-            program = "${reapApp}/bin/reap-agent-skill-flake";
-          };
-
-          apps.purge = {
-            type = "app";
-            program = "${purgeApp}/bin/purge-agent-skill-flake";
+          # Route the two root-level cleanup apps through the same
+          # `mkAppSuite` the lib's builders use, so they carry the shared
+          # per-verb `meta.description` instead of reporting "no description"
+          # in `nix flake show`.
+          apps = internal.mkAppSuite {
+            name = "agent-skill-flake";
+            programs = {
+              reap = reapApp;
+              purge = purgeApp;
+            };
           };
 
           checks = import ./checks.nix { inherit self nixpkgs system; };
