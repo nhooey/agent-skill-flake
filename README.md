@@ -673,28 +673,52 @@ outputs = { nixpkgs, agent-skill-flake, ... }@inputs:
 ```
 
 Args mirror [`mkCombination`](#mkcombination) (`sources`, `name`, `envName`,
-`packagePrefix`, `agent`, `systems`). The single `name` owner means one
-`purge` (or `reap`) removes the whole set. See
-[`skills-devshell/flake.nix`](skills-devshell/flake.nix) for the live example.
+`packagePrefix`, `agent`, `systems`), but two defaults are tuned for the
+per-repo dev-shell convention so a sub-flake can omit them:
+
+- `envName` defaults to `"agent-skills-${name}"` (not the bare `name` that
+  `mkCombination` uses). A dev-shell `name` is already repo-namespaced
+  (`<repo>-devshell`), so the home-manager env lands under the shared
+  `agent-skills-` namespace — `agent-skills-<repo>-devshell` — matching the
+  prefix `mkAllSkillsFlake` uses for its `agent-skills-<owner>-all` key.
+- `packagePrefix` defaults to `"agent-skill-"` (the library default).
+
+So the conventional sub-flake passes only `nixpkgs`, `systems`, `name`, and
+`sources` — drop `envName`/`packagePrefix` unless you need non-conventional
+values. The single `name` owner means one `purge` (or `reap`) removes the
+whole set. See [`skills-devshell/flake.nix`](skills-devshell/flake.nix) for
+the live example.
 
 ### `devshellSkillsHook`
 
 Root-side wiring for a `skills-devshell/` sub-flake invoked at runtime.
-Returns `{ startup; commands; }` so the `nix run "$PRJ_ROOT/<dir>#<app>"`
-strings and the repo-agnostic `skills`-category commands live in one place
-instead of being hand-rolled (and drifting) per repo:
+Returns `{ startup; commands; standardCommands; }` so the
+`nix run "$PRJ_ROOT/<dir>#<app>"` strings and the repo-agnostic command
+definitions live in one place instead of being hand-rolled (and drifting)
+per repo:
 
 - `startup` — splice into `devshell.startup.<name>.text` (a plain `mkShell`
   uses `shellHook`); reconciles the skill set on `nix develop`.
 - `commands` — `++` onto the devshell `commands` list; adds `reap-skills`
   (remove the whole set) and `update-skills-devshell` (bump the sub-flake
   lock).
+- `standardCommands` — the repo-agnostic ci/dev/maintenance command trio
+  every consumer otherwise re-hand-rolls inline: `ci`/`check`
+  (`nix flake check`), `dev`/`fmt` (`nix fmt`), and
+  `maintenance`/`update-flake` (`nix flake update`). They carry zero
+  repo-specific data, so concatenating
+  `devshellSkills.standardCommands ++ devshellSkills.commands` onto the
+  menu replaces re-defining all three per repo.
 
 Params (all optional): `dir` (`"skills-devshell"`), `scope` (`"project"`),
 `reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`). Pure — no provenance
 threading. Assumes numtide/devshell, which exports `$PRJ_ROOT`. Usage is
 shown under [the `skills-devshell`
 section](#project-scope-dev-shell-skills-the-skills-devshell-sub-flake) below.
+
+For consumers that want the *whole* dev-shell skills convention wired in one
+import — including these command lists — rather than threading the hook by
+hand, see [`flakeModules.devshellSkills`](#flakemodulesdevshellskills) below.
 
 ### Project-scope dev-shell skills: the `skills-devshell` sub-flake
 
@@ -750,6 +774,64 @@ this repo's canonical pair:**
 This repo's own `skills-devshell/` is the live example: it sources skillspkgs'
 `authoring-with-git` combination (the git/GitHub pack plus the authoring
 tooling) as the dev shell's entire skill set.
+
+### `flakeModules.devshellSkills`
+
+The [`devshellSkillsHook`](#devshellskillshook) wiring above is two manual
+splices into a `devshells.default` you still write yourself — the motd, the
+`startup` line, and the `standardCommands ++ commands` menu. Every consumer
+repeats that same `devshells.default` block. `flakeModules.devshellSkills` is
+a [flake-parts](https://flake.parts) module that collapses all of it to one
+import plus an options block:
+
+```nix
+# main flake.nix (flake-parts) — agent-skill-flake is the only input needed
+# for the dev shell; NO `devshell` input, NO hand-rolled devshells.default.
+{
+  imports = [ inputs.agent-skill-flake.flakeModules.devshellSkills ];
+  agent-skill-flake.devshellSkills.name = "my-repo";
+
+  # Repo-specific packages/commands still go on devshells.default directly —
+  # devshell list options merge, so these add to (don't replace) the module's
+  # standard + skills commands:
+  perSystem = { pkgs, ... }: {
+    devshells.default.packages = [ pkgs.jq ];
+    devshells.default.commands = [ /* your extra commands */ ];
+  };
+}
+```
+
+The module sets `devshells.default`'s `name`, `motd`, the install-skills
+`startup`, and `commands` (the ci/dev/maintenance trio plus `reap-skills` /
+`update-skills-devshell`). It is scope-limited to **dev-shell wiring only** —
+`treefmt` is deliberately not bundled, since real consumers diverge on it.
+
+- **No `devshell` input required.** The exported module bundles
+  agent-skill-flake's own `inputs.devshell.flakeModule`. **Caveat:** if you
+  already import your own `inputs.devshell.flakeModule`, drop it — importing a
+  second, differently-pinned devshell module loads both and merges
+  `devshells.default` (redundant at best, version-skew at worst).
+- **Overriding.** `name` and `motd` are set with `lib.mkDefault`, so a plain
+  `perSystem.devshells.default.name = …` (or `.motd`) wins. Repo-specific
+  `packages` and `commands` are list options that merge by concatenation, so
+  set them directly — no extra option needed.
+
+Options under `agent-skill-flake.devshellSkills`:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `name` | `"dev shell"` | devShell name + the label in the generated motd. |
+| `motd` | `null` | Full motd string; `null` generates the standard banner from `name`. |
+| `dir` | `"skills-devshell"` | Sub-flake dir (under `$PRJ_ROOT`) reconciled on `nix develop`. |
+| `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
+| `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
+| `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set. |
+| `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the two `skills` commands are always included. |
+
+`flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
+dogfoods the module in its own [`flake.nix`](flake.nix) (listing the bundle's
+pieces directly rather than `self.flakeModules.devshellSkills`, which would be
+an eval cycle).
 
 ## Install scope
 
