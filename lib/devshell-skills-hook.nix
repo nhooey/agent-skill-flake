@@ -47,4 +47,28 @@ in
       command = ''nix flake update --flake "$PRJ_ROOT/${dir}" "$@"'';
     }
   ];
+  # The repo-agnostic ci/dev/maintenance trio every consumer otherwise
+  # re-hand-rolls inline. They carry zero repo-specific data, so they live
+  # here too (`standardCommands ++ devshellSkills.commands`) rather than
+  # drifting copy-by-copy across repos.
+  standardCommands = [
+    {
+      category = "ci";
+      name = "check";
+      help = "Run the full test suite via nix flake check";
+      command = ''nix flake check "$@"'';
+    }
+    {
+      category = "dev";
+      name = "fmt";
+      help = "Format the tree with treefmt (nixfmt + shfmt)";
+      command = ''nix fmt "$@"'';
+    }
+    {
+      category = "maintenance";
+      name = "update-flake";
+      help = "Update all flake inputs and rewrite flake.lock";
+      command = ''nix flake update "$@"'';
+    }
+  ];
 }

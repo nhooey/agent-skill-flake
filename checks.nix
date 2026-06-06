@@ -1156,6 +1156,142 @@ in
       msg = "devshell-skills-flake: must surface reconcile/purge/reap apps and the union's per-skill packages.";
     };
 
+  # With `envName` omitted, mkDevshellSkillsFlake's default must be
+  # `agent-skills-${name}` — the shared `agent-skills-` namespace prefix
+  # mkAllSkillsFlake uses — so consumers can drop the (mechanical) explicit
+  # envName and still get the identical home-manager env package name.
+  devshell-skills-flake-default-env-name =
+    let
+      dsf = self.lib.mkDevshellSkillsFlake {
+        inherit nixpkgs;
+        name = "fixture-devshell";
+        sources = [ { source = fixtureAll; } ];
+      };
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake-default-env-name";
+      cond = dsf.combinations.default.env.${system}.name == "agent-skills-fixture-devshell";
+      msg =
+        "devshell-skills-flake-default-env-name: with envName omitted, the env "
+        + "name must default to agent-skills-<name>. Got: "
+        + dsf.combinations.default.env.${system}.name;
+    };
+
+  # `devshellSkillsHook` exposes `standardCommands` — the repo-agnostic
+  # ci/dev/maintenance trio (check / fmt / update-flake) every consumer
+  # otherwise re-hand-rolls. Imports the hook as the pure function it is
+  # and asserts all three entries verbatim — including `help`, so help-text
+  # drift breaks CI too (the whole point of factoring them out).
+  devshell-hook-standard-commands =
+    let
+      cmds = (import ./lib/devshell-skills-hook.nix { }).standardCommands;
+    in
+    mkEvalCheck {
+      name = "devshell-hook-standard-commands";
+      cond =
+        builtins.length cmds == 3
+        &&
+          cmds == [
+            {
+              category = "ci";
+              name = "check";
+              help = "Run the full test suite via nix flake check";
+              command = ''nix flake check "$@"'';
+            }
+            {
+              category = "dev";
+              name = "fmt";
+              help = "Format the tree with treefmt (nixfmt + shfmt)";
+              command = ''nix fmt "$@"'';
+            }
+            {
+              category = "maintenance";
+              name = "update-flake";
+              help = "Update all flake inputs and rewrite flake.lock";
+              command = ''nix flake update "$@"'';
+            }
+          ];
+      msg =
+        "devshell-hook-standard-commands: standardCommands must be exactly the "
+        + "ci/dev/maintenance trio (check / fmt / update-flake) with matching "
+        + "category, name, help, and command. Got:\n"
+        + builtins.toJSON cmds;
+    };
+
+  # ──────────────────────────────────────────────────────────────
+  # flakeModules.devshellSkills — the exposed dev-shell flake-parts module.
+  # ──────────────────────────────────────────────────────────────
+
+  # End-to-end check on the module via this repo's OWN dogfooded devShell
+  # (flake.nix imports lib/devshell-skills-flake-module.nix). Asserts the
+  # assembled command set carries the three standard categories (ci/check,
+  # dev/fmt, maintenance/update-flake) AND the two skills commands
+  # (reap-skills, update-skills-devshell), and that the install-skills startup
+  # reconciles the sub-flake at project scope. This is the whole point of the
+  # module: a consumer importing it gets exactly this wiring with no hand-roll.
+  devshell-skills-flake-module =
+    let
+      shell = self.devShells.${system}.default.config;
+      cmds = shell.commands;
+      hasCmd = cat: nm: lib.any (c: c.category == cat && c.name == nm) cmds;
+      startup = shell.devshell.startup.install-skills.text;
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake-module";
+      cond =
+        # ci/dev/maintenance trio.
+        hasCmd "ci" "check"
+        && hasCmd "dev" "fmt"
+        && hasCmd "maintenance" "update-flake"
+        # the two skills commands.
+        && hasCmd "skills" "reap-skills"
+        && hasCmd "skills" "update-skills-devshell"
+        # install-skills startup reconciles the sub-flake at project scope.
+        && lib.hasInfix "reconcile" startup
+        && lib.hasInfix "--scope=project" startup;
+      msg =
+        "devshell-skills-flake-module: the dogfooded devShell must carry the "
+        + "ci/dev/maintenance trio (check/fmt/update-flake), both skills "
+        + "commands (reap-skills/update-skills-devshell), and an install-skills "
+        + "startup that reconciles at --scope=project. Got commands:\n"
+        + builtins.toJSON (map (c: "${c.category}/${c.name}") cmds)
+        + "\nstartup: ${startup}";
+    };
+
+  # Coverage of the EXPORTED artifact (what consumers actually receive), not
+  # the dogfood path the check above exercises. The exported
+  # `flake.flakeModules.devshellSkills` must be an attrset with an `imports`
+  # list bundling the local module file, and `flakeModules.default` must be the
+  # very same bundle. A lightweight eval check — a deep `mkFlake` instantiation
+  # of the bundle is heavy and unnecessary to assert these structural
+  # guarantees.
+  flake-module-devshell-skills-exported =
+    let
+      bundle = self.flakeModules.devshellSkills;
+      imports = bundle.imports or [ ];
+      # The local module is imported by relative path; in the exported flake it
+      # resolves to a store path whose basename is the module file. Match on
+      # that basename so the check doesn't pin the full store path.
+      bundlesLocalModule = lib.any (
+        m: lib.isString (toString m) && lib.hasSuffix "devshell-skills-flake-module.nix" (toString m)
+      ) imports;
+    in
+    mkEvalCheck {
+      name = "flake-module-devshell-skills-exported";
+      cond =
+        lib.isAttrs bundle
+        && lib.isList imports
+        && bundlesLocalModule
+        # `default` is an alias of the named bundle.
+        && self.flakeModules.default == bundle;
+      msg =
+        "flake-module-devshell-skills-exported: flake.flakeModules.devshellSkills "
+        + "must be an attrset whose `imports` list contains "
+        + "devshell-skills-flake-module.nix, and flakeModules.default must equal "
+        + "it. Got imports: "
+        + builtins.toJSON (map toString imports);
+    };
+
   # No `source` (owner unresolvable) under the default `namespaceFn` is a
   # hard eval error, never a silently un-namespaced key.
   namespace-null-throws = mkEvalCheck {
