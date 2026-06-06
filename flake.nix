@@ -120,6 +120,14 @@
             profile = internal.resolveAgentProfile "claude-code";
           };
 
+          # Consumer scaffolder. Carries no skill set — it writes the dev-shell
+          # skills boilerplate that CAN'T live in the lib (flake `inputs` must
+          # be static literals) into whatever repo it's run from:
+          #   nix run github:nhooey/agent-skill-flake#init
+          initApp = internal.mkInit system {
+            inherit (flakeLib) provenance;
+          };
+
           # bats + the assertion/file/support helper libraries — the same set
           # checks.nix builds, so contributors can run the suite by hand.
           batsWith = pkgs.bats.withLibraries (p: [
@@ -138,6 +146,7 @@
             programs = {
               reap = reapApp;
               purge = purgeApp;
+              init = initApp;
             };
           };
 

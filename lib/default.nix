@@ -7,8 +7,12 @@ let
   # pure helpers like `lib.removeSuffix`.
   inherit (self.inputs.nixpkgs) lib;
 
-  # Hardcoded canonical URL for this lineage. Forks should rewrite this
-  # (run `nix run .#init` to do so automatically based on `git remote`).
+  # Hardcoded canonical URL for this lineage. Baked into every skill's
+  # provenance sentinel and into the sub-flake `nix run .#init` scaffolds for
+  # consumers (so their skills-devshell points back at this lineage). A FORK
+  # that wants its own lineage edits this string by hand — `init` consumes
+  # this value, it does not rewrite it (a `--upstream` flag is a possible
+  # future addition, not current behavior).
   upstreamUrl = "github:nhooey/agent-skill-flake";
 
   # Per-build provenance baked into every skill derivation's sentinel.
