@@ -46,6 +46,14 @@ let
     p.bats-file
   ]);
 
+  # The consumer scaffolder app (no skill set — it writes the dev-shell
+  # boilerplate into whatever repo it runs in). Built straight from
+  # internal.mkInit with the lib's own provenance so the check sees the same
+  # binary `apps.init` exposes; the bats test drives it in a temp dir.
+  internal = import ./lib/internal.nix { inherit nixpkgs; };
+  initApp =
+    (internal.mkInit system { inherit (self.lib) provenance; }) + "/bin/init-agent-skill-flake";
+
   # Single-skill artifacts.
   skill = fixture.packages.${system}.default;
   installApp = fixture.apps.${system}.install.program;
@@ -238,6 +246,15 @@ in
   # ──────────────────────────────────────────────────────────────
   # Single-skill checks (mkSkillFlake).
   # ──────────────────────────────────────────────────────────────
+
+  # The `nix run .#init` scaffolder: writing the three files, idempotency,
+  # --force, --dry-run, and the no-remote dir-name fallback. Driven against
+  # the wrapped bin in a temp git dir (no nix/network in the sandbox).
+  init-scaffolds = mkBatsCheck {
+    name = "init-scaffolds";
+    extraInputs = [ pkgs.git ];
+    env.INIT_APP = initApp;
+  };
 
   # Package builds.
   example-skill-builds = skill;

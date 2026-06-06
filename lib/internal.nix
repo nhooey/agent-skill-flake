@@ -684,6 +684,38 @@ let
       extraEnv = "display_name='${displayName}'";
     };
 
+  # Consumer-repo scaffolder behind `nix run <upstream>#init`. Unlike the
+  # install/reap/… verbs this carries no skill set, scope, or agent profile
+  # (it touches the CURRENT repo's working tree, not the agent skill dir), so
+  # it does NOT route through mkShellApp/scopePrelude — it is a plain
+  # writeShellApplication. The template files live in lib/templates/ (per the
+  # repo's keep-non-Nix-in-its-own-file convention) and reach the script as
+  # store-path env vars; the canonical upstream URL is injected so the
+  # scaffolded sub-flake points at the same lineage this lib advertises.
+  mkInit =
+    system:
+    { provenance }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    pkgs.writeShellApplication {
+      name = "init-agent-skill-flake";
+      runtimeInputs = with pkgs; [
+        coreutils
+        git
+        gnused
+        gnugrep
+      ];
+      excludeShellChecks = [
+        "SC2154" # upstream_url / template paths assigned in the injected prelude
+      ];
+      text = ''
+        upstream_url='${provenance.upstreamUrl}'
+        devshell_flake_template='${./templates/skills-devshell-flake.nix}'
+      ''
+      + builtins.readFile ./bash/init.sh;
+    };
+
   # Build a flake `apps.<system>` attrset from a verb→derivation map. Each
   # `programs.<verb>` is an already-system-applied app derivation whose binary
   # is `<verb>-<name>`; the entry becomes `{ type = "app"; program = …; }`.
@@ -706,6 +738,7 @@ let
         reconcile = "Converge the agent's skill directory to exactly this flake's declared skill set.";
         reap = "Remove only garbage-collected (broken) skill entries this flake's lineage owns.";
         purge = "Remove every skill entry this flake's lineage owns, live or broken.";
+        init = "Scaffold the dev-shell skills boilerplate into the current repo.";
       };
       app =
         verb: drv:
@@ -737,6 +770,7 @@ in
     mkReap
     mkPurge
     mkReconcile
+    mkInit
     resolveAgentProfile
     agentProfiles
     skillKeysWithPrefix

@@ -733,6 +733,37 @@ default: it keeps the skill mesh out of your root lock and out of every
 from your software's `nix flake update`. The one cost — a second `flake.lock`
 to bump — is what `update-skills-devshell` exists to make cheap.
 
+#### Scaffolding it: `nix run …#init`
+
+Run the scaffolder from your repo's root to write the boilerplate that
+*can't* live in this library:
+
+```bash
+nix run github:nhooey/agent-skill-flake#init
+```
+
+Why a scaffolder rather than more library? A flake's `inputs` must be static
+literals the evaluator reads *before* `outputs` runs, so the per-consumer
+`skills-devshell/flake.nix` (its inputs plus the `mkDevshellSkillsFlake`
+call) and the `.gitignore` entry cannot be factored into a lib the way the
+root-side wiring is. `init` writes exactly those, idempotently and without
+clobbering:
+
+- `skills-devshell/flake.nix` — a sub-flake calling
+  [`mkDevshellSkillsFlake`](#mkdevshellskillsflake) with its `name` derived
+  from your `git remote get-url origin` (falling back to the directory
+  basename) and `agent-skill-flake.url` pointed at this lineage. The sub-flake's
+  reconcile-owner `name` gets a `-devshell` suffix (`<repo>-devshell`) while the
+  root `devshellSkills` `name` in the printed snippet is the bare `<repo>`, so
+  the two differing names are expected. You fill in its `sources` and run
+  `nix flake lock ./skills-devshell`.
+- `.gitignore` — appends `/.claude/skills/` if not already present.
+
+It then **prints** the root `flake.nix` wiring snippet for you to paste (it
+never edits your root flake — too varied to touch safely). Flags: `--force`
+overwrites the scaffolded `skills-devshell/flake.nix`, `--dry-run` prints what it would write
+without touching disk, `-h`/`--help` shows usage.
+
 How the isolation works:
 
 - The **`skills-devshell/` sub-flake** declares the skill sources as *its
