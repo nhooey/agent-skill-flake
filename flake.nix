@@ -42,25 +42,62 @@
       # works without any embedded skill set (pure cleanup tool).
       internal = import ./lib/internal.nix { inherit nixpkgs; };
 
-      # Root-side wiring for the `skills-devshell/` sub-flake: the runtime
-      # `nix run "$PRJ_ROOT/skills-devshell#<app>"` snippets spliced into the
-      # dev shell below. Defaults target the `skills-devshell/` dir at project
-      # scope. agent-skill-flake dogfoods its own helper here.
-      devshellSkills = flakeLib.devshellSkillsHook { };
+      # The two flake-parts pieces that make up the devshell-skills bundle:
+      # agent-skill-flake's OWN devshell flakeModule + the local module. Defined
+      # ONCE here and referenced in BOTH the exported bundle (flake.flakeModules.
+      # devshellSkills) and the dogfood `imports` below, so the two sites can
+      # never drift apart silently.
+      devshellSkillsModule = [
+        inputs.devshell.flakeModule
+        ./lib/devshell-skills-flake-module.nix
+      ];
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import systems;
 
+      # Dogfood the exposed dev-shell module: it provides the motd, the
+      # install-skills startup, and the standard + skills command lists, so
+      # the hand-rolled wiring below collapses to the options block plus this
+      # repo's own `packages`. We spread `devshellSkillsModule` (the same two
+      # pieces the exported bundle wraps) DIRECTLY here rather than importing
+      # `self.flakeModules.devshellSkills`: referencing `self`'s outputs from
+      # inside the flake's own `imports` is an infinite recursion (the import
+      # graph is needed to compute `self`). Consumers, importing this flake as
+      # an input, have no such cycle and use the single bundled module. Both
+      # this dogfood and the exported bundle reference the one
+      # `devshellSkillsModule` binding (see the `let` above), so they can't
+      # drift apart.
       imports = [
-        inputs.devshell.flakeModule
         inputs.treefmt-nix.flakeModule
-      ];
+      ]
+      ++ devshellSkillsModule;
 
-      # System-independent outputs: the library and the activation modules.
+      # Dev-shell options consumed by self.flakeModules.devshellSkills above.
+      # Defaults already target `skills-devshell/` at project scope with
+      # reconcile/purge, so only `name` differs from the stock defaults.
+      agent-skill-flake.devshellSkills.name = "agent-skill-flake";
+
+      # System-independent outputs: the library, the activation modules, and
+      # the flake-parts dev-shell module consumers import in place of the
+      # hand-rolled devshell wiring (see lib/devshell-skills-flake-module.nix
+      # for the why — ~10 repos duplicate this boilerplate).
       flake = {
         lib = flakeLib;
         homeManagerModules.default = import ./home-manager-module.nix { inherit self nixpkgs; };
         darwinModules.default = import ./darwin-module.nix { inherit self nixpkgs; };
+
+        # The exposed module bundles agent-skill-flake's OWN devshell
+        # flakeModule, so a consumer needs no `devshell` input of their own —
+        # importing this one module is enough, and the devshell version is
+        # pinned to agent-skill-flake's lock. (This repo can't import this
+        # bundle to dogfood — see the `imports` comment above on the
+        # self-reference cycle — so it spreads the same `devshellSkillsModule`
+        # binding directly. Both sites share that one binding so they can't
+        # drift.)
+        flakeModules.devshellSkills = {
+          imports = devshellSkillsModule;
+        };
+        flakeModules.default = self.flakeModules.devshellSkills;
       };
 
       perSystem =
@@ -114,34 +151,20 @@
             ];
           };
 
-          devshells.default = {
-            name = "agent-skill-flake";
-            motd = ''
-              {bold}{14}🚀 Entering agent-skill-flake dev shell{reset}
-              Run {bold}menu{reset} to list available commands.
-            '';
-            # Reconcile the dev-shell skill set at project scope on `nix
-            # develop`. The set is defined in the isolated `skills-devshell/`
-            # sub-flake and invoked here at RUNTIME (not a root input), so
-            # agent-skill-flake keeps zero skill inputs while still dogfooding the
-            # skills. `reap-skills` (below) removes the whole set in one
-            # command. The skills land in `.claude/skills/` (gitignored).
-            devshell.startup.install-skills.text = devshellSkills.startup;
-            packages = [
-              batsWith
-              pkgs.coreutils
-              pkgs.findutils
-              pkgs.git
-              pkgs.jq
-            ];
-            # All these commands carry no repo-specific data, so they come
-            # verbatim from the hook rather than being re-hand-rolled here:
-            # `standardCommands` is the ci/dev/maintenance trio, `commands` the
-            # `skills`-category pair (reap-skills, update-skills-devshell).
-            # To purge EVERY agent-skill-flake-managed skill (any owner, strays
-            # included), not just this set: nix run "$PRJ_ROOT#purge" -- --scope=project
-            commands = devshellSkills.standardCommands ++ devshellSkills.commands;
-          };
+          # The motd, install-skills startup, and standard + skills command
+          # lists now come from self.flakeModules.devshellSkills (imported
+          # above). Only this repo's own tool `packages` remain hand-rolled —
+          # devshell `packages` is a list option, so these concatenate onto
+          # whatever the module contributes (currently none). The reconcile at
+          # project scope, the `reap-skills`/`update-skills-devshell` pair, and
+          # the purge-everything escape hatch all live in the module/hook now.
+          devshells.default.packages = [
+            batsWith
+            pkgs.coreutils
+            pkgs.findutils
+            pkgs.git
+            pkgs.jq
+          ];
         };
     };
 }
