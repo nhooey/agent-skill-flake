@@ -6,7 +6,8 @@
 #   - a `devshell.startup.install-skills.text` that reconciles a runtime
 #     `skills-devshell/` sub-flake (`nix run "$PRJ_ROOT/<dir>#reconcile" …`),
 #   - the ci/dev/maintenance command trio (check / fmt / update-flake),
-#   - the two `skills`-category commands (reap-skills / update-skills-devshell).
+#   - the `skills`-category commands (reap-skills / reconcile-skills /
+#     update-skills-devshell).
 # Every copy drifts independently. This module collapses that boilerplate to
 #   imports = [ inputs.agent-skill-flake.flakeModules.devshellSkills ];
 #   agent-skill-flake.devshellSkills = { name = "my-repo"; };

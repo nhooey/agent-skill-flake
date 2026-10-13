@@ -23,12 +23,18 @@
 }:
 let
   run = app: ''nix run "$PRJ_ROOT/${dir}#${app}" -- --scope=${scope}'';
+  # Commands find the project root each time they run: `$PRJ_ROOT` is fixed
+  # when the dev shell is entered, so a command run from another checkout
+  # (a git worktree, or a `cd` in a child process) would act on the first.
+  # Outside git, `$PRJ_ROOT` is the only root there is.
+  findRoot = "root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PRJ_ROOT";
+  runHere = app: ''nix run "$root/${dir}#${app}" -- --scope=${scope}'';
 in
 {
   # Splice into `devshell.startup.<name>.text` (reconcile on `nix develop`).
   startup = run reconcileApp;
   # Concatenate onto a devshell `commands` list (`++ devshellSkills.commands`).
-  # Both entries are fully repo-agnostic — they only reference `dir`/`scope`,
+  # Every entry is fully repo-agnostic — they only reference `dir`/`scope`,
   # which this hook already owns — so every consuming repo shares them verbatim.
   commands = [
     {
@@ -38,13 +44,30 @@ in
       # clears EVERY managed skill in the scope, strays included — surfaced here
       # so users know a more thorough removal exists.
       help = ''Remove every skill this dev shell installed (one owner); for a detached, thorough purge of ALL managed skills run: nix run "$PRJ_ROOT#${removeApp}" -- --scope=${scope}'';
-      command = run removeApp;
+      command = ''
+        ${findRoot}
+        ${runHere removeApp}
+      '';
+    }
+    {
+      # What entering the dev shell does, without entering it again: an agent
+      # already running inside it picks up a changed skill set this way.
+      category = "skills";
+      name = "reconcile-skills";
+      help = "Install, update and sweep this dev shell's skills, as entering it does";
+      command = ''
+        ${findRoot}
+        ${runHere reconcileApp}
+      '';
     }
     {
       category = "skills";
       name = "update-skills-devshell";
-      help = "Bump the ${dir}/ sub-flake lock (the skill set)";
-      command = ''nix flake update --flake "$PRJ_ROOT/${dir}" "$@"'';
+      help = "Bump the ${dir}/ sub-flake lock (the skill set), then reconcile the skills";
+      command = ''
+        ${findRoot}
+        nix flake update --flake "$root/${dir}" "$@" && ${runHere reconcileApp}
+      '';
     }
   ];
   # The repo-agnostic ci/dev/maintenance trio every consumer otherwise

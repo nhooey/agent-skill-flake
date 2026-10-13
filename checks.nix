@@ -1242,15 +1242,24 @@ in
   # End-to-end check on the module via this repo's OWN dogfooded devShell
   # (flake.nix imports lib/devshell-skills-flake-module.nix). Asserts the
   # assembled command set carries the three standard categories (ci/check,
-  # dev/fmt, maintenance/update-flake) AND the two skills commands
-  # (reap-skills, update-skills-devshell), and that the install-skills startup
-  # reconciles the sub-flake at project scope. This is the whole point of the
-  # module: a consumer importing it gets exactly this wiring with no hand-roll.
+  # dev/fmt, maintenance/update-flake) AND the three skills commands
+  # (reap-skills, reconcile-skills, update-skills-devshell), that the
+  # install-skills startup reconciles the sub-flake at project scope, and that
+  # reconcile-skills and update-skills-devshell find the project root when they
+  # run and reconcile at project scope, so an agent already inside the dev
+  # shell can apply a changed skill set without entering it again. This is the
+  # whole point of the module: a consumer importing it gets exactly this
+  # wiring with no hand-roll.
   devshell-skills-flake-module =
     let
       shell = self.devShells.${system}.default.config;
       cmds = shell.commands;
       hasCmd = cat: nm: lib.any (c: c.category == cat && c.name == nm) cmds;
+      cmdText = nm: (lib.findFirst (c: c.name == nm) { command = ""; } cmds).command;
+      reconcilesHere =
+        nm:
+        lib.hasInfix "git rev-parse --show-toplevel" (cmdText nm)
+        && lib.hasInfix "#reconcile\" -- --scope=project" (cmdText nm);
       startup = shell.devshell.startup.install-skills.text;
     in
     mkEvalCheck {
@@ -1260,17 +1269,23 @@ in
         hasCmd "ci" "check"
         && hasCmd "dev" "fmt"
         && hasCmd "maintenance" "update-flake"
-        # the two skills commands.
+        # the three skills commands.
         && hasCmd "skills" "reap-skills"
+        && hasCmd "skills" "reconcile-skills"
         && hasCmd "skills" "update-skills-devshell"
+        # both reconcile from the checkout they run in.
+        && reconcilesHere "reconcile-skills"
+        && reconcilesHere "update-skills-devshell"
         # install-skills startup reconciles the sub-flake at project scope.
         && lib.hasInfix "reconcile" startup
         && lib.hasInfix "--scope=project" startup;
       msg =
         "devshell-skills-flake-module: the dogfooded devShell must carry the "
-        + "ci/dev/maintenance trio (check/fmt/update-flake), both skills "
-        + "commands (reap-skills/update-skills-devshell), and an install-skills "
-        + "startup that reconciles at --scope=project. Got commands:\n"
+        + "ci/dev/maintenance trio (check/fmt/update-flake), the three skills "
+        + "commands (reap-skills/reconcile-skills/update-skills-devshell), with "
+        + "reconcile-skills and update-skills-devshell reconciling at "
+        + "--scope=project from the root `git rev-parse` finds, and an "
+        + "install-skills startup that reconciles at --scope=project. Got commands:\n"
         + builtins.toJSON (map (c: "${c.category}/${c.name}") cmds)
         + "\nstartup: ${startup}";
     };
