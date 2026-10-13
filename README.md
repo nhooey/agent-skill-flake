@@ -698,8 +698,12 @@ per repo:
 - `startup` — splice into `devshell.startup.<name>.text` (a plain `mkShell`
   uses `shellHook`); reconciles the skill set on `nix develop`.
 - `commands` — `++` onto the devshell `commands` list; adds `reap-skills`
-  (remove the whole set) and `update-skills-devshell` (bump the sub-flake
-  lock).
+  (remove the whole set), `reconcile-skills` (do what entering the dev shell
+  does: install, update and sweep the skill set) and `update-skills-devshell`
+  (bump the sub-flake lock, then reconcile). These find the project root
+  each time they run, with `git rev-parse --show-toplevel` (falling back to
+  `$PRJ_ROOT` outside git), so they act on the checkout they run in rather
+  than the one the dev shell was entered from.
 - `standardCommands` — the repo-agnostic ci/dev/maintenance command trio
   every consumer otherwise re-hand-rolls inline: `ci`/`check`
   (`nix flake check`), `dev`/`fmt` (`nix fmt`), and
@@ -730,6 +734,18 @@ default: it keeps the skill mesh out of your root lock and out of every
 `nix build` / `nix flake check` evaluation, and decouples skill-set bumps
 from your software's `nix flake update`. The one cost — a second `flake.lock`
 to bump — is what `update-skills-devshell` exists to make cheap.
+
+An agent such as Claude Code that was started inside the dev shell doesn't
+need to leave it to pick up a changed skill set. From one of its shell
+commands:
+
+- `update-skills-devshell` bumps the sub-flake lock and reconciles the
+  skills in one step.
+- `reconcile-skills` reconciles after the sub-flake changed some other way,
+  such as an edited `sources` list or a pulled commit.
+
+Whether the running agent then sees the new skills without a restart
+depends on the agent.
 
 #### Scaffolding it: `nix run …#init`
 
@@ -786,7 +802,7 @@ in {
   # numtide/devshell shown; a plain mkShell uses shellHook for the startup line.
   devshell.startup.install-skills.text = devshellSkills.startup;          # reconcile on `nix develop`
   commands = [ /* your repo's own ci/dev/… commands */ ]
-    ++ devshellSkills.commands;                                           # reap-skills + update-skills-devshell
+    ++ devshellSkills.commands;                                           # reap-skills + reconcile-skills + update-skills-devshell
 }
 ```
 
@@ -832,7 +848,7 @@ import plus an options block:
 
 The module sets `devshells.default`'s `name`, `motd`, the install-skills
 `startup`, and `commands` (the ci/dev/maintenance trio plus `reap-skills` /
-`update-skills-devshell`). It is scope-limited to **dev-shell wiring only** —
+`reconcile-skills` / `update-skills-devshell`). It is scope-limited to **dev-shell wiring only** —
 `treefmt` is deliberately not bundled, since real consumers diverge on it.
 
 - **No `devshell` input required.** The exported module bundles
