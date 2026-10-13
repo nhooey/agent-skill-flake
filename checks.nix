@@ -33,6 +33,9 @@ let
     fixtureAggCoexistB
     fixtureAggCherryPick
     fixtureAggCherryPickPrefixed
+    fixtureAggAmbiguousBare
+    fixtureAggKeySelect
+    fixtureAggKeySelectTypo
     fixtureCombination
     fixtureCombinationReused
     fixtureCombinationPrefixResolves
@@ -1056,6 +1059,38 @@ in
       builtins.attrNames fixtureAggCherryPick.packages.${system} == [ "agent-skill-alpha" ]
       && builtins.attrNames fixtureAggCherryPickPrefixed.packages.${system} == [ "agent-skill-px-alpha" ];
     msg = "cherry-pick package set must contain only the selected skill's key";
+  };
+
+  # A bare cherry-pick of a name that resolves to two distinct packages
+  # (same `flakeSkillName`, different keys) is a hard, cause-first ambiguity
+  # error — not the downstream dup-key / duplicate-install-name guard.
+  aggregate-ambiguous-bare-throws = mkEvalCheck {
+    name = "aggregate-ambiguous-bare-throws";
+    cond =
+      (builtins.tryEval (builtins.attrNames fixtureAggAmbiguousBare.packages.${system})).success == false;
+    msg = "aggregate-ambiguous-bare-throws: a bare cherry-pick resolving to two packages must fail eval.";
+  };
+
+  # The escape hatch: selecting by exact package key disambiguates → exactly
+  # one record, so the aggregate exposes only that key and builds green.
+  aggregate-key-select-disambiguates = mkEvalCheck {
+    name = "aggregate-key-select-disambiguates";
+    cond =
+      builtins.attrNames fixtureAggKeySelect.packages.${system} == [ "agent-skill-obra-tdd" ]
+      && builtins.seq fixtureAggKeySelect.apps.${system}.reconcile.program true;
+    msg =
+      "aggregate-key-select-disambiguates: selecting by exact package key must pick exactly "
+      + "one record and build.";
+  };
+
+  # A valid key-select alongside a typo still reports the typo via the
+  # `unknown` path — the new ambiguity check (checked first) doesn't swallow
+  # it, because the bare ambiguous name isn't in the selector list.
+  aggregate-key-select-typo-throws = mkEvalCheck {
+    name = "aggregate-key-select-typo-throws";
+    cond =
+      (builtins.tryEval (builtins.attrNames fixtureAggKeySelectTypo.packages.${system})).success == false;
+    msg = "aggregate-key-select-typo-throws: a typo alongside a valid key-select must still fail via the unknown path.";
   };
 
   # ──────────────────────────────────────────────────────────────

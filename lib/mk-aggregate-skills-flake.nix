@@ -13,10 +13,14 @@
   # [ { source; skills ? null; prefix ? null; } ]
   #   source — an upstream skill flake (has .packages.<system> / .apps).
   #   skills — null takes every skill the source exposes; a list cherry-picks
-  #            by *upstream* skill name (the pre-prefix identity). The choice
-  #            flows into both the merged package set and the reconciled union,
-  #            so a cherry-picked source contributes only those skills. An
-  #            unknown name is a hard eval error listing what the source has.
+  #            by *upstream* skill name (the pre-prefix identity), or by exact
+  #            package key as an escape hatch when one source exposes two
+  #            packages sharing a bare name. The choice flows into both the
+  #            merged package set and the reconciled union, so a cherry-picked
+  #            source contributes only those skills. An unknown name is a hard
+  #            eval error listing what the source has; a bare name that
+  #            resolves to two packages is a hard ambiguity error naming both
+  #            keys (select by key to disambiguate).
   #   pack   — the attribute key of a skills env (mkSkillsEnv result) in the
   #            source's `packages.<system>`; cherry-picks exactly that pack's
   #            members, read from its `passthru.flakeSkillsEnv` — so a named
@@ -171,19 +175,62 @@ let
             inherit (w) name drv;
           }) wrapped;
 
-      available = map (r: r.upstreamName) allRecords;
-      unknown = lib.subtractLists available effectiveSkills;
+      keys = map (r: r.key) allRecords;
+      available = lib.unique (map (r: r.upstreamName) allRecords);
+      byUpstream = lib.groupBy (r: r.upstreamName) allRecords;
+
+      # A selector token resolves either by exact package `key` (the
+      # disambiguator) or by bare `upstreamName`. Key matches are always
+      # unambiguous; bare-name matches collide when one source exposes two
+      # packages sharing a `flakeSkillName` (the bare installed name "stays
+      # bare", so `packagePrefix` doesn't separate them).
+      selected = builtins.filter (
+        r: builtins.elem r.key effectiveSkills || builtins.elem r.upstreamName effectiveSkills
+      ) allRecords;
+
+      # Bare-name tokens (not already pinned to an exact key) that map to more
+      # than one record — the request can't say which package it means. This
+      # is a cause-first hard error, checked before `unknown`, because the two
+      # records would otherwise collide far downstream (the `dupKeys` /
+      # `assertUniqueSkillNames` guards) with a message blaming the source.
+      ambiguous = builtins.filter (
+        s: !(builtins.elem s keys) && lib.length (byUpstream.${s} or [ ]) > 1
+      ) effectiveSkills;
+
+      # Tokens matching neither an exact key nor any bare name.
+      unknown = builtins.filter (
+        s: !(builtins.elem s keys) && !(builtins.elem s available)
+      ) effectiveSkills;
+
+      # For the `unknown` hint: advertise the bare names, plus the exact keys
+      # of any bare name that is ambiguous (since the bare name alone can't
+      # select it — only the key can).
+      ambiguousNames = builtins.filter (n: lib.length byUpstream.${n} > 1) (lib.attrNames byUpstream);
+      availableHint = available ++ lib.concatMap (n: map (r: r.key) byUpstream.${n}) ambiguousNames;
     in
     if effectiveSkills == null then
       allRecords
+    else if ambiguous != [ ] then
+      throw (
+        "mkAggregateSkillsFlake: skill name"
+        + (if lib.length ambiguous > 1 then "s are" else " is")
+        + " ambiguous in this source — "
+        + (if lib.length ambiguous > 1 then "they resolve" else "it resolves")
+        + " to multiple package keys:\n"
+        + lib.concatMapStringsSep "\n" (
+          n: "  `${n}`:\n" + lib.concatMapStringsSep "\n" (r: "    ${r.key}") byUpstream.${n}
+        ) ambiguous
+        + "\nSelect by package key instead, or source from a narrower flake "
+        + "(e.g. `?dir=pkgs/<plugin>`)."
+      )
     else if unknown != [ ] then
       throw (
         "mkAggregateSkillsFlake: source ${if pack != null then "`pack` (${pack})" else "`skills`"} "
         + "names not found: ${lib.concatStringsSep ", " unknown}. "
-        + "Available in this source: ${lib.concatStringsSep ", " available}."
+        + "Available in this source: ${lib.concatStringsSep ", " availableHint}."
       )
     else
-      builtins.filter (r: builtins.elem r.upstreamName effectiveSkills) allRecords;
+      selected;
 
   upstreamRecordsFor = system: lib.concatMap (recordsForSource system) sources;
 
