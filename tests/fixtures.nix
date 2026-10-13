@@ -71,6 +71,36 @@ let
       }
     ];
   };
+
+  # A single source exposing two *distinct* packages whose installed name
+  # (`flakeSkillName`) is identical — the shape a root marketplace produces
+  # when two plugins each ship a same-named skill. The bare name "stays
+  # bare", so `packagePrefix` separates the package keys but not the
+  # installed names: alpha/beta are rekeyed under owner-ish keys yet both
+  # forced to install as `tdd`. A bare `skills = [ "tdd" ]` then can't say
+  # which one it means. In the `let` so the three aggregate fixtures below
+  # can each source from it.
+  fixtureAmbiguousSource =
+    let
+      base = mkAll {
+        skillsDir = ./example-skills-dir;
+        name = "ambiguous-src";
+      };
+      forceName =
+        drv: bare:
+        drv.overrideAttrs (old: {
+          passthru = (old.passthru or { }) // {
+            flakeSkillName = bare;
+          };
+        });
+    in
+    base
+    // {
+      packages = nixpkgs.lib.mapAttrs (_system: pkgs: {
+        "agent-skill-obra-tdd" = forceName pkgs."agent-skill-alpha" "tdd";
+        "agent-skill-pyroxin-tdd" = forceName pkgs."agent-skill-beta" "tdd";
+      }) base.packages;
+    };
 in
 {
   inherit fixtureCombination;
@@ -253,6 +283,52 @@ in
         # Cherry-pick matches the *upstream* name (`alpha`), even though the
         # installed skill lands re-prefixed as `px-alpha`.
         skills = [ "alpha" ];
+      }
+    ];
+  };
+
+  # ── Ambiguous bare-name cherry-pick (select-by-key escape hatch) ─────
+  # All three source from `fixtureAmbiguousSource` (two packages, same bare
+  # `tdd`). They stay lazy here; the eval checks force `.packages` /
+  # `.apps` to trigger (or avoid) the throw.
+
+  # Bare cherry-pick of the shared name → a hard, cause-first ambiguity
+  # error naming both colliding package keys (not the downstream dup-key /
+  # duplicate-install-name guard).
+  fixtureAggAmbiguousBare = mkAgg {
+    name = "ambiguous-bare";
+    sources = [
+      {
+        source = fixtureAmbiguousSource;
+        skills = [ "tdd" ];
+      }
+    ];
+  };
+
+  # The escape hatch: select by exact package key → exactly one record, so
+  # the aggregate builds green and exposes only that key.
+  fixtureAggKeySelect = mkAgg {
+    name = "key-select";
+    sources = [
+      {
+        source = fixtureAmbiguousSource;
+        skills = [ "agent-skill-obra-tdd" ];
+      }
+    ];
+  };
+
+  # A valid key-select alongside a typo still routes through the `unknown`
+  # path (the typo matches neither a key nor a bare name) — the ambiguity
+  # check doesn't swallow it, because the bare `tdd` isn't in the selector.
+  fixtureAggKeySelectTypo = mkAgg {
+    name = "key-select-typo";
+    sources = [
+      {
+        source = fixtureAmbiguousSource;
+        skills = [
+          "agent-skill-obra-tdd"
+          "nonexistent"
+        ];
       }
     ];
   };
