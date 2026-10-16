@@ -703,7 +703,12 @@ per repo:
   (bump the sub-flake lock, then reconcile). These find the project root
   each time they run, with `git rev-parse --show-toplevel` (falling back to
   `$PRJ_ROOT` outside git), so they act on the checkout they run in rather
-  than the one the dev shell was entered from.
+  than the one the dev shell was entered from. `reap-skills` and
+  `reconcile-skills` pass their arguments through to the app, so
+  `reap-skills --yes` (or `-y`) skips the confirmation prompt; without it and
+  without a TTY, `reap-skills` refuses rather than delete, so agents and
+  scripts must pass `--yes` (or `--dry-run` to only list). Arguments to
+  `update-skills-devshell` go to `nix flake update` (e.g. input names).
 - `standardCommands` — the repo-agnostic ci/dev/maintenance command trio
   every consumer otherwise re-hand-rolls inline: `ci`/`check`
   (`nix flake check`), `dev`/`fmt` (`nix fmt`), and
@@ -870,7 +875,7 @@ Options under `agent-skill-flake.devshellSkills`:
 | `dir` | `"skills-devshell"` | Sub-flake dir (under `$PRJ_ROOT`) reconciled on `nix develop`. |
 | `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
 | `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
-| `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set. |
+| `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
 | `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the two `skills` commands are always included. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
