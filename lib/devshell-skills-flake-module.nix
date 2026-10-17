@@ -104,7 +104,8 @@ in
       default = "purge";
       description = ''
         App in the `<dir>` sub-flake the `reap-skills` command invokes to
-        remove the whole set.
+        remove the whole set. `reap-skills` passes its arguments through, so
+        `reap-skills --yes` skips the app's confirmation prompt.
       '';
     };
 

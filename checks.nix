@@ -1282,7 +1282,9 @@ in
   # install-skills startup reconciles the sub-flake at project scope, and that
   # reconcile-skills and update-skills-devshell find the project root when they
   # run and reconcile at project scope, so an agent already inside the dev
-  # shell can apply a changed skill set without entering it again. This is the
+  # shell can apply a changed skill set without entering it again. reap-skills
+  # and reconcile-skills must pass their arguments through, so an agent can run
+  # `reap-skills --yes` without a TTY. This is the
   # whole point of the module: a consumer importing it gets exactly this
   # wiring with no hand-roll.
   devshell-skills-flake-module =
@@ -1295,6 +1297,7 @@ in
         nm:
         lib.hasInfix "git rev-parse --show-toplevel" (cmdText nm)
         && lib.hasInfix "#reconcile\" -- --scope=project" (cmdText nm);
+      passesArgs = nm: app: lib.hasInfix "#${app}\" -- --scope=project \"$@\"" (cmdText nm);
       startup = shell.devshell.startup.install-skills.text;
     in
     mkEvalCheck {
@@ -1311,6 +1314,9 @@ in
         # both reconcile from the checkout they run in.
         && reconcilesHere "reconcile-skills"
         && reconcilesHere "update-skills-devshell"
+        # reap-skills/reconcile-skills forward their args (e.g. --yes).
+        && passesArgs "reap-skills" "purge"
+        && passesArgs "reconcile-skills" "reconcile"
         # install-skills startup reconciles the sub-flake at project scope.
         && lib.hasInfix "reconcile" startup
         && lib.hasInfix "--scope=project" startup;
@@ -1319,7 +1325,8 @@ in
         + "ci/dev/maintenance trio (check/fmt/update-flake), the three skills "
         + "commands (reap-skills/reconcile-skills/update-skills-devshell), with "
         + "reconcile-skills and update-skills-devshell reconciling at "
-        + "--scope=project from the root `git rev-parse` finds, and an "
+        + "--scope=project from the root `git rev-parse` finds, reap-skills and "
+        + "reconcile-skills passing \"$@\" through to their app, and an "
         + "install-skills startup that reconciles at --scope=project. Got commands:\n"
         + builtins.toJSON (map (c: "${c.category}/${c.name}") cmds)
         + "\nstartup: ${startup}";

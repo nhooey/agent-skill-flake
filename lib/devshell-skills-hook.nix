@@ -29,6 +29,9 @@ let
   # Outside git, `$PRJ_ROOT` is the only root there is.
   findRoot = "root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PRJ_ROOT";
   runHere = app: ''nix run "$root/${dir}#${app}" -- --scope=${scope}'';
+  # The command's own arguments go through to the app, so e.g.
+  # `reap-skills --yes` reaches purge (which refuses without a TTY otherwise).
+  runHereWithArgs = app: ''${runHere app} "$@"'';
 in
 {
   # Splice into `devshell.startup.<name>.text` (reconcile on `nix develop`).
@@ -43,10 +46,10 @@ in
       # The detached form (`nix run "$PRJ_ROOT#purge"`) needs no dev shell and
       # clears EVERY managed skill in the scope, strays included — surfaced here
       # so users know a more thorough removal exists.
-      help = ''Remove every skill this dev shell installed (one owner); for a detached, thorough purge of ALL managed skills run: nix run "$PRJ_ROOT#${removeApp}" -- --scope=${scope}'';
+      help = ''Remove every skill this dev shell installed (one owner; args pass through, -y/--yes skips the prompt and is needed without a TTY); for a detached, thorough purge of ALL managed skills run: nix run "$PRJ_ROOT#${removeApp}" -- --scope=${scope}'';
       command = ''
         ${findRoot}
-        ${runHere removeApp}
+        ${runHereWithArgs removeApp}
       '';
     }
     {
@@ -54,10 +57,10 @@ in
       # already running inside it picks up a changed skill set this way.
       category = "skills";
       name = "reconcile-skills";
-      help = "Install, update and sweep this dev shell's skills, as entering it does";
+      help = "Install, update and sweep this dev shell's skills, as entering it does; args pass through to ${reconcileApp}";
       command = ''
         ${findRoot}
-        ${runHere reconcileApp}
+        ${runHereWithArgs reconcileApp}
       '';
     }
     {
