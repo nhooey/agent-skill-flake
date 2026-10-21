@@ -1,13 +1,16 @@
 #!/usr/bin/env bats
-# Inputs: INSTALL_ALL_APP, RECONCILE_ALL_APP — aggregate install/reconcile
-#         (alpha + beta, claude-code profile); ALPHA_PKG — alpha's store path.
+# Inputs: INSTALL_ALL_APP, RECONCILE_ALL_APP, UNINSTALL_ALL_APP,
+#         PURGE_ALL_APP — the aggregate's verbs (alpha + beta, claude-code
+#         profile); ALPHA_PKG — alpha's store path.
 #
 # The project-scope layout install and reconcile keep: skills in
 # <root>/.agents/skills, <root>/.claude/skills -> ../.agents/skills, the link
 # and each installed skill listed in <git-common-dir>/info/exclude (anything
 # else in .agents/skills left visible to git), and the migration of a
 # flake-only .claude/skills directory (refused when it holds anything else),
-# and a symlink or file there moved aside.
+# and a symlink or file there moved aside. Uninstall and purge rewrite the
+# exclude block too, so a removed skill's line never hides a folder of the
+# project's own.
 setup() {
   source "$BATS_HELPERS"
   setup_isolated_env
@@ -266,4 +269,52 @@ assert_layout() {
   run git -C "$wt" status --porcelain
   assert_success
   assert_output ""
+}
+
+@test "uninstall drops the skill's exclude line, so a project folder of that name shows in git" {
+  local proj="$BATS_TEST_TMPDIR/uninstall-excludes"
+  make_repo "$proj"
+  local exclude="$proj/.git/info/exclude"
+
+  run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
+  assert_success
+  run_in_dir "$proj" "$UNINSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" alpha
+  assert_success
+
+  refute grep -qxF '/.agents/skills/alpha' "$exclude"
+  assert_equal "$(grep -cxF '/.agents/skills/beta' "$exclude")" "1"
+  assert_equal "$(grep -cxF '/.claude/skills' "$exclude")" "1"
+
+  mkdir -p "$proj/.agents/skills/alpha"
+  echo ours >"$proj/.agents/skills/alpha/SKILL.md"
+  run git -C "$proj" status --porcelain --untracked-files=all
+  assert_success
+  assert_output "?? .agents/skills/alpha/SKILL.md"
+}
+
+@test "purge drops every skill's exclude line and keeps the link and lock lines" {
+  local proj="$BATS_TEST_TMPDIR/purge-excludes"
+  make_repo "$proj"
+  local exclude="$proj/.git/info/exclude"
+
+  run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
+  assert_success
+  run_in_dir "$proj" "$PURGE_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" --yes
+  assert_success
+
+  refute grep -qxF '/.agents/skills/alpha' "$exclude"
+  refute grep -qxF '/.agents/skills/beta' "$exclude"
+  assert_equal "$(grep -cxF '/.claude/skills' "$exclude")" "1"
+  assert_equal "$(grep -cxF '/.agents/skills/.agent-skill-flake-lock.json*' "$exclude")" "1"
+}
+
+@test "the block's begin line is the one every earlier version matches" {
+  local proj="$BATS_TEST_TMPDIR/begin-line"
+  make_repo "$proj"
+  local exclude="$proj/.git/info/exclude"
+
+  run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
+  assert_success
+
+  assert_equal "$(grep -cxF '# agent-skill-flake: begin (rewritten by install and reconcile)' "$exclude")" "1"
 }

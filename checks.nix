@@ -482,6 +482,8 @@ in
       ALPHA_PKG = alphaPkg;
       INSTALL_ALL_APP = installAllApp;
       RECONCILE_ALL_APP = reconcileAllApp;
+      UNINSTALL_ALL_APP = uninstallAllApp;
+      PURGE_ALL_APP = purgeAllApp;
     };
   };
 
