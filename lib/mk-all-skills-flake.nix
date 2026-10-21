@@ -195,7 +195,7 @@ let
     internal.mkInstaller system {
       appName = aggName;
       skills = checkedSkillSetFor system;
-      inherit profile;
+      inherit provenance profile;
     };
 
   previewFor =

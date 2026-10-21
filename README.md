@@ -45,7 +45,7 @@ That gives you, for each system in the default
 ```sh
 nix run .#preview   -- --scope=personal              # preview at $HOME/.claude/skills/
 nix run .#install   -- --scope=personal              # install at $HOME/.claude/skills/
-nix run .#install   -- --scope=project               # install at <repo-root>/.claude/skills/
+nix run .#install   -- --scope=project               # install at <repo-root>/.agents/skills/
 nix run .#install   -- --scope=custom --root=/tmp/x  # install at the named path
 nix run .#install   -- --scope=personal --profile    # via `nix profile install`
 nix run .#uninstall -- --scope=personal              # remove the skill
@@ -550,7 +550,7 @@ in {
   packages.${system} = agg.packages.${system};
   apps.${system}     = agg.apps.${system};
   devShells.${system}.default = pkgs.mkShell {
-    # Declarative: converge .claude/skills/ to exactly the union —
+    # Declarative: converge .agents/skills/ to exactly the union —
     # install missing, update changed, sweep skills a source dropped
     # or renamed.
     shellHook = agg.reconcileScript system;
@@ -610,7 +610,7 @@ in the declared union.
 **Scoped ownership.** Each install/reconcile tags its lock entries with
 the aggregate's `name` (`installedBy`), and `reconcile` sweeps only strays
 bearing *its own* `name`. So multiple aggregates (or a hand-rolled
-installer) can share one `.claude/skills/`, each declaratively owning its
+installer) can share one skills directory, each declaratively owning its
 own slice without sweeping the others'.
 
 ### `mkCombination`
@@ -764,9 +764,8 @@ nix run github:nhooey/agent-skill-flake#init
 Why a scaffolder rather than more library? A flake's `inputs` must be static
 literals the evaluator reads *before* `outputs` runs, so the per-consumer
 `skills-devshell/flake.nix` (its inputs plus the `mkDevshellSkillsFlake`
-call) and the `.gitignore` entry cannot be factored into a lib the way the
-root-side wiring is. `init` writes exactly those, idempotently and without
-clobbering:
+call) cannot be factored into a lib the way the root-side wiring is. `init`
+writes exactly that, idempotently and without clobbering:
 
 - `skills-devshell/flake.nix` — a sub-flake calling
   [`mkDevshellSkillsFlake`](#mkdevshellskillsflake) with its `name` derived
@@ -776,7 +775,10 @@ clobbering:
   root `devshellSkills` `name` in the printed snippet is the bare `<repo>`, so
   the two differing names are expected. You fill in its `sources` and run
   `nix flake lock ./skills-devshell`.
-- `.gitignore` — appends `/.claude/skills/` if not already present.
+
+`init` does not touch `.gitignore`: the installed skills are ignored, one
+line each, through `.git/info/exclude`, which `install` and `reconcile` write at project scope
+(see [Install scope](#install-scope)).
 
 It then **prints** the root `flake.nix` wiring snippet for you to paste (it
 never edits your root flake — too varied to touch safely). Flags: `--force`
@@ -894,7 +896,7 @@ didn't choose. The three scopes:
 # Personal: $HOME/<agent.personalSuffix>/  (e.g. $HOME/.claude/skills/)
 nix run .#install -- --scope=personal
 
-# Project:  <project-root>/<agent.projectSuffix>/
+# Project:  <project-root>/<agent.projectSuffix>/  (e.g. <root>/.agents/skills/)
 #           Walks up from $PWD looking for .git/ (preferred), then
 #           flake.nix. Hard-errors if neither marker is found.
 nix run .#install -- --scope=project
@@ -902,6 +904,36 @@ nix run .#install -- --scope=project
 # Custom:   the literal path you name.
 nix run .#install -- --scope=custom --root=/etc/agent-skills
 ```
+
+At project scope, `install` and `reconcile` also keep the repo layout:
+
+- **One shared directory.** The `claude-code` profile installs into
+  `<root>/.agents/skills/`, the directory other agents read, and makes
+  `<root>/.claude/skills` a relative symlink to it (`../.agents/skills`),
+  creating `.claude/` if needed. Every agent sees the same skills.
+- **Ignored without a commit.** Exactly what the flake manages is listed,
+  one line each, in a marked block of
+  `$(git rev-parse --git-common-dir)/info/exclude`: `/.claude/skills`, the
+  lock file, and each skill the lock names, such as
+  `/.agents/skills/alpha`. The block is rewritten after every `install` and
+  `reconcile`, and lines outside it are kept. Linked worktrees share that
+  file, and no tracked file in the repo changes, so this works in a repo
+  you don't control.
+- **Your own files stay tracked.** A skill or a
+  `<skill>.preferences.md` the project adds to `.agents/skills/` is not
+  ignored, so it can be committed. A repo that doesn't want skills
+  committed can refuse them with its own hook or a repository rule.
+- **An existing `.claude/skills/` directory.** If every entry in it was
+  installed by agent-skill-flake (judged as `reconcile` judges ownership:
+  the lock's `installedBy`, the sentinel's `managedBy`, or a matching GC
+  root), its entries move to `.agents/skills/` and the directory becomes
+  the symlink. If it holds anything else, the run exits non-zero, lists the
+  foreign entries, and changes nothing.
+- **A `.claude/skills` symlink or file.** A symlink that already resolves
+  to `.agents/skills/` is rewritten as the relative link. Any other symlink,
+  or a file, is renamed to `.claude/skills.pre-agent-skill-flake`, its
+  target untouched, and the run goes on; if that name is taken, the run
+  exits non-zero and changes nothing.
 
 `--scope=custom` requires `--root=<path>`; `--root` is rejected with any
 other scope. Missing `--scope` exits non-zero with a usage hint. Other
@@ -1105,7 +1137,7 @@ block, since `config` is gated on `enable`), or, once no hook is left, run
 
 ```sh
 nix run github:nhooey/agent-skill-flake#purge -- --scope=personal   # clears ~/.claude/skills/
-nix run github:nhooey/agent-skill-flake#purge -- --scope=project    # clears <repo>/.claude/skills/
+nix run github:nhooey/agent-skill-flake#purge -- --scope=project    # clears <repo>/.agents/skills/
 nix run .#purge -- --scope=project --dry-run                   # list what would go; change nothing
 nix run .#purge -- --scope=personal --yes                      # skip the confirmation prompt
 ```
@@ -1181,11 +1213,13 @@ Built-in profiles (see [`lib/agent-profiles.nix`](lib/agent-profiles.nix)):
 
 | `agent`        | personal-scope (`$HOME/…`) | project-scope (`<root>/…`) |
 |----------------|----------------------------|----------------------------|
-| `claude-code`  | `.claude/skills`           | `.claude/skills`           |
+| `claude-code`  | `.claude/skills`           | `.agents/skills` (linked from `.claude/skills`) |
 | `codex`        | `.codex/skills`            | `.codex/skills`            |
 | `cursor`       | `.cursor/skills`           | `.cursor/skills`           |
 
-To add a new agent, append an entry to `lib/agent-profiles.nix`. An
+A profile's optional `projectLink` names a project-root path that
+install and reconcile symlink to its project-scope directory. To add a new
+agent, append an entry to `lib/agent-profiles.nix`. An
 unknown `agent` value throws at eval with the list of known profiles.
 
 [codex]: https://github.com/openai/codex

@@ -250,7 +250,7 @@ in
   # Single-skill checks (mkSkillFlake).
   # ──────────────────────────────────────────────────────────────
 
-  # The `nix run .#init` scaffolder: writing the three files, idempotency,
+  # The `nix run .#init` scaffolder: writing the sub-flake, idempotency,
   # --force, --dry-run, and the no-remote dir-name fallback. Driven against
   # the wrapped bin in a temp git dir (no nix/network in the sandbox).
   init-scaffolds = mkBatsCheck {
@@ -465,6 +465,24 @@ in
     name = "install-scope";
     extraInputs = [ pkgs.git ];
     env.INSTALL_ALL_APP = installAllApp;
+  };
+
+  # The project-scope layout: .agents/skills + the .claude/skills link +
+  # info/exclude lines (fresh, idempotent, linked worktree), and the
+  # migration of a flake-only .claude/skills directory (refused, with
+  # nothing changed, when it holds a foreign entry).
+  project-scope-layout = mkBatsCheck {
+    name = "project-scope-layout";
+    extraInputs = [
+      pkgs.git
+      pkgs.jq
+      pkgs.findutils
+    ];
+    env = {
+      ALPHA_PKG = alphaPkg;
+      INSTALL_ALL_APP = installAllApp;
+      RECONCILE_ALL_APP = reconcileAllApp;
+    };
   };
 
   # Codex profile selection: building with `agent = "codex"` puts the

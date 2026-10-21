@@ -545,12 +545,27 @@ let
         + builtins.readFile ./bash/${verb}.sh;
     };
 
+  # Install and reconcile are the two verbs that write the project-scope
+  # layout (see ./bash/project-layout.bash): they carry the profile's
+  # optional `projectLink` and source the ownership + layout helpers.
+  projectLinkEnv = profile: "project_link='${profile.projectLink or ""}'";
+  projectScopeModules = [
+    ./bash/ownership.bash
+    ./bash/lock.bash
+    ./bash/project-layout.bash
+  ];
+
   mkInstaller =
     system:
     {
       appName,
       skills,
       profile,
+      # Lineage provenance, for recognizing this flake's entries when a
+      # project-scope link directory is migrated. Optional so the public
+      # `lib.mkInstaller` stays provenance-free; without it, ownership
+      # falls back to the lock's `installedBy` and the GC-root convention.
+      provenance ? null,
     }:
     mkShellApp system {
       verb = "install";
@@ -558,13 +573,18 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
+        gnugrep
         jq
         nix
       ];
-      extraEnv = "owner_app='${appName}'";
-      sourceModules = [ ./bash/lock.bash ];
-      # owner_app is consumed only by the sourced lock.bash (lock_upsert),
-      # which shellcheck can't follow.
+      extraEnv = ''
+        owner_app='${appName}'
+        upstream_url='${if provenance == null then "" else provenance.upstreamUrl}'
+        ${projectLinkEnv profile}
+      '';
+      sourceModules = projectScopeModules;
+      # owner_app, upstream_url and project_link are consumed only by the
+      # sourced helpers, which shellcheck can't follow.
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
@@ -616,16 +636,17 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         git
+        gnugrep
         jq
       ];
       extraEnv = ''
         upstream_url='${provenance.upstreamUrl}'
         owner_app='${appName}'
+        ${projectLinkEnv profile}
       '';
-      sourceModules = [
-        ./bash/ownership.bash
-        ./bash/lock.bash
-      ];
+      sourceModules = projectScopeModules;
+      # project_link is consumed only by the sourced project-layout.bash.
+      extraExcludeShellChecks = [ "SC2034" ];
     };
 
   # Uninstall: undo a prior install for one or more named skills. Removes

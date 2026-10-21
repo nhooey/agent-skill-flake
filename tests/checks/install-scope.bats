@@ -38,15 +38,15 @@ run_in_dir() {
   assert_store_symlink "$HOME/.claude/skills/beta"
 }
 
-@test "--scope=project from a git init'd dir installs at <root>/.claude/skills" {
+@test "--scope=project from a git init'd dir installs at <root>/.agents/skills" {
   local proj="$BATS_TEST_TMPDIR/proj"
   mkdir -p "$proj"
   ( cd "$proj" && git init -q -b main )
 
   run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
   assert_success
-  assert [ -L "$proj/.claude/skills/alpha" ]
-  assert [ -L "$proj/.claude/skills/beta" ]
+  assert [ -L "$proj/.agents/skills/alpha" ]
+  assert [ -L "$proj/.agents/skills/beta" ]
 }
 
 @test "--scope=project from a subdir resolves to the repo root, not the subdir" {
@@ -56,8 +56,8 @@ run_in_dir() {
 
   run_in_dir "$proj/sub/deep" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
   assert_success
-  assert [ -L "$proj/.claude/skills/alpha" ]
-  refute [ -e "$proj/sub/deep/.claude/skills" ]
+  assert [ -L "$proj/.agents/skills/alpha" ]
+  refute [ -e "$proj/sub/deep/.agents/skills" ]
 }
 
 @test "--scope=project from a non-git, non-flake dir exits non-zero" {

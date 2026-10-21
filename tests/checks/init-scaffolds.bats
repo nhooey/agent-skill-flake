@@ -29,7 +29,7 @@ make_repo_with_remote() {
   )
 }
 
-@test "a full run writes all three files and prints the root snippet" {
+@test "a full run writes the sub-flake and prints the root snippet" {
   local proj="$BATS_TEST_TMPDIR/full"
   make_repo_with_remote "$proj"
 
@@ -44,17 +44,13 @@ make_repo_with_remote() {
   refute grep -qF '@UPSTREAM_URL@' "$proj/skills-devshell/flake.nix"
   refute grep -qF '@NAME@' "$proj/skills-devshell/flake.nix"
 
-  # .gitignore got the skills line.
-  assert [ -f "$proj/.gitignore" ]
-  assert grep -qxF '/.claude/skills/' "$proj/.gitignore"
-
   # Root wiring snippet printed to stdout (not written to disk).
   assert_output --partial "flakeModules.devshellSkills"
   assert_output --partial 'name = "my-cool-repo";'
   assert_output --partial "devshellSkillsHook"
 }
 
-@test "second run is idempotent: skips existing files, no duplicate gitignore line" {
+@test "second run is idempotent: skips the existing sub-flake" {
   local proj="$BATS_TEST_TMPDIR/idem"
   make_repo_with_remote "$proj"
 
@@ -71,9 +67,6 @@ make_repo_with_remote() {
 
   # flake.nix unchanged.
   assert_equal "$(cat "$proj/skills-devshell/flake.nix")" "$first"
-
-  # Exactly one gitignore line, not two.
-  assert_equal "$(grep -cxF '/.claude/skills/' "$proj/.gitignore")" "1"
 }
 
 @test "--force overwrites an existing scaffolded flake" {
@@ -110,17 +103,21 @@ make_repo_with_remote() {
   assert grep -qF 'name = "fallback-dir-name-devshell";' "$proj/skills-devshell/flake.nix"
 }
 
-@test "an existing trailing-newline-less .gitignore stays well-formed" {
-  local proj="$BATS_TEST_TMPDIR/gitignore-no-nl"
+@test "init neither creates nor edits .gitignore" {
+  local proj="$BATS_TEST_TMPDIR/gitignore-untouched"
   make_repo_with_remote "$proj"
-  printf 'result' >"$proj/.gitignore" # no trailing newline
 
   run_in_dir "$proj" "$INIT_APP"
   assert_success
+  refute [ -e "$proj/.gitignore" ]
+  refute_output --partial ".gitignore"
 
-  # The pre-existing entry survives and the appended line is its own line.
-  assert grep -qxF 'result' "$proj/.gitignore"
-  assert_equal "$(grep -cxF '/.claude/skills/' "$proj/.gitignore")" "1"
+  local other="$BATS_TEST_TMPDIR/gitignore-existing"
+  make_repo_with_remote "$other"
+  printf 'result' >"$other/.gitignore" # no trailing newline
+  run_in_dir "$other" "$INIT_APP"
+  assert_success
+  assert_equal "$(cat "$other/.gitignore")" "result"
 }
 
 @test "-h prints usage and exits 0 without writing" {

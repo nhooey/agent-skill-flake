@@ -8,6 +8,9 @@ Required:
   --scope=project               Reconcile <project-root>/$project_suffix
   --scope=custom --root=<path>  Reconcile <path>
 
+EOF
+  print_project_layout_usage
+  cat <<EOF
 Optional:
   --gcroots-dir=<path>          Override per-user GC-roots dir
                                 (default: /nix/var/nix/gcroots/per-user/\$USER)
@@ -26,6 +29,7 @@ fi
 
 parse_scope_no_positionals "$@" || exit $?
 
+ensure_project_layout || exit 1
 mkdir -p "$target_root"
 gcroots_ok=1
 if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
@@ -99,6 +103,7 @@ if [ ${#skills_list[@]} -gt 0 ]; then
 else
   lock_replace_all
 fi
+sync_project_excludes
 
 printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
   "${#keep_set[@]}" "$swept"
