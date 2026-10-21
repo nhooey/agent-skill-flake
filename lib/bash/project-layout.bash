@@ -1,5 +1,6 @@
 # project-layout.bash — the on-disk layout install and reconcile keep at
-# --scope=project.
+# --scope=project, and the exclude block every verb that changes the
+# skills directory rewrites.
 #
 # Skills live in <project-root>/<project_suffix>. When the agent profile
 # names a `project_link` (claude-code: `.claude/skills`), that path is a
@@ -7,7 +8,8 @@
 # so every agent reads the one shared directory. The link, the lock file and
 # each skill the lock lists are ignored, one line each, in a marked block of
 # `<git-common-dir>/info/exclude` — the common dir, so every linked worktree
-# shares it — rewritten after every install and reconcile. Anything else in
+# shares it — rewritten after every install, reconcile, uninstall, reap
+# and purge. Anything else in
 # project_suffix, such as a skill or preferences file the project commits,
 # stays visible to git, and no tracked file in the repo is touched.
 #
@@ -33,6 +35,10 @@
 #   ownership.bash sourced (is_ours_live, is_ours_broken)
 
 PROJECT_LOCK_FILE=".agent-skill-flake-lock.json"
+# Every version finds the block by this exact line, so its wording stays
+# as is, though uninstall, reap and purge now rewrite the block too: a
+# version that didn't recognize it would add a second block and leave the
+# first one's stale lines in force.
 EXCLUDE_BEGIN="# agent-skill-flake: begin (rewritten by install and reconcile)"
 EXCLUDE_END="# agent-skill-flake: end"
 

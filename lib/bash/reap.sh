@@ -37,3 +37,4 @@ sweep_verb='reap'
 dry_run=0
 
 lineage_sweep
+sync_project_excludes

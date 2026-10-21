@@ -545,9 +545,10 @@ let
         + builtins.readFile ./bash/${verb}.sh;
     };
 
-  # Install and reconcile are the two verbs that write the project-scope
-  # layout (see ./bash/project-layout.bash): they carry the profile's
-  # optional `projectLink` and source the ownership + layout helpers.
+  # Install and reconcile write the project-scope layout (see
+  # ./bash/project-layout.bash); they and uninstall, reap and purge rewrite
+  # its exclude block. All five carry the profile's optional `projectLink`
+  # and source the layout helper.
   projectLinkEnv = profile: "project_link='${profile.projectLink or ""}'";
   projectScopeModules = [
     ./bash/ownership.bash
@@ -610,12 +611,11 @@ let
         git
         jq
       ];
-      extraEnv = "upstream_url='${provenance.upstreamUrl}'";
-      sourceModules = [
-        ./bash/ownership.bash
-        ./bash/lock.bash
-        ./bash/lineage-sweep.bash
-      ];
+      extraEnv = ''
+        upstream_url='${provenance.upstreamUrl}'
+        ${projectLinkEnv profile}
+      '';
+      sourceModules = projectScopeModules ++ [ ./bash/lineage-sweep.bash ];
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
@@ -679,11 +679,11 @@ let
       extraEnv = ''
         upstream_url='${provenance.upstreamUrl}'
         default_skill='${defaultSkillName}'
+        ${projectLinkEnv profile}
       '';
-      sourceModules = [
-        ./bash/ownership.bash
-        ./bash/lock.bash
-      ];
+      sourceModules = projectScopeModules;
+      # project_link is consumed only by the sourced project-layout.bash.
+      extraExcludeShellChecks = [ "SC2034" ];
     };
 
   mkPreview =

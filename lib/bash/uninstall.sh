@@ -70,6 +70,7 @@ for name in "$@"; do
 done
 
 printf '\n%d uninstalled, %d skipped.\n' "$removed" "$skipped"
+sync_project_excludes
 # Exit non-zero if every requested name was skipped — the user
 # probably typo'd or invoked uninstall on something they didn't
 # install via this flake.

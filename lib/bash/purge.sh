@@ -84,3 +84,4 @@ if [ "$dry_run" != "1" ] && [ "$assume_yes" != "1" ]; then
 fi
 
 lineage_sweep
+sync_project_excludes

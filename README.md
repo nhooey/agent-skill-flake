@@ -777,7 +777,8 @@ writes exactly that, idempotently and without clobbering:
   `nix flake lock ./skills-devshell`.
 
 `init` does not touch `.gitignore`: the installed skills are ignored, one
-line each, through `.git/info/exclude`, which `install` and `reconcile` write at project scope
+line each, through `.git/info/exclude`, which every verb that changes the
+project-scope skills rewrites
 (see [Install scope](#install-scope)).
 
 It then **prints** the root `flake.nix` wiring snippet for you to paste (it
@@ -915,8 +916,10 @@ At project scope, `install` and `reconcile` also keep the repo layout:
   one line each, in a marked block of
   `$(git rev-parse --git-common-dir)/info/exclude`: `/.claude/skills`, the
   lock file, and each skill the lock names, such as
-  `/.agents/skills/alpha`. The block is rewritten after every `install` and
-  `reconcile`, and lines outside it are kept. Linked worktrees share that
+  `/.agents/skills/alpha`. The block is rewritten after every `install`,
+  `reconcile`, `uninstall`, `reap` and `purge`, so a removed skill's line
+  never hides a folder of your own with that name, and lines outside it
+  are kept. Linked worktrees share that
   file, and no tracked file in the repo changes, so this works in a repo
   you don't control.
 - **Your own files stay tracked.** A skill or a
