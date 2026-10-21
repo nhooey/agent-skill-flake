@@ -43,6 +43,7 @@ assert_layout() {
   assert [ -f "$proj/.claude/skills/alpha/SKILL.md" ]
   assert_equal "$(grep -cxF '/.claude/skills' "$exclude")" "1"
   assert_equal "$(grep -cxF '/.agents/skills/.agent-skill-flake-lock.json*' "$exclude")" "1"
+  assert_equal "$(grep -cxF '/.config/agent-skill-flake/config.local.toml' "$exclude")" "1"
   assert_equal "$(grep -cxF '/.agents/skills/alpha' "$exclude")" "1"
   assert_equal "$(grep -cxF '/.agents/skills/beta' "$exclude")" "1"
   # Only what the flake manages, never the whole directory.

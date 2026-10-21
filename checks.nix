@@ -57,6 +57,9 @@ let
   initApp =
     (internal.mkInit system { inherit (self.lib) provenance; }) + "/bin/init-agent-skill-flake";
 
+  # The `agent-skill-flake` command, as `packages.agent-skill-flake` exposes it.
+  cliApp = "${self.packages.${system}.agent-skill-flake}/bin/agent-skill-flake";
+
   # Single-skill artifacts.
   skill = fixture.packages.${system}.default;
   installApp = fixture.apps.${system}.install.program;
@@ -484,6 +487,56 @@ in
       RECONCILE_ALL_APP = reconcileAllApp;
       UNINSTALL_ALL_APP = uninstallAllApp;
       PURGE_ALL_APP = purgeAllApp;
+    };
+  };
+
+  # ──────────────────────────────────────────────────────────────
+  # The user config and the `agent-skill-flake` command.
+  # ──────────────────────────────────────────────────────────────
+
+  # TOML parsing through Nix, origin normalization, and the precedence and
+  # merge rules, against lib/bash/config.bash directly. `nix` provides
+  # `nix-instantiate`, which reads the TOML (a dummy store: no builds).
+  user-config-resolve = mkBatsCheck {
+    name = "user-config-resolve";
+    extraInputs = [
+      pkgs.jq
+      pkgs.nix
+    ];
+    env.CONFIG_BASH = ./lib/bash/config.bash;
+  };
+
+  # `apply`: settings.json's additionalDirectories (idempotent, other keys
+  # kept, read-only and store-symlink targets refused) and the git config
+  # hook, against a temp HOME and GIT_CONFIG_GLOBAL.
+  cli-apply = mkBatsCheck {
+    name = "cli-apply";
+    extraInputs = [
+      pkgs.git
+      pkgs.jq
+      pkgs.nix
+    ];
+    env = {
+      CLI = cliApp;
+      # A JSON file in the store: alpha's sentinel.
+      STORE_FILE = "${alphaPkg}/share/claude-skills/alpha/.agent-skill-flake-managed.json";
+    };
+  };
+
+  # `sync-project`: the configured set reconciled into .agents/skills under
+  # its own owner, the skips, and `--from-hook` always exiting 0.
+  cli-sync-project = mkBatsCheck {
+    name = "cli-sync-project";
+    extraInputs = [
+      pkgs.git
+      pkgs.jq
+      pkgs.nix
+    ];
+    env = {
+      CLI = cliApp;
+      ALL_SKILLS = allSkills;
+      ALPHA_PKG = alphaPkg;
+      INSTALL_APP = installApp;
     };
   };
 

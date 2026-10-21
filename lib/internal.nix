@@ -737,6 +737,64 @@ let
       + builtins.readFile ./bash/init.sh;
     };
 
+  # The `agent-skill-flake` command (`apply`, `sync-project`), driven by the
+  # TOML config files described in ./bash/config.bash. It carries no skill
+  # set: `sync-project` builds the configured installables at run time and
+  # hands them to the same reconcile.sh the reconcile apps use, under its
+  # own owner (`appName`), so it converges only the slice it installed.
+  # `nix` is deliberately not a runtime input: the command uses the user's
+  # own Nix, for both reading the TOML and building skills.
+  mkCli =
+    system:
+    {
+      provenance,
+      profile,
+      appName ? "agent-skill-flake-local",
+    }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    pkgs.writeShellApplication {
+      name = "agent-skill-flake";
+      runtimeInputs = with pkgs; [
+        coreutils
+        git
+        gnugrep
+        gnused
+        jq
+      ];
+      excludeShellChecks = [
+        "SC1091" # source <store-path> not followable
+        "SC2154" # vars assigned by the sourced modules and reconcile.sh
+        "SC2034" # owner_app, upstream_url, project_link: read by sourced modules
+        "SC2016" # backticks in single-quoted printf text are literal markup
+      ];
+      meta = {
+        description = "Apply agent-skill-flake's user config and sync a repo's configured project skills.";
+        mainProgram = "agent-skill-flake";
+      };
+      text =
+        scopePrelude {
+          appName = "agent-skill-flake sync-project";
+          inherit profile;
+        }
+        + ''
+          owner_app='${appName}'
+          upstream_url='${provenance.upstreamUrl}'
+          ${projectLinkEnv profile}
+          reconcile_script='${./bash/reconcile.sh}'
+        ''
+        + lib.concatMapStringsSep "\n" (m: "source ${m}") (
+          projectScopeModules
+          ++ [
+            ./bash/config.bash
+            ./bash/apply.bash
+          ]
+        )
+        + "\n"
+        + builtins.readFile ./bash/cli.sh;
+    };
+
   # Build a flake `apps.<system>` attrset from a verb→derivation map. Each
   # `programs.<verb>` is an already-system-applied app derivation whose binary
   # is `<verb>-<name>`; the entry becomes `{ type = "app"; program = …; }`.
@@ -792,6 +850,7 @@ in
     mkPurge
     mkReconcile
     mkInit
+    mkCli
     resolveAgentProfile
     agentProfiles
     skillKeysWithPrefix

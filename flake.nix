@@ -128,6 +128,15 @@
             inherit (flakeLib) provenance;
           };
 
+          # The `agent-skill-flake` command (apply / sync-project), exposed as
+          # a package and an app so both of these work:
+          #   nix run github:nhooey/agent-skill-flake#agent-skill-flake -- apply
+          #   nix profile install github:nhooey/agent-skill-flake#agent-skill-flake
+          cli = internal.mkCli system {
+            inherit (flakeLib) provenance;
+            profile = internal.resolveAgentProfile "claude-code";
+          };
+
           # bats + the assertion/file/support helper libraries — the same set
           # checks.nix builds, so contributors can run the suite by hand.
           batsWith = pkgs.bats.withLibraries (p: [
@@ -141,14 +150,24 @@
           # `mkAppSuite` the lib's builders use, so they carry the shared
           # per-verb `meta.description` instead of reporting "no description"
           # in `nix flake show`.
-          apps = internal.mkAppSuite {
-            name = "agent-skill-flake";
-            programs = {
-              reap = reapApp;
-              purge = purgeApp;
-              init = initApp;
+          apps =
+            internal.mkAppSuite {
+              name = "agent-skill-flake";
+              programs = {
+                reap = reapApp;
+                purge = purgeApp;
+                init = initApp;
+              };
+            }
+            // {
+              agent-skill-flake = {
+                type = "app";
+                program = "${cli}/bin/agent-skill-flake";
+                meta.description = cli.meta.description;
+              };
             };
-          };
+
+          packages.agent-skill-flake = cli;
 
           checks = import ./checks.nix { inherit self nixpkgs system; };
 
