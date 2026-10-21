@@ -297,7 +297,7 @@ let
     internal.mkInstaller system {
       appName = name;
       skills = unionSkillsFor system;
-      inherit profile;
+      inherit provenance profile;
     };
   combinedReconcile =
     system:

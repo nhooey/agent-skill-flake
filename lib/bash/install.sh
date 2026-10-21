@@ -20,6 +20,9 @@ Required:
                                 ancestor of \$PWD)
   --scope=custom --root=<path>  Install under <path>
 
+EOF
+  print_project_layout_usage
+  cat <<EOF
 Optional:
   --gcroots-dir=<path>          Override per-user GC-roots dir
                                 (default: /nix/var/nix/gcroots/per-user/\$USER)
@@ -92,6 +95,7 @@ else
   effective_skills=("${skills_list[@]}")
 fi
 
+ensure_project_layout || exit 1
 mkdir -p "$target_root"
 
 case "$mode" in
@@ -137,3 +141,5 @@ profile)
   printf 'manage with: nix profile list / upgrade / rollback / remove\n'
   ;;
 esac
+
+sync_project_excludes

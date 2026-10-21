@@ -121,7 +121,7 @@ let
     internal.mkInstaller system {
       appName = skillName;
       skills = skillsFor system;
-      inherit profile;
+      inherit provenance profile;
     };
 
   previewFor =

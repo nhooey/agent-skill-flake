@@ -4,9 +4,10 @@
 # WHY a scaffolder rather than more library: a flake's `inputs` must be
 # static literals the evaluator reads BEFORE `outputs` runs, so the
 # per-consumer `skills-devshell/flake.nix` (its inputs + the
-# mkDevshellSkillsFlake call) and the `.gitignore` entry cannot be factored
-# into a lib the way the rest of the wiring is. The only lever for writing
-# those literals into each consumer is this scaffolder.
+# mkDevshellSkillsFlake call) cannot be factored into a lib the way the rest
+# of the wiring is. The only lever for writing those literals into each
+# consumer is this scaffolder. Ignoring the installed skills needs no
+# scaffolding: install and reconcile list them in .git/info/exclude.
 #
 # Injected by the Nix wrapper (see lib/internal.nix mkInit):
 #   upstream_url            canonical agent-skill-flake URL (lib upstreamUrl)
@@ -23,7 +24,6 @@ Scaffolds the dev-shell skills pattern into the CURRENT repo (run from its
 root). Writes, idempotently and without clobbering:
 
   skills-devshell/flake.nix   a sub-flake calling mkDevshellSkillsFlake
-  .gitignore                  appends a /.claude/skills/ line if missing
 
 and prints the root flake.nix wiring snippet for you to paste (never edits
 your root flake.nix — too varied to touch safely).
@@ -119,24 +119,7 @@ devshell_flake=$(
 )
 write_file "skills-devshell/flake.nix" "$devshell_flake" "$force"
 
-# 2. The .gitignore entry. Idempotent append: only add the line if no
-# existing line matches it exactly (create the file if absent). --dry-run
-# announces but does not write.
-gitignore_line="/.claude/skills/"
-if [ -f .gitignore ] && grep -qxF "$gitignore_line" .gitignore; then
-  note "skip   .gitignore ($gitignore_line already present)"
-elif [ "$dry_run" -eq 1 ]; then
-  note "would append $gitignore_line to .gitignore"
-else
-  # Keep the file newline-terminated even if it lacked a trailing newline.
-  if [ -s .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ]; then
-    printf '\n' >>.gitignore
-  fi
-  printf '%s\n' "$gitignore_line" >>.gitignore
-  note "append $gitignore_line to .gitignore"
-fi
-
-# 3. Root flake.nix wiring. We never edit the root flake (too varied to touch
+# 2. Root flake.nix wiring. We never edit the root flake (too varied to touch
 # safely) — we print the snippet for the user to paste themselves.
 cat <<EOF
 

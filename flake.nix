@@ -157,7 +157,8 @@
             programs.nixfmt.enable = true;
             programs.shfmt.enable = true;
             settings.global.excludes = [
-              ".claude/**" # vendored third-party skills — not ours to reformat
+              ".agents/**" # vendored third-party skills — not ours to reformat
+              ".claude/**" # the link to .agents/skills, and other agent config
               "*.bats" # bats `@test` syntax isn't valid sh; shfmt would choke
             ];
           };

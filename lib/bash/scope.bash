@@ -4,10 +4,13 @@
 #   personal_suffix   — agent profile's $HOME-relative skill dir
 #                       (e.g. ".claude/skills" for claude-code)
 #   project_suffix    — agent profile's project-root-relative skill dir
-#                       (e.g. ".claude/skills" for claude-code)
-#   app_name          — used in error/usage text
+#                       (e.g. ".agents/skills" for claude-code)
+#   app_name         — used in error/usage text
 #
 # Sets after a successful parse:
+#   install_scope            — personal | project | custom
+#   project_root             — the resolved project root (--scope=project
+#                              only; empty otherwise)
 #   target_root              — absolute path to install into
 #   gcroots_dir              — absolute path to per-user GC-roots dir
 #   scope_remaining_args[]   — argv with --scope/--root/--gcroots-dir stripped
@@ -95,11 +98,14 @@ parse_scope_args() {
     shift
   done
 
-  case "$scope" in
-  "")
+  if [ -z "$scope" ]; then
     usage_error '--scope is required (one of: personal, project, custom)'
     return 2
-    ;;
+  fi
+
+  install_scope="$scope"
+  project_root=""
+  case "$scope" in
   personal)
     if [ -n "$root" ]; then
       printf '%s: --root is only valid with --scope=custom (got --scope=personal)\n' "$app_name" >&2
@@ -119,6 +125,7 @@ parse_scope_args() {
       printf '  Use --scope=custom --root=<path> to install to an arbitrary directory.\n' >&2
       return 1
     fi
+    project_root="$proj"
     target_root="$proj/$project_suffix"
     ;;
   custom)
