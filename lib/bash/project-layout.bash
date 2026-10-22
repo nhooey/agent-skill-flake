@@ -5,8 +5,10 @@
 # Skills live in <project-root>/<project_suffix>. When the agent profile
 # names a `project_link` (claude-code: `.claude/skills`), that path is a
 # relative symlink to project_suffix (`.claude/skills -> ../.agents/skills`),
-# so every agent reads the one shared directory. The link, the lock file and
-# each skill the lock lists are ignored, one line each, in a marked block of
+# so every agent reads the one shared directory. The link, the lock file,
+# the `agent-skill-flake sync-project` local config file
+# (`.config/agent-skill-flake/config.local.toml`) and each skill the lock
+# lists are ignored, one line each, in a marked block of
 # `<git-common-dir>/info/exclude` — the common dir, so every linked worktree
 # shares it — rewritten after every install, reconcile, uninstall, reap
 # and purge. Anything else in
@@ -35,6 +37,9 @@
 #   ownership.bash sourced (is_ours_live, is_ours_broken)
 
 PROJECT_LOCK_FILE=".agent-skill-flake-lock.json"
+# The in-checkout config override `agent-skill-flake sync-project` reads
+# (see config.bash); never committed, so it is excluded with the rest.
+PROJECT_LOCAL_CONFIG=".config/agent-skill-flake/config.local.toml"
 # Every version finds the block by this exact line, so its wording stays
 # as is, though uninstall, reap and purge now rewrite the block too: a
 # version that didn't recognize it would add a second block and leave the
@@ -163,7 +168,8 @@ move_project_link_aside() {
 
 # Rewrite the marked block of the repo's shared info/exclude to list
 # exactly what this flake manages at project scope: project_link, the lock
-# file (and its temp files), and each skill the lock names. Lines outside
+# file (and its temp files), the local config override, and each skill the
+# lock names. Lines outside
 # the block are kept as they are. A no-op outside --scope=project, and
 # outside a git repo (a flake.nix-only project root).
 sync_project_excludes() {
@@ -177,6 +183,7 @@ sync_project_excludes() {
   block="$EXCLUDE_BEGIN"$'\n'
   [ -n "${project_link:-}" ] && block+="/$project_link"$'\n'
   block+="/$project_suffix/$PROJECT_LOCK_FILE*"$'\n'
+  block+="/$PROJECT_LOCAL_CONFIG"$'\n'
   if [ -f "$lock" ]; then
     while IFS= read -r name; do
       [ -n "$name" ] && block+="/$project_suffix/$name"$'\n'

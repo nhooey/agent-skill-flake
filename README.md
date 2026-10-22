@@ -915,11 +915,12 @@ At project scope, `install` and `reconcile` also keep the repo layout:
 - **Ignored without a commit.** Exactly what the flake manages is listed,
   one line each, in a marked block of
   `$(git rev-parse --git-common-dir)/info/exclude`: `/.claude/skills`, the
-  lock file, and each skill the lock names, such as
-  `/.agents/skills/alpha`. The block is rewritten after every `install`,
-  `reconcile`, `uninstall`, `reap` and `purge`, so a removed skill's line
-  never hides a folder of your own with that name, and lines outside it
-  are kept. Linked worktrees share that
+  lock file, the [local config file](#user-config-agent-skill-flake-apply-and-sync-project)
+  `/.config/agent-skill-flake/config.local.toml`, and each skill the lock
+  names, such as `/.agents/skills/alpha`. The block is rewritten after every
+  `install`, `reconcile`, `uninstall`, `reap` and `purge`, so a removed
+  skill's line never hides a folder of your own with that name, and lines
+  outside it are kept. Linked worktrees share that
   file, and no tracked file in the repo changes, so this works in a repo
   you don't control.
 - **Your own files stay tracked.** A skill or a
@@ -998,6 +999,155 @@ protection comes from the profile itself; no separate GC root. The
 aggregate lock is updated the same way as in symlink mode.
 
 To **upgrade** in this mode: `nix profile upgrade --regex 'claude-skill-<name>'`.
+
+## User config: `agent-skill-flake apply` and `sync-project`
+
+The `agent-skill-flake` command reads one agent-neutral config file and
+does two things with it: `apply` writes user-level settings (each agent's
+trusted folders, and a git hook), and `sync-project` installs the skills
+you configured for a repository into that repository's project scope. It
+needs no Home Manager and no change to the repository.
+
+```sh
+nix run github:nhooey/agent-skill-flake#agent-skill-flake -- apply
+nix profile install github:nhooey/agent-skill-flake#agent-skill-flake   # puts it on PATH for the hook
+```
+
+### The files
+
+| File | Holds |
+|------|-------|
+| `${XDG_CONFIG_HOME:-$HOME/.config}/agent-skill-flake/config.toml` | User-global: `[defaults]`, one `[repo."<host>/<owner>/<name>"]` table per repository, and `[agents.<agent>]` tables. |
+| `<repo-root>/.config/agent-skill-flake/config.local.toml` | An override for one checkout, with the shape of one repo table. Never committed. |
+
+```toml
+# ~/.config/agent-skill-flake/config.toml
+
+[agents.claude-code]
+trusted-dirs = ["~/git", "/srv/shared"]       # → permissions.additionalDirectories
+
+[defaults]                                     # under each configured repo's settings
+skills = ["github:nhooey/git-skills#agent-skills-nhooey-git-all"]
+
+[repo."github.com/acme/widget"]
+skills = [
+  "github:nhooey/git-skills#agent-skills-nhooey-git-all",
+  "github:acme/team-skills#agent-skill-acme-review",
+]
+```
+
+```toml
+# <repo-root>/.config/agent-skill-flake/config.local.toml
+
+skills = ["path:./my-skills#agent-skills-me-all"]
+merge = { override = ["skills"] }              # optional: see "Merging" below
+```
+
+The TOML is read through Nix (`builtins.fromTOML`, via `nix-instantiate`),
+so nothing but Nix is needed to parse it.
+
+**Repo keys.** A repo table's key is the normalized `origin` URL:
+`git@github.com:acme/widget.git`, `https://github.com/acme/widget(.git)` and
+`ssh://git@github.com[:port]/acme/widget` are all `github.com/acme/widget`.
+The user, the port and a trailing `.git` or `/` are dropped, and the host is
+lowercased; the path keeps its case. Write keys in that form.
+
+**`skills` entries** are flake installables, built with `nix build` from
+the repo root (so `path:./…` is relative to the repo). Each must build to a
+package with skills under `share/claude-skills/<name>/`, which every
+builder in this library produces: a single skill (`agent-skill-<owner>-<name>`),
+an aggregate (`agent-skills-<owner>-all`), or a `mkSkillsEnv` bundle. A
+`/nix/store/…` path to such a package is used as it is, without a build.
+Two entries that provide the same skill name are an error.
+
+### Precedence and merging
+
+Highest first: **the local file > the user-global repo entry >
+`[defaults]`**.
+
+- **By default the local file replaces the user-global entry** for that
+  repo entirely. Only `[defaults]` still sits underneath it.
+- **With a top-level `merge` table**, the local file is instead
+  deep-merged over the user-global entry: tables merge key by key,
+  recursively, and any other value (string, number, boolean, array) from
+  the local file wins. `merge` itself never reaches the result.
+- **`merge.override`** lists dotted paths, such as `"skills"` or
+  `"tools.lint"`, whose whole subtree, descendants included, is taken from
+  the local file instead of being merged. A listed path the local file
+  doesn't set keeps the merged value. Keys that contain a dot can't be
+  named in a path.
+- `[defaults]` is deep-merged under the repo entry, or under the local file
+  when it replaces the entry. A repo with neither an entry nor a local file
+  is left alone, whatever `[defaults]` says.
+
+Arrays are replaced, never concatenated, so `skills` always comes whole
+from one layer, and `sync-project` names that layer for each skill.
+
+### `agent-skill-flake apply`
+
+Reads the user-global file and writes:
+
+- **Each agent's settings.** For `[agents.claude-code]`, `trusted-dirs` is
+  added to `permissions.additionalDirectories` in
+  `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`; a leading `~` is
+  expanded. Directories already listed stay, the configured ones are added
+  once each, and every other key is kept. Only `claude-code` has a writer
+  so far; another agent's table is skipped with a note. Writers live in
+  [`lib/bash/apply.bash`](lib/bash/apply.bash), one function per agent.
+- **The git hook.** In your global git config:
+
+  ```ini
+  [hook "agent-skill-flake-sync"]
+    event = post-checkout
+    command = agent-skill-flake sync-project --from-hook
+  ```
+
+  A config hook (it needs a git with config-based hooks, such as 2.55)
+  runs before a repository's own `post-checkout`
+  hook and doesn't replace it, so it works in repositories that have their
+  own hooks, and it fires on `git clone` and `git worktree add` too.
+  `core.hooksPath` is never touched. The command must be on `PATH`, e.g.
+  through `nix profile install`.
+
+Both are idempotent: when a file already says what it should, it isn't
+written. When a file resolves into `/nix/store`, or isn't writable (a
+Home Manager-managed `settings.json` or git config), `apply` changes
+nothing in it, prints the JSON or the config lines to add where that file
+is managed, and exits non-zero.
+
+### `agent-skill-flake sync-project`
+
+Run in a repository, it resolves the repository's effective `skills` by the
+rules above and reconciles `<repo-root>/.agents/skills/` to exactly that
+set, with the same machinery as [`reconcile`](#declarative-convergence-reconcilescript)
+and the same [project-scope layout](#install-scope). Its entries are owned
+by `agent-skill-flake-local`, so skills installed by anything else (a
+dev shell, another installer, your own files) are left alone, and a skill
+removed from the config is swept on the next run. Each skill is printed
+with the installable it came from and the layer, `local` or `user-global`.
+
+It exits 0 without output outside a git work tree, without an `origin`, or
+when the repo has neither an entry nor a local file. A repository with its
+own `skills-devshell/` is skipped with a one-line note, since its dev shell
+owns its project skills.
+
+With `--from-hook`, as the git hook runs it, it acts only on a branch
+checkout (`post-checkout`'s third argument is `1`, which includes clone
+and `git worktree add`), prints at most two lines, and always exits 0, so
+it never fails a git command. Run it without `--from-hook` to see the
+details of a failure.
+
+### Ignoring the local file
+
+`install`, `reconcile` and `sync-project` list
+`/.config/agent-skill-flake/config.local.toml` in the repository's
+`info/exclude` block. To cover repositories where none of them has run
+yet, also add this line to your user-global git ignore file,
+`~/.config/git/ignore`:
+
+```gitignore
+**/.config/agent-skill-flake/config.local.toml
+```
 
 ## Pitfalls — wrong ways to install
 
