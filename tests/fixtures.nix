@@ -232,6 +232,21 @@ in
     sources = [ ];
   };
 
+  # Preferences: appName "prefs" over alpha and beta, with alpha's
+  # preferences declared; the reduced fixture drops them, so its reconcile
+  # must sweep the link the first one made.
+  fixtureAggPreferences = mkAgg {
+    skillsDir = ./example-skills-dir;
+    name = "prefs";
+    sources = [ ];
+    preferences.alpha = "- Delete local branch: yes\n";
+  };
+  fixtureAggPreferencesDropped = mkAgg {
+    skillsDir = ./example-skills-dir;
+    name = "prefs";
+    sources = [ ];
+  };
+
   # Coexistence: two aggregates with distinct appNames installing into one
   # target. `aggCoexistA` owns alpha+beta (appName "coexist-a"); `aggCoexistB`
   # owns gamma (appName "coexist-b", verbatim source, no local base). Each

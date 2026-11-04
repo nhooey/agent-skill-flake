@@ -56,6 +56,30 @@ for entry in "${skills_list[@]}"; do
   keep_set["$skill_name"]=1
 done
 
+# 1b. Link each declared preferences file beside the skills, GC-rooted
+#     like a skill. A regular file already at that path is the project's
+#     own, committed preferences: it is left alone, and kept out of both
+#     the sweep and the lock, so the flake never removes or excludes it.
+declare -a pref_entries=()
+for entry in "${preferences_list[@]}"; do
+  pref_file=${entry%%:*}
+  pref_path=${entry#*:}
+  keep_set["$pref_file"]=1
+  if [ -e "$target_root/$pref_file" ] && [ ! -L "$target_root/$pref_file" ]; then
+    printf 'WARNING: %s is the project'"'"'s own file; not linking the declared preferences over it\n' \
+      "$target_root/$pref_file" >&2
+    continue
+  fi
+  ensure_symlink "$target_root/$pref_file" "$pref_path" 'reconciled (preferences)'
+  gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${pref_file}"
+  if [ "$gcroots_ok" = "1" ] &&
+    [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$pref_path" ]; then
+    ln -sfn "$pref_path" "$gcroot_target" ||
+      printf 'WARNING: could not write GC root for %s\n' "$pref_file" >&2
+  fi
+  pref_entries+=("$entry")
+done
+
 # 2. Sweep $target_root for managed entries NOT in the declared set.
 #
 # Ownership scoping: an entry the lock attributes to a *different*
@@ -103,7 +127,8 @@ if [ ${#skills_list[@]} -gt 0 ]; then
 else
   lock_replace_all
 fi
+lock_replace_preferences "${pref_entries[@]}"
 sync_project_excludes
 
 printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
-  "${#keep_set[@]}" "$swept"
+  "${#skills_list[@]}" "$swept"

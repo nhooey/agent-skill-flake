@@ -32,6 +32,10 @@
   # null uses the library default (`agent-skill-`).
   packagePrefix ? null,
   agent ? "claude-code",
+  # `{ <skill> = <text or path>; }`: the project's answers to a skill's
+  # "Your preferences" section, linked by reconcile beside the skills as
+  # `<skill>.preferences.md`. Identical to mkAggregateSkillsFlake.preferences.
+  preferences ? { },
   systems ? defaultSystems,
   # Injected by lib/default.nix, as in the other builders.
   provenance,
@@ -52,6 +56,7 @@ let
       envName
       packagePrefix
       agent
+      preferences
       ;
   };
 in

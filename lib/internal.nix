@@ -629,11 +629,32 @@ let
       skills,
       provenance,
       profile,
+      # `{ <skill> = <text or path>; }`: each becomes a read-only
+      # `<skill>.preferences.md` beside the installed skills, linked from
+      # the store, where a skill's "Your preferences" section reads it.
+      preferences ? { },
     }:
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+      preferenceFiles = lib.mapAttrsToList (
+        skill: value:
+        let
+          file = "${skill}.preferences.md";
+        in
+        {
+          inherit file;
+          drv = pkgs.writeText file (if builtins.isString value then value else builtins.readFile value);
+        }
+      ) preferences;
+      preferencesArray =
+        "declare -a preferences_list=(\n"
+        + lib.concatMapStringsSep "\n" (p: ''"${p.file}:${p.drv}"'') preferenceFiles
+        + "\n)\n";
+    in
     mkShellApp system {
       verb = "reconcile";
       inherit appName profile skills;
-      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
+      runtimeInputs = with pkgs; [
         coreutils
         git
         gnugrep
@@ -643,7 +664,8 @@ let
         upstream_url='${provenance.upstreamUrl}'
         owner_app='${appName}'
         ${projectLinkEnv profile}
-      '';
+      ''
+      + preferencesArray;
       sourceModules = projectScopeModules;
       # project_link is consumed only by the sourced project-layout.bash.
       extraExcludeShellChecks = [ "SC2034" ];

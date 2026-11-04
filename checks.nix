@@ -29,6 +29,8 @@ let
     fixtureExtraFilesDirSkip
     fixtureAggConvergeFull
     fixtureAggConvergeReduced
+    fixtureAggPreferences
+    fixtureAggPreferencesDropped
     fixtureAggCoexistA
     fixtureAggCoexistB
     fixtureAggCherryPick
@@ -1092,6 +1094,39 @@ in
   # Idempotence: a second combined reconcile with state already in sync is
   # a silent no-op (no per-skill `reconciled (install): …` lines), matching
   # the silent-no-op behavior from #13.
+  # Declared preferences are linked beside the skills, GC-rooted and
+  # locked; a project's own file at that path is left alone; dropping them
+  # sweeps the link, and purge removes it.
+  aggregate-reconcile-preferences = mkBatsCheck {
+    name = "aggregate-reconcile-preferences";
+    env = {
+      RECONCILE_PREFS_APP = fixtureAggPreferences.apps.${system}.reconcile.program;
+      RECONCILE_DROPPED_APP = fixtureAggPreferencesDropped.apps.${system}.reconcile.program;
+      PURGE_APP = fixtureAggPreferences.apps.${system}.purge.program;
+    };
+    extraInputs = [ pkgs.jq ];
+  };
+
+  # A preferences key naming no skill in the union fails at evaluation,
+  # listing the skills the union holds.
+  aggregate-preferences-unknown-skill =
+    let
+      bad = self.lib.mkAggregateSkillsFlake {
+        inherit nixpkgs;
+        skillsDir = ./tests/example-skills-dir;
+        name = "prefs-unknown";
+        namespaceFn = _: "";
+        sources = [ ];
+        preferences.nope = "- Key: yes\n";
+      };
+      tried = builtins.tryEval (builtins.deepSeq bad.apps.${system}.reconcile.program.drvPath true);
+    in
+    mkEvalCheck {
+      name = "aggregate-preferences-unknown-skill";
+      cond = !tried.success;
+      msg = "aggregate-preferences-unknown-skill: preferences for a skill outside the union must fail evaluation.";
+    };
+
   aggregate-reconcile-idempotent = mkBatsCheck {
     name = "aggregate-reconcile-idempotent";
     env.RECONCILE_FULL_APP = aggConvergeFullReconcile;

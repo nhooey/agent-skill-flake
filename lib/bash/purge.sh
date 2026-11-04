@@ -56,7 +56,8 @@ done
 # scope can be cleared even after the hook that installed its skills is
 # gone. The walk + GC-root pruning are shared with reap via lineage_sweep.
 entry_predicate() {
-  is_ours_live "$1" "$upstream_url" || is_ours_broken "$1" "$gcroots_dir"
+  is_ours_live "$1" "$upstream_url" || is_ours_broken "$1" "$gcroots_dir" ||
+    { [ -L "$1" ] && lock_has_preferences "$(basename "$1")"; }
 }
 sweep_label='purged'
 sweep_verb='purge'
