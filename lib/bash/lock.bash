@@ -71,7 +71,7 @@ lock_installed_by() {
   local skill_name="$1" lock
   lock=$(lock_path)
   [ -f "$lock" ] || return 0
-  jq -r --arg n "$skill_name" '.skills[$n].installedBy // empty' "$lock" 2>/dev/null || true
+  jq -r --arg n "$skill_name" '(.skills[$n] // .preferences[$n] // {}).installedBy // empty' "$lock" 2>/dev/null || true
 }
 
 # lock_remove  $skill_name
@@ -80,7 +80,7 @@ lock_remove() {
   lock=$(lock_path)
   [ -f "$lock" ] || return 0
   tmp="$lock.tmp.$$"
-  jq --arg name "$skill_name" 'del(.skills[$name])' "$lock" >"$tmp"
+  jq --arg name "$skill_name" 'del(.skills[$name]) | del(.preferences[$name]?)' "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
 }
 
@@ -141,4 +141,42 @@ lock_replace_all() {
   done
   jq --argjson new "$new_skills" '.skills = $new' "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
+}
+
+# lock_replace_preferences  "$@"  -- each arg is "file:store_path"
+# Rebuild .preferences, the `<skill>.preferences.md` links reconcile
+# made, from the args, scoped to `owner_app` as lock_replace_all scopes
+# .skills: another appName's entries are carried over untouched.
+lock_replace_preferences() {
+  local lock tmp now owner entries entry
+  lock=$(lock_path)
+  tmp="$lock.tmp.$$"
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  owner="${owner_app:-}"
+  lock_init_if_absent
+  entries='[]'
+  for entry in "$@"; do
+    entries=$(jq -n --argjson cur "$entries" --arg f "${entry%%:*}" \
+      --arg sp "${entry#*:}" '$cur + [[$f, $sp]]')
+  done
+  jq --argjson new "$entries" --arg owner "$owner" --arg t "$now" '
+    (.preferences // {}
+      | with_entries(select((.value.installedBy // "") != ""
+        and (.value.installedBy // "") != $owner))) as $others
+    | ($new | map({key: .[0], value: ({storePath: .[1], installedAt: $t}
+        + (if $owner == "" then {} else {installedBy: $owner} end))})
+      | from_entries) as $ours
+    | ($others + $ours) as $all
+    | if $all == {} then del(.preferences) else .preferences = $all end' \
+    "$lock" >"$tmp"
+  mv -f "$tmp" "$lock"
+}
+
+# lock_has_preferences  $file  -> 0 if the lock records $file as a
+# preferences link reconcile made, of any appName.
+lock_has_preferences() {
+  local lock
+  lock=$(lock_path)
+  [ -f "$lock" ] || return 1
+  jq -e --arg n "$1" '.preferences // {} | has($n)' "$lock" >/dev/null 2>&1
 }

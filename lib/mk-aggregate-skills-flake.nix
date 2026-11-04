@@ -46,6 +46,10 @@
   source ? null,
   agent ? "claude-code",
   name ? "agent-skills-all",
+  # `{ <skill> = <text or path>; }`: the preferences reconcile links beside
+  # the skills as `<skill>.preferences.md`, for skills whose "Your
+  # preferences" section reads one. Each key must name a skill in the union.
+  preferences ? { },
   # Systems to fan out over. Defaults to `defaultSystems` (the
   # `nix-systems/default` flake input injected by lib/default.nix) rather
   # than a hardcoded platform list, so downstream consumers retarget the
@@ -301,11 +305,28 @@ let
     };
   combinedReconcile =
     system:
-    internal.mkReconcile system {
-      appName = name;
+    let
       skills = unionSkillsFor system;
-      inherit provenance profile;
-    };
+      names = map (s: s.name) skills;
+      unknown = lib.filter (k: !(lib.elem k names)) (lib.attrNames preferences);
+    in
+    if unknown != [ ] then
+      throw (
+        "mkAggregateSkillsFlake '${name}': preferences for "
+        + lib.concatStringsSep ", " unknown
+        + ", which the union doesn't hold. It holds: "
+        + lib.concatStringsSep ", " names
+      )
+    else
+      internal.mkReconcile system {
+        appName = name;
+        inherit
+          skills
+          provenance
+          profile
+          preferences
+          ;
+      };
   combinedPreview =
     system:
     internal.mkPreview system {

@@ -24,6 +24,8 @@
   # null uses the library default (`agent-skill-`), matching the aggregate.
   packagePrefix ? null,
   agent ? "claude-code",
+  # Identical to mkAggregateSkillsFlake.preferences.
+  preferences ? { },
   systems ? defaultSystems,
   # Injected by lib/default.nix, as in the other builders.
   provenance,
@@ -48,6 +50,7 @@ let
       systems
       provenance
       defaultSystems
+      preferences
       ;
     packagePrefix = pp;
   };

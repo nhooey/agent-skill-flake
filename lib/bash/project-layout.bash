@@ -187,7 +187,7 @@ sync_project_excludes() {
   if [ -f "$lock" ]; then
     while IFS= read -r name; do
       [ -n "$name" ] && block+="/$project_suffix/$name"$'\n'
-    done < <(jq -r '.skills // {} | keys[]' "$lock" 2>/dev/null || true)
+    done < <(jq -r '(.skills // {}) + (.preferences // {}) | keys[]' "$lock" 2>/dev/null || true)
   fi
   block+="$EXCLUDE_END"$'\n'
 

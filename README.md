@@ -683,7 +683,25 @@ per-repo dev-shell convention so a sub-flake can omit them:
 
 So the conventional sub-flake passes only `nixpkgs`, `systems`, `name`, and
 `sources` — drop `envName`/`packagePrefix` unless you need non-conventional
-values. The single `name` owner means one `purge` (or `reap`) removes the
+values.
+
+`preferences` gives the project's answers to the skills that read a
+preferences file, a `{ <skill> = <text or path>; }` map:
+
+```nix
+preferences.github-workflow-pull-request-watcher = ''
+  - Delete local branch: yes
+  - Delete remote branch: yes
+  - Update default branch: yes
+'';
+```
+
+`reconcile` links each as `<skill>.preferences.md` beside the skills, from
+the store and GC-rooted like a skill, records it in the lock, and lists it
+in the project's exclude block. A preferences entry dropped from the flake
+is swept like a dropped skill, and `purge` removes it. A key naming no skill
+in the union fails evaluation. A regular file already at that path is the
+project's own: `reconcile` warns and leaves it in place. The single `name` owner means one `purge` (or `reap`) removes the
 whole set. See [`skills-devshell/flake.nix`](skills-devshell/flake.nix) for
 the live example.
 
@@ -925,7 +943,9 @@ At project scope, `install` and `reconcile` also keep the repo layout:
   you don't control.
 - **Your own files stay tracked.** A skill or a
   `<skill>.preferences.md` the project adds to `.agents/skills/` is not
-  ignored, so it can be committed. A repo that doesn't want skills
+  ignored, so it can be committed. Preferences declared through
+  [`mkDevshellSkillsFlake`'s `preferences`](#mkdevshellskillsflake) are
+  links the flake manages, and are ignored like its skills. A repo that doesn't want skills
   committed can refuse them with its own hook or a repository rule.
 - **An existing `.claude/skills/` directory.** If every entry in it was
   installed by agent-skill-flake (judged as `reconcile` judges ownership:
