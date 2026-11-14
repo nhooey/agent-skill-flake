@@ -17,7 +17,7 @@ setup() {
   assert_output --partial "reconciled (preferences): $link"
   assert_store_symlink "$link"
   assert_equal "$(cat "$link")" "- Delete local branch: yes"
-  assert [ -L "$GCROOTS_DIR/claude-skill-alpha.preferences.md" ]
+  assert [ -L "$(gc_root alpha.preferences.md)" ]
   assert_equal "$(jq -r '.preferences["alpha.preferences.md"].installedBy' "$lock")" "prefs"
 
   # A second reconcile changes nothing and says nothing about them.
@@ -33,7 +33,7 @@ setup() {
   assert_success
   assert_output --partial "reconciled (sweep): $link"
   refute [ -e "$link" ]
-  refute [ -e "$GCROOTS_DIR/claude-skill-alpha.preferences.md" ]
+  refute [ -e "$(gc_root alpha.preferences.md)" ]
   assert_equal "$(jq -r 'has("preferences")' "$lock")" "false"
   assert [ -L "$CUSTOM_TARGET/alpha" ]
 }

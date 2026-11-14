@@ -634,6 +634,19 @@ in
     };
   };
 
+  # Each install target keeps its own GC root per skill, so two targets
+  # installing the same skill don't steal each other's root; a legacy
+  # shared root survives until a per-target root covers its store path.
+  gc-roots-per-target = mkBatsCheck {
+    name = "gc-roots-per-target";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      INSTALL_ALL_APP = installAllApp;
+      UNINSTALL_ALL_APP = uninstallAllApp;
+      REAP_ALL_APP = reapAllApp;
+    };
+  };
+
   # Uninstall refuses to touch entries it didn't install (manual skill
   # dirs / foreign-lineage symlinks).
   example-skills-dir-uninstall-refuses-unmanaged = mkBatsCheck {

@@ -10,7 +10,7 @@ setup() {
   # Stray managed entry: reuse alpha's content (sentinel genuinely
   # matches our managedBy URL) under a name not in the declared set.
   ln -sfn "$ALPHA_PKG/share/claude-skills/alpha" "$CUSTOM_TARGET/stale"
-  ln -sfn "$ALPHA_PKG" "$GCROOTS_DIR/claude-skill-stale"
+  ln -sfn "$ALPHA_PKG" "$(gc_root stale)"
 
   mkdir -p "$CUSTOM_TARGET/manual-skill"
   echo manual > "$CUSTOM_TARGET/manual-skill/SKILL.md"
@@ -22,11 +22,11 @@ setup() {
   assert [ -L "$CUSTOM_TARGET/beta" ]
   assert [ -f "$CUSTOM_TARGET/alpha/SKILL.md" ]
   assert [ -f "$CUSTOM_TARGET/beta/SKILL.md" ]
-  assert [ -L "$GCROOTS_DIR/claude-skill-alpha" ]
-  assert [ -L "$GCROOTS_DIR/claude-skill-beta" ]
+  assert [ -L "$(gc_root alpha)" ]
+  assert [ -L "$(gc_root beta)" ]
 
   refute [ -L "$CUSTOM_TARGET/stale" ]
-  refute [ -e "$GCROOTS_DIR/claude-skill-stale" ]
+  refute [ -e "$(gc_root stale)" ]
 
   assert [ -d "$CUSTOM_TARGET/manual-skill" ]
   assert [ -f "$CUSTOM_TARGET/manual-skill/SKILL.md" ]

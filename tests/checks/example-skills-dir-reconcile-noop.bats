@@ -41,10 +41,10 @@ setup() {
   run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  rm "$GCROOTS_DIR/claude-skill-alpha"
+  rm "$(gc_root alpha)"
 
   run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
   refute_output --partial 'reconciled (install): '
-  assert [ -L "$GCROOTS_DIR/claude-skill-alpha" ]
+  assert [ -L "$(gc_root alpha)" ]
 }

@@ -17,8 +17,10 @@ Optional:
 
 Removes EVERY skill this agent-skill-flake lineage (managedBy=$upstream_url)
 installed under the target dir — live or broken — regardless of which
-hook/appName installed it, and prunes orphan GC roots. Unlike reconcile,
-purge ignores any declared set; unlike uninstall, it needs no skill names.
+hook/appName installed it, with this target's GC roots, and prunes
+orphan GC roots (store path gone) and shared claude-skill-<name> roots a
+per-target root covers. Unlike reconcile, purge ignores any declared
+set; unlike uninstall, it needs no skill names.
 
 The scope-uniform teardown escape hatch: the SAME command clears the
 user-global and project dirs (only --scope differs), and it can run

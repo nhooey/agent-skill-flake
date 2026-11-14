@@ -40,3 +40,14 @@ assert_store_symlink() {
 snapshot_fs() {
   find "$@" 2>/dev/null | sort || true
 }
+
+# gc_root <name> [<target-dir>]  ->  the per-target GC root an install into
+# <target-dir> (default: $CUSTOM_TARGET) makes for <name>:
+# $GCROOTS_DIR/claude-skill-<first 12 hex of sha256(resolved dir)>-<name>.
+# Spelled out here rather than reusing scope.bash, so the tests pin the
+# on-disk name independently of the code that writes it.
+gc_root() {
+  local name=$1 dir=${2:-$CUSTOM_TARGET} tag
+  tag=$(printf '%s' "$(realpath -m -- "$dir")" | sha256sum | cut -c1-12)
+  printf '%s/claude-skill-%s-%s' "$GCROOTS_DIR" "$tag" "$name"
+}

@@ -15,7 +15,10 @@ Optional:
 
 Removes the install-side artifacts for each named skill:
   - <target>/<name>                  (symlink into the Nix store)
-  - <gcroots>/claude-skill-<name>    (per-user GC root)
+  - <gcroots>/claude-skill-<target-hash>-<name>
+                                     (this target's per-user GC root;
+                                     other targets' roots and a shared
+                                     claude-skill-<name> root stay)
   - the entry in <target>/.agent-skill-flake-lock.json
 
 Refuses to touch entries that aren't managed by this agent-skill-flake

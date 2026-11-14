@@ -36,11 +36,11 @@ setup() {
   run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  rm "$GCROOTS_DIR/claude-skill-alpha"
+  rm "$(gc_root alpha)"
 
   run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
-  assert_output --partial 'GC root: '"$GCROOTS_DIR"'/claude-skill-alpha'
-  refute_output --partial 'GC root: '"$GCROOTS_DIR"'/claude-skill-beta'
+  assert_output --partial "GC root: $(gc_root alpha)"
+  refute_output --partial "GC root: $(gc_root beta)"
   refute_output --partial 'installed (symlink): '
 }

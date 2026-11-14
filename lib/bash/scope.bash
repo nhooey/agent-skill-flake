@@ -13,6 +13,7 @@
 #                              only; empty otherwise)
 #   target_root              — absolute path to install into
 #   gcroots_dir              — absolute path to per-user GC-roots dir
+#   gc_root_tag              — target_root's GC-root tag (see gc_root_tag_for)
 #   scope_remaining_args[]   — argv with --scope/--root/--gcroots-dir stripped
 
 # Install-layout constants — single source of truth for the on-disk shapes
@@ -20,7 +21,71 @@
 # share. Sourced first, so they are in scope for every later module.
 SKILLS_SHARE_SUBDIR="share/claude-skills"       # per-skill content path under a skill's store output
 GC_ROOT_PREFIX="claude-skill-"                  # per-user GC-root filename prefix
+GC_ROOT_TAG_LEN=12                              # hex chars of the target-dir hash in a root's name
 SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
+
+# GC roots. Every install target (the user scope, each project's skill
+# dir, each custom root) keeps its own per-user GC root per skill, named
+#   <gcroots_dir>/claude-skill-<tag>-<name>
+# where <tag> is the first GC_ROOT_TAG_LEN hex chars of the sha256 of the
+# target dir's resolved absolute path. A root name shared by every target
+# would let the last target to install a skill take the root, leaving the
+# other targets' links pointing at unrooted store paths.
+#
+# A root named `claude-skill-<name>`, with no tag, is the legacy shared
+# form. Ownership checks still accept it; nothing here creates it, and only
+# lineage_sweep removes it, once no other root can depend on it.
+
+# gc_root_tag_for <dir> -> the tag for <dir>. Symlinks are resolved (macOS
+# /tmp -> /private/tmp) and a not-yet-created dir resolves through its
+# existing ancestors, so the tag is the same before and after mkdir.
+gc_root_tag_for() {
+  local resolved
+  resolved=$(realpath -m -- "$1")
+  printf '%s' "$resolved" | sha256sum | cut -c1-"$GC_ROOT_TAG_LEN"
+}
+
+# gc_root_path <name> [<tag>] -> the root for <name> in the target with
+# <tag> (default: this run's target_root).
+gc_root_path() {
+  printf '%s/%s%s-%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "${2:-$gc_root_tag}" "$1"
+}
+
+# legacy_gc_root_path <name> -> the legacy, target-shared root for <name>.
+legacy_gc_root_path() {
+  printf '%s/%s%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "$1"
+}
+
+# gc_root_parse <root-filename> -> sets gc_root_parsed_tag (empty for the
+# legacy form) and gc_root_parsed_name. Returns 1 if the filename lacks the
+# prefix.
+gc_root_parse() {
+  local rest
+  case "$1" in
+  "$GC_ROOT_PREFIX"*) rest=${1#"$GC_ROOT_PREFIX"} ;;
+  *) return 1 ;;
+  esac
+  if [[ $rest =~ ^([0-9a-f]{$GC_ROOT_TAG_LEN})-(.+)$ ]]; then
+    gc_root_parsed_tag=${BASH_REMATCH[1]}
+    gc_root_parsed_name=${BASH_REMATCH[2]}
+  else
+    gc_root_parsed_tag=""
+    gc_root_parsed_name=$rest
+  fi
+}
+
+# ensure_gc_root <name> <store-path> [announce] — point this target's root
+# for <name> at <store-path>; with "announce", print a change as
+# "GC root: <root> -> <store-path>". Returns 1 if the root can't be written.
+ensure_gc_root() {
+  local root
+  root=$(gc_root_path "$1")
+  [ "$(readlink "$root" 2>/dev/null)" = "$2" ] && return 0
+  ln -sfn "$2" "$root" 2>/dev/null || return 1
+  if [ "${3:-}" = announce ]; then
+    printf 'GC root: %s -> %s\n' "$root" "$2"
+  fi
+}
 
 # Print "<app_name>: <msg>" then the standard "See --help" pointer to stderr —
 # the shared shape behind every verb's argv-validation error.
@@ -146,6 +211,7 @@ parse_scope_args() {
   else
     gcroots_dir="/nix/var/nix/gcroots/per-user/$USER"
   fi
+  gc_root_tag=$(gc_root_tag_for "$target_root")
 }
 
 # parse_scope_args + require an otherwise-empty argv. The verbs that take no

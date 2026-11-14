@@ -25,7 +25,7 @@ setup() {
   local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
   for name in alpha beta; do
     refute [ -L "$CUSTOM_TARGET/$name" ]
-    refute [ -e "$GCROOTS_DIR/claude-skill-$name" ]
+    refute [ -e "$(gc_root $name)" ]
     assert_equal "$(jq --arg n "$name" '.skills | has($n)' "$lock")" "false"
   done
 

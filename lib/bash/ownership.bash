@@ -4,9 +4,11 @@
 #   1. If the symlink target is live, read `.agent-skill-flake-managed.json` and
 #      verify `managedBy == upstream_url`. This is the strict signal.
 #   2. If the symlink target is broken (store path GC'd), fall back to
-#      checking for a `$gcroots_dir/claude-skill-<name>` entry. This is a
-#      naming-convention signal — single-lineage assumption: a user with
-#      forks of agent-skill-flake could see false-positives across lineages.
+#      checking for a GC root for <name>: the entry's own directory's
+#      per-target root (`claude-skill-<tag>-<name>`, see gc_root_path), or
+#      the legacy shared `claude-skill-<name>`. This is a naming-convention
+#      signal — single-lineage assumption: a user with forks of
+#      agent-skill-flake could see false-positives across lineages.
 
 # is_ours_live  $entry  $upstream_url
 # Returns 0 if the symlink is alive AND its sentinel matches upstream_url.
@@ -21,12 +23,19 @@ is_ours_live() {
 }
 
 # is_ours_broken  $entry  $gcroots_dir
-# Returns 0 if the symlink target is missing AND a same-named GC root
-# exists (the naming-convention fallback). Best-effort.
+# Returns 0 if the symlink target is missing AND a GC root for it exists
+# (the naming-convention fallback). Best-effort.
 is_ours_broken() {
-  local entry="$1" gcdir="$2" name
+  local entry="$1" gcroots_dir="$2" name root
   [ -L "$entry" ] || return 1
   [ -e "$entry" ] && return 1
   name=$(basename "$entry")
-  [ -L "${gcdir}/${GC_ROOT_PREFIX}${name}" ] || [ -e "${gcdir}/${GC_ROOT_PREFIX}${name}" ]
+  for root in \
+    "$(gc_root_path "$name" "$(gc_root_tag_for "$(dirname "$entry")")")" \
+    "$(legacy_gc_root_path "$name")"; do
+    if [ -L "$root" ] || [ -e "$root" ]; then
+      return 0
+    fi
+  done
+  return 1
 }
