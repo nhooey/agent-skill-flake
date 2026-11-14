@@ -50,6 +50,7 @@ nix run .#install   -- --scope=custom --root=/tmp/x  # install at the named path
 nix run .#install   -- --scope=personal --profile    # via `nix profile install`
 nix run .#uninstall -- --scope=personal              # remove the skill
 nix run .#reap      -- --scope=personal              # remove broken managed entries
+nix run .#check     -- --scope=personal              # report links without this target's GC root
 nix run .#purge     -- --scope=personal              # remove ALL this lineage's skills (teardown)
 nix build .#my-skill                                 # produce $out/share/claude-skills/my-skill/
 ```
@@ -180,6 +181,7 @@ nix run .#install -- --scope=project nix-flakes git-ssh # subset by name, projec
 nix run .#install -- --scope=personal --profile         # via nix profile
 nix run .#uninstall -- --scope=personal <name>...       # remove one or more
 nix run .#reap      -- --scope=personal                 # remove broken managed entries
+nix run .#check     -- --scope=personal                 # report links without this target's GC root
 nix run .#reconcile -- --scope=personal                 # install declared set, sweep strays
 nix build .#all                                         # symlinkJoin'd derivation for all skills
 nix build .#<skill-name>                                # single skill derivation
@@ -1008,6 +1010,14 @@ The Nix-native install. Three things happen:
    points at the same store path; re-running `install` or `reconcile` in
    each target gives every target its own root, after which a `reap`
    clears the shared ones.
+
+   `check` reports each skill and preferences link in the target's lock
+   whose store path has no root of the target's own, as `unrooted` or,
+   when only a shared or another target's root protects it, `wrongly
+   rooted`, and exits 1; it prints nothing and exits 0 when every link
+   is rooted. It reads the gcroots dir once, so it stays fast with
+   thousands of roots, where `nix-store --query --roots` per link scans
+   every process's open files.
 3. **Aggregate lock entry.**
    An entry is upserted into `<target>/.agent-skill-flake-lock.json`
    summarizing what was installed (provenance from the per-skill

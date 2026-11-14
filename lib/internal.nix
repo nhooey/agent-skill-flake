@@ -620,6 +620,23 @@ let
     };
 
   mkReap = mkLineageSweep "reap";
+
+  # Check: report each link in the target whose store path has no GC root
+  # of this target's own. Read-only and carrying no skill set, like reap,
+  # so it runs off any flake of the lineage.
+  mkCheck =
+    system:
+    { appName, profile }:
+    mkShellApp system {
+      verb = "check";
+      inherit appName profile;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
+        coreutils
+        findutils
+        jq
+      ];
+      sourceModules = [ ./bash/lock.bash ];
+    };
   mkPurge = mkLineageSweep "purge";
 
   mkReconcile =
@@ -837,6 +854,7 @@ let
         uninstall = "Remove the named skill(s) this flake installed from the agent's skill directory.";
         preview = "Show what installing this flake's skill(s) would change, without writing anything.";
         reconcile = "Converge the agent's skill directory to exactly this flake's declared skill set.";
+        check = "Report skill links whose store path has no GC root of this install target's own.";
         reap = "Remove only garbage-collected (broken) skill entries this flake's lineage owns.";
         purge = "Remove every skill entry this flake's lineage owns, live or broken.";
         init = "Scaffold the dev-shell skills boilerplate into the current repo.";
@@ -869,6 +887,7 @@ in
     mkUninstall
     mkPreview
     mkReap
+    mkCheck
     mkPurge
     mkReconcile
     mkInit

@@ -86,6 +86,7 @@ let
   uninstallAllApp = fixtureAll.apps.${system}.uninstall.program;
   previewAllApp = fixtureAll.apps.${system}.preview.program;
   reapAllApp = fixtureAll.apps.${system}.reap.program;
+  checkAllApp = fixtureAll.apps.${system}.check.program;
   purgeAllApp = fixtureAll.apps.${system}.purge.program;
   reconcileAllApp = fixtureAll.apps.${system}.reconcile.program;
 
@@ -644,6 +645,15 @@ in
       INSTALL_ALL_APP = installAllApp;
       UNINSTALL_ALL_APP = uninstallAllApp;
       REAP_ALL_APP = reapAllApp;
+    };
+  };
+
+  # check reports links whose store path lacks the target's own GC root.
+  check-gc-roots = mkBatsCheck {
+    name = "check-gc-roots";
+    env = {
+      INSTALL_ALL_APP = installAllApp;
+      CHECK_ALL_APP = checkAllApp;
     };
   };
 
