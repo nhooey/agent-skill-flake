@@ -341,6 +341,12 @@ let
       appName = name;
       inherit provenance profile;
     };
+  combinedCheck =
+    system:
+    internal.mkCheck system {
+      appName = name;
+      inherit profile;
+    };
   combinedPurge =
     system:
     internal.mkPurge system {
@@ -375,6 +381,7 @@ in
         uninstall = combinedUninstall system;
         preview = combinedPreview system;
         reap = combinedReap system;
+        check = combinedCheck system;
         purge = combinedPurge system;
         reconcile = combinedReconcile system;
       };

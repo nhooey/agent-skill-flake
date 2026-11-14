@@ -109,6 +109,13 @@
             profile = internal.resolveAgentProfile "claude-code";
           };
 
+          # Read-only GC-root audit of any scope, with no embedded skill set:
+          #   nix run github:nhooey/agent-skill-flake#check -- --scope=personal
+          checkApp = internal.mkCheck system {
+            appName = "agent-skill-flake";
+            profile = internal.resolveAgentProfile "claude-code";
+          };
+
           # Lineage-wide teardown, exposed here (like reap) so it runs
           # transiently with no embedded skill set:
           #   nix run github:nhooey/agent-skill-flake#purge -- --scope=personal
@@ -155,6 +162,7 @@
               name = "agent-skill-flake";
               programs = {
                 reap = reapApp;
+                check = checkApp;
                 purge = purgeApp;
                 init = initApp;
               };

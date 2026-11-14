@@ -140,6 +140,13 @@ let
       inherit provenance profile;
     };
 
+  checkFor =
+    system:
+    internal.mkCheck system {
+      appName = skillName;
+      inherit profile;
+    };
+
   purgeFor =
     system:
     internal.mkPurge system {
@@ -186,6 +193,7 @@ in
         uninstall = uninstallFor system;
         preview = previewFor system;
         reap = reapFor system;
+        check = checkFor system;
         purge = purgeFor system;
       };
     }
