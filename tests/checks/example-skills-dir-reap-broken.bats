@@ -8,10 +8,10 @@ setup() {
 
 @test "reap removes managed-but-broken entry, spares unmanaged" {
   # Forge a managed-but-broken entry: symlink to a non-existent store
-  # path + same-named GC root (the naming-convention fallback).
+  # path + this target's GC root for it (the naming-convention fallback).
   local bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
   ln -sfn "$bogus/share/claude-skills/foo" "$CUSTOM_TARGET/foo"
-  ln -sfn "$bogus" "$GCROOTS_DIR/claude-skill-foo"
+  ln -sfn "$bogus" "$(gc_root foo)"
 
   # Unmanaged entry — must NOT be touched.
   mkdir -p "$CUSTOM_TARGET/manual-skill"
@@ -21,7 +21,7 @@ setup() {
   assert_success
 
   refute [ -L "$CUSTOM_TARGET/foo" ]
-  refute [ -e "$GCROOTS_DIR/claude-skill-foo" ]
+  refute [ -e "$(gc_root foo)" ]
 
   assert [ -d "$CUSTOM_TARGET/manual-skill" ]
   assert [ -f "$CUSTOM_TARGET/manual-skill/SKILL.md" ]

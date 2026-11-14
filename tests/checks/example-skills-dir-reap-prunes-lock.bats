@@ -8,6 +8,8 @@ setup() {
 
 @test "reap drops the lock entry with the symlink + GC root" {
   # Stale lock entry: a prior install whose store path was since GC'd.
+  # Rooted by a legacy shared `claude-skill-<name>` root (no target tag),
+  # which ownership still recognizes.
   printf '%s' \
     '{"schemaVersion":1,"skills":{"foo":{"managedBy":"github:nhooey/agent-skill-flake","skillName":"foo"}}}' \
     > "$CUSTOM_TARGET/.agent-skill-flake-lock.json"

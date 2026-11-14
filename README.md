@@ -965,7 +965,7 @@ flags:
 
 | Flag                  | Default                              | Meaning |
 |-----------------------|--------------------------------------|---------|
-| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir. Primarily for the test suite — rarely useful in practice. |
+| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where each target's `claude-skill-<target-hash>-<skillName>` roots go (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
 | `--profile`           | (off)                                | `install` only: install via `nix profile install` instead of the default direct-symlink mode. See [`--profile`](#--profile-via-nix-profile-install). |
 | `-h`, `--help`        | —                                    | Print help and exit. |
 
@@ -988,11 +988,26 @@ The Nix-native install. Three things happen:
    `<target>/<skillName>` is created as a symlink to
    `<store-path>/share/claude-skills/<skillName>`. Claude Code (or
    whichever agent profile you picked) follows it transparently.
-2. **Per-user GC root.**
-   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<skillName>` is
-   created as a symlink to the store derivation. This protects the
-   store path from `nix-store --gc`. Override the gcroots dir with
-   `--gcroots-dir=<path>` (test-suite use; rarely useful in practice).
+2. **Per-user GC root, one per target.**
+   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<target-hash>-<skillName>`
+   is created as a symlink to the store derivation. This protects the
+   store path from `nix-store --gc`. `<target-hash>` is the first 12 hex
+   characters of the SHA-256 of `<target>`'s absolute path with symlinks
+   resolved (so on macOS `/tmp/x` and `/private/tmp/x` share a root).
+   Each target — the user scope, each project's skills dir, each custom
+   root — therefore holds its own root, and installing or uninstalling a
+   skill in one target never unroots another target's link. Override the
+   gcroots dir with `--gcroots-dir=<path>` (test-suite use; rarely useful
+   in practice).
+
+   A shared root with no target hash, `claude-skill-<skillName>`, is
+   left by older installs. Ownership checks still accept it, and
+   install, reconcile and uninstall leave it alone, since it may be the
+   only root protecting some other target's link. `reap` and `purge`
+   remove it once its store path is gone, or once a per-target root
+   points at the same store path; re-running `install` or `reconcile` in
+   each target gives every target its own root, after which a `reap`
+   clears the shared ones.
 3. **Aggregate lock entry.**
    An entry is upserted into `<target>/.agent-skill-flake-lock.json`
    summarizing what was installed (provenance from the per-skill
@@ -1282,13 +1297,16 @@ nix run .#uninstall -- --scope=personal alpha beta   # multiple at once
 Removes all three install-side artifacts:
 
 - the user-facing symlink at `<target>/<name>`,
-- the per-user GC root at `<gcroots-dir>/claude-skill-<name>`,
+- this target's per-user GC root at
+  `<gcroots-dir>/claude-skill-<target-hash>-<name>` (other targets' roots
+  for the same skill, and any shared `claude-skill-<name>` root, stay),
 - the entry in `<target>/.agent-skill-flake-lock.json`.
 
 It refuses to touch entries it can't confidently identify as managed by
 this agent-skill-flake lineage (the sentinel must say `managedBy=<this
-lineage>`, or — if the symlink target has been GC'd — a same-named GC
-root must exist as a naming-convention fallback). A user's hand-rolled
+lineage>`, or — if the symlink target has been GC'd — a GC root for it
+must exist as a naming-convention fallback: the target's own
+`claude-skill-<target-hash>-<name>`, or a shared `claude-skill-<name>`). A user's hand-rolled
 `~/.claude/skills/foo` directory is therefore safe even if `foo`
 happens to match a agent-skill-flake skill name.
 
@@ -1317,7 +1335,9 @@ nix run .#purge -- --scope=personal --yes                      # skip the confir
 
 `purge` removes every entry this lineage (`managedBy`) installed under the
 scope — live or broken, any `appName`, no declared set or names needed — and
-runs transiently off the bare flake when nothing is installed locally. It
+runs transiently off the bare flake when nothing is installed locally,
+along with that scope's GC roots and any GC root whose store path is gone
+or, for a shared `claude-skill-<name>` root, covered by a per-target root. It
 leaves other lineages and hand-rolled dirs alone, and confirms before
 removing (`--dry-run`/`--yes` skip the prompt; non-interactive without either
 refuses).

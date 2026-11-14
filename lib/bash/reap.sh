@@ -14,8 +14,9 @@ Optional:
   -h, --help                    Show this help and exit.
 
 Removes managed entries (managedBy=$upstream_url) whose symlink
-targets have been garbage-collected, and orphan GC roots whose
-store-path targets no longer exist.
+targets have been garbage-collected, orphan GC roots whose store-path
+targets no longer exist, and shared claude-skill-<name> GC roots whose
+store path a per-target root also protects.
 EOF
 }
 

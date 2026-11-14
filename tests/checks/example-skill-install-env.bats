@@ -14,7 +14,7 @@ setup() {
   assert [ -f "$CUSTOM_TARGET/example-skill/scripts/run.sh" ]
 
   assert_store_symlink "$CUSTOM_TARGET/example-skill"
-  assert_store_symlink "$GCROOTS_DIR/claude-skill-example-skill" "GC root"
+  assert_store_symlink "$(gc_root example-skill)" "GC root"
 
   refute [ -e "$HOME/.claude/skills/example-skill" ]
 }

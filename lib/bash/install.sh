@@ -37,8 +37,9 @@ Positional <skill-name>...:
 
 Default (symlink mode):
   For each skill, creates a symlink at <target>/<skill> pointing to its
-  content under the Nix store, and registers a per-user GC root so the
-  store path is protected from \`nix-store --gc\`.
+  content under the Nix store, and registers a per-user GC root for this
+  target dir (<gcroots>/claude-skill-<target-hash>-<skill>) so the store
+  path is protected from \`nix-store --gc\`.
 
 --profile:
   Installs each skill into your Nix profile (\`nix profile install\`),
@@ -108,17 +109,11 @@ symlink)
   for entry in "${effective_skills[@]}"; do
     parse_skill_entry "$entry"
     target="$target_root/$skill_name"
-    gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
 
     ensure_symlink "$target" "$skill_subpath" 'installed (symlink)'
 
-    if [ "$gcroots_ok" = "1" ] &&
-      [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
-      if ln -sfn "$store_path" "$gcroot_target" 2>/dev/null; then
-        printf 'GC root: %s -> %s\n' "$gcroot_target" "$store_path"
-      else
-        printf 'WARNING: could not write GC root for %s; store path may be GC-eligible\n' "$skill_name" >&2
-      fi
+    if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$skill_name" "$store_path" announce; then
+      printf 'WARNING: could not write GC root for %s; store path may be GC-eligible\n' "$skill_name" >&2
     fi
 
     lock_upsert "$skill_name" "$store_path"

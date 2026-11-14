@@ -672,7 +672,7 @@ let
     };
 
   # Uninstall: undo a prior install for one or more named skills. Removes
-  # the user-facing symlink, the per-user GC root, and the lock entry — the
+  # the user-facing symlink, the target's per-user GC root, and the lock entry — the
   # three things `mkInstaller` writes. Refuses to touch entries it can't
   # confidently identify as managed by this lineage (sentinel `managedBy`
   # match, or naming-convention fallback for broken-symlink case), so a

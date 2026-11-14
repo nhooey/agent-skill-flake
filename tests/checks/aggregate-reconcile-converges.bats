@@ -21,14 +21,14 @@ setup() {
   assert [ -L "$CUSTOM_TARGET/alpha" ]
   assert [ -L "$CUSTOM_TARGET/beta" ]
   assert [ -L "$CUSTOM_TARGET/src-gamma" ]
-  assert [ -L "$GCROOTS_DIR/claude-skill-src-gamma" ]
+  assert [ -L "$(gc_root src-gamma)" ]
 
   run "$RECONCILE_REDUCED_APP" "${scope_args[@]}"
   assert_success
 
   # The dropped skill and its GC root are gone; base survives.
   refute [ -e "$CUSTOM_TARGET/src-gamma" ]
-  refute [ -e "$GCROOTS_DIR/claude-skill-src-gamma" ]
+  refute [ -e "$(gc_root src-gamma)" ]
   assert [ -L "$CUSTOM_TARGET/alpha" ]
   assert [ -L "$CUSTOM_TARGET/beta" ]
   assert [ -f "$CUSTOM_TARGET/alpha/SKILL.md" ]

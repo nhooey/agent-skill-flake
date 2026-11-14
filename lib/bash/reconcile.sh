@@ -43,14 +43,11 @@ fi
 declare -A keep_set=()
 for entry in "${skills_list[@]}"; do
   parse_skill_entry "$entry"
-  gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
 
   ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)'
 
-  if [ "$gcroots_ok" = "1" ] &&
-    [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$store_path" ]; then
-    ln -sfn "$store_path" "$gcroot_target" ||
-      printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
+  if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$skill_name" "$store_path"; then
+    printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
   fi
 
   keep_set["$skill_name"]=1
@@ -71,11 +68,8 @@ for entry in "${preferences_list[@]}"; do
     continue
   fi
   ensure_symlink "$target_root/$pref_file" "$pref_path" 'reconciled (preferences)'
-  gcroot_target="${gcroots_dir}/${GC_ROOT_PREFIX}${pref_file}"
-  if [ "$gcroots_ok" = "1" ] &&
-    [ "$(readlink "$gcroot_target" 2>/dev/null)" != "$pref_path" ]; then
-    ln -sfn "$pref_path" "$gcroot_target" ||
-      printf 'WARNING: could not write GC root for %s\n' "$pref_file" >&2
+  if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$pref_file" "$pref_path"; then
+    printf 'WARNING: could not write GC root for %s\n' "$pref_file" >&2
   fi
   pref_entries+=("$entry")
 done

@@ -18,7 +18,7 @@
 #   $dry_run                                 — "1" prints without removing
 #   entry_predicate <entry>                  — returns 0 if <entry> qualifies
 # Requires ownership.bash + lock.bash already sourced (is_ours_*,
-# cleanup_skill_entry, lock_remove).
+# cleanup_skill_entry, lock_remove, lock_store_path).
 
 lineage_sweep() {
   local entry name gc target swept=0
@@ -40,21 +40,50 @@ lineage_sweep() {
     done
   fi
 
-  # 2. Walk $gcroots_dir/claude-skill-* — prune orphan GC roots whose
-  #    store-path target no longer exists in the store.
+  # 2. Walk $gcroots_dir/claude-skill-* — prune GC roots that protect
+  #    nothing:
+  #      - any root whose store-path target no longer exists in the store;
+  #      - a legacy shared root (claude-skill-<name>, no target tag) whose
+  #        store path another, per-target root also points at.
+  #    A live legacy root no per-target root covers is kept: some target
+  #    not yet re-installed may still have only that root protecting it.
+  #    The lock entry goes too only when the root was this target's.
   if [ -d "$gcroots_dir" ]; then
     shopt -s nullglob
+    local -A tagged_targets=()
+    local reason lock_sp
     for gc in "${gcroots_dir}/${GC_ROOT_PREFIX}"*; do
       [ -L "$gc" ] || continue
+      gc_root_parse "${gc##*/}" || continue
+      if [ -n "$gc_root_parsed_tag" ]; then
+        tagged_targets["$(readlink "$gc")"]=1
+      fi
+    done
+    for gc in "${gcroots_dir}/${GC_ROOT_PREFIX}"*; do
+      [ -L "$gc" ] || continue
+      gc_root_parse "${gc##*/}" || continue
+      name=$gc_root_parsed_name
       target=$(readlink "$gc")
-      [ -e "$target" ] && continue
-      name=${gc##*/"${GC_ROOT_PREFIX}"}
+      if [ ! -e "$target" ]; then
+        reason='target gone'
+      elif [ -z "$gc_root_parsed_tag" ] && [ -n "${tagged_targets[$target]+x}" ]; then
+        reason='legacy, superseded by a per-target root'
+      else
+        continue
+      fi
       if [ "$dry_run" = "1" ]; then
-        printf 'would %s GC root (target gone): %s\n' "$sweep_verb" "$gc"
+        printf 'would %s GC root (%s): %s\n' "$sweep_verb" "$reason" "$gc"
       else
         rm -f "$gc"
-        lock_remove "$name"
-        printf '%s GC root (target gone): %s\n' "$sweep_label" "$gc"
+        if [ "$gc_root_parsed_tag" = "$gc_root_tag" ]; then
+          lock_remove "$name"
+        elif [ -z "$gc_root_parsed_tag" ] && [ ! -e "$target" ]; then
+          lock_sp=$(lock_store_path "$name")
+          if [ "$lock_sp" = "$target" ]; then
+            lock_remove "$name"
+          fi
+        fi
+        printf '%s GC root (%s): %s\n' "$sweep_label" "$reason" "$gc"
       fi
       swept=$((swept + 1))
     done

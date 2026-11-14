@@ -74,6 +74,15 @@ lock_installed_by() {
   jq -r --arg n "$skill_name" '(.skills[$n] // .preferences[$n] // {}).installedBy // empty' "$lock" 2>/dev/null || true
 }
 
+# lock_store_path  $name  -> prints the storePath the lock records for
+# $name (a skill or a preferences file), or empty if absent.
+lock_store_path() {
+  local lock
+  lock=$(lock_path)
+  [ -f "$lock" ] || return 0
+  jq -r --arg n "$1" '(.skills[$n] // .preferences[$n] // {}).storePath // empty' "$lock" 2>/dev/null || true
+}
+
 # lock_remove  $skill_name
 lock_remove() {
   local skill_name="$1" lock tmp
@@ -85,18 +94,20 @@ lock_remove() {
 }
 
 # remove_skill_links  $skill_name
-# Remove a skill's user-facing symlink (<target_root>/<name>) and per-user
-# GC root (<gcroots_dir>/claude-skill-<name>). Leaves the lock untouched —
+# Remove a skill's user-facing symlink (<target_root>/<name>) and this
+# target's per-user GC root (see gc_root_path). Leaves the lock untouched —
 # reconcile owns the lock and rebuilds it wholesale, so its sweep removes
-# only the links and defers the lock to lock_replace_all.
+# only the links and defers the lock to lock_replace_all. A legacy shared
+# root (claude-skill-<name>) is left alone: another target may depend on
+# it; lineage_sweep removes it once nothing can.
 remove_skill_links() {
   local skill_name="$1"
   rm -f "$target_root/$skill_name"
-  rm -f "${gcroots_dir}/${GC_ROOT_PREFIX}${skill_name}"
+  rm -f "$(gc_root_path "$skill_name")"
 }
 
 # cleanup_skill_entry  $skill_name
-# Full inverse of an install: drop the symlink, the GC root, and the lock
+# Full inverse of an install: drop the symlink, this target's GC root, and the lock
 # entry. Used by uninstall and by reap's broken-target pass.
 cleanup_skill_entry() {
   local skill_name="$1"
