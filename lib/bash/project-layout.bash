@@ -10,8 +10,8 @@
 # (`.config/agent-skill-flake/config.local.toml`) and each skill the lock
 # lists are ignored, one line each, in a marked block of
 # `<git-common-dir>/info/exclude` — the common dir, so every linked worktree
-# shares it — rewritten after every install, reconcile, uninstall, reap
-# and purge. Anything else in
+# shares it, and the block lists what every worktree's lock names —
+# rewritten after every install, reconcile, uninstall, reap and purge. Anything else in
 # project_suffix, such as a skill or preferences file the project commits,
 # stays visible to git, and no tracked file in the repo is touched.
 #
@@ -168,27 +168,42 @@ move_project_link_aside() {
 
 # Rewrite the marked block of the repo's shared info/exclude to list
 # exactly what this flake manages at project scope: project_link, the lock
-# file (and its temp files), the local config override, and each skill the
-# lock names. Lines outside
-# the block are kept as they are. A no-op outside --scope=project, and
-# outside a git repo (a flake.nix-only project root).
+# file (and its temp files), the local config override, and each skill or
+# preferences file named by the lock of ANY of the repo's worktrees. The
+# file is shared by every linked worktree, so a block built from this
+# worktree's lock alone would drop the others' entries whenever one
+# worktree installed, reconciled, uninstalled, reaped or purged. Lines
+# outside the block are kept as they are. A no-op outside --scope=project,
+# and outside a git repo (a flake.nix-only project root).
 sync_project_excludes() {
   [ "$install_scope" = "project" ] || return 0
-  local common exclude lock name block current rest
+  local common exclude prefix wt lock name block current rest
   common=$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   [ -n "$common" ] || return 0
   exclude="$common/info/exclude"
-  lock="$target_root/$PROJECT_LOCK_FILE"
+  # The project root's path within its worktree, so each worktree's lock
+  # is found at the same place in it.
+  prefix=$(git -C "$project_root" rev-parse --show-prefix 2>/dev/null || true)
+
+  local -a locks=("$target_root/$PROJECT_LOCK_FILE")
+  while IFS= read -r wt; do
+    case "$wt" in
+    "worktree "*) locks+=("${wt#worktree }/$prefix$project_suffix/$PROJECT_LOCK_FILE") ;;
+    esac
+  done < <(git -C "$project_root" worktree list --porcelain 2>/dev/null || true)
 
   block="$EXCLUDE_BEGIN"$'\n'
   [ -n "${project_link:-}" ] && block+="/$project_link"$'\n'
   block+="/$project_suffix/$PROJECT_LOCK_FILE*"$'\n'
   block+="/$PROJECT_LOCAL_CONFIG"$'\n'
-  if [ -f "$lock" ]; then
-    while IFS= read -r name; do
-      [ -n "$name" ] && block+="/$project_suffix/$name"$'\n'
-    done < <(jq -r '(.skills // {}) + (.preferences // {}) | keys[]' "$lock" 2>/dev/null || true)
-  fi
+  while IFS= read -r name; do
+    [ -n "$name" ] && block+="/$project_suffix/$name"$'\n'
+  done < <(
+    for lock in "${locks[@]}"; do
+      [ -f "$lock" ] || continue
+      jq -r '(.skills // {}) + (.preferences // {}) | keys[]' "$lock" 2>/dev/null || true
+    done | LC_ALL=C sort -u
+  )
   block+="$EXCLUDE_END"$'\n'
 
   current=""

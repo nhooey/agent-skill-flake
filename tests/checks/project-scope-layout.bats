@@ -319,3 +319,46 @@ assert_layout() {
 
   assert_equal "$(grep -cxF '# agent-skill-flake: begin (rewritten by install and reconcile)' "$exclude")" "1"
 }
+
+@test "purge in a linked worktree keeps the main checkout's exclude lines" {
+  local proj="$BATS_TEST_TMPDIR/purge-main" wt="$BATS_TEST_TMPDIR/purge-wt"
+  make_repo "$proj"
+  git -C "$proj" worktree add -q -b side "$wt"
+  local exclude="$proj/.git/info/exclude"
+
+  run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
+  assert_success
+  run_in_dir "$wt" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR"
+  assert_success
+  run_in_dir "$wt" "$PURGE_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" --yes
+  assert_success
+  refute [ -L "$wt/.agents/skills/alpha" ]
+
+  assert_layout "$proj" "$exclude"
+  run git -C "$proj" status --porcelain
+  assert_success
+  assert_output ""
+}
+
+@test "each worktree's rewrite keeps the skills only another worktree installed" {
+  local proj="$BATS_TEST_TMPDIR/split-main" wt="$BATS_TEST_TMPDIR/split-wt"
+  make_repo "$proj"
+  git -C "$proj" worktree add -q -b side "$wt"
+  local exclude="$proj/.git/info/exclude"
+
+  run_in_dir "$proj" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" alpha
+  assert_success
+  run_in_dir "$wt" "$INSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" beta
+  assert_success
+  assert_equal "$(grep -cxF '/.agents/skills/alpha' "$exclude")" "1"
+  assert_equal "$(grep -cxF '/.agents/skills/beta' "$exclude")" "1"
+
+  # Uninstalling alpha from the main checkout drops alpha's line only.
+  run_in_dir "$proj" "$UNINSTALL_ALL_APP" --scope=project --gcroots-dir="$GCROOTS_DIR" alpha
+  assert_success
+  refute grep -qxF '/.agents/skills/alpha' "$exclude"
+  assert_equal "$(grep -cxF '/.agents/skills/beta' "$exclude")" "1"
+  run git -C "$wt" status --porcelain
+  assert_success
+  assert_output ""
+}
