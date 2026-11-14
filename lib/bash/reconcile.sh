@@ -80,7 +80,9 @@ done
 # appName (installedBy set and != owner_app) belongs to a coexisting
 # aggregate and is left alone — so multiple aggregates can share one
 # target dir, each declaratively owning its own slice. An entry the
-# lock attributes to *us* is swept. An entry with no recorded owner
+# lock attributes to *us* is swept, and so is another appName's entry
+# from before installs recorded `managedBy` whose store path is gone
+# (is_ours_broken_by_lock). An entry with no recorded owner
 # (a stray with no lock entry) falls back to the lineage rule: swept
 # iff its sentinel / GC root marks it ours.
 swept=0
@@ -95,6 +97,13 @@ if [ -d "$target_root" ]; then
       if [ "$installed_by" = "${owner_app:-}" ]; then
         remove_skill_links "$name"
         printf 'reconciled (sweep): %s\n' "$entry"
+        swept=$((swept + 1))
+      elif is_ours_broken_by_lock "$entry"; then
+        # A pre-`managedBy` entry whose store path is gone, often under an
+        # appName since renamed: no owner can revive it. Its lock entry
+        # goes too, since lock_replace_all keeps other appNames' entries.
+        cleanup_skill_entry "$name"
+        printf 'reconciled (sweep, broken): %s\n' "$entry"
         swept=$((swept + 1))
       fi
       # else: owned by another appName — leave it for that owner.

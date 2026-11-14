@@ -648,6 +648,18 @@ in
     };
   };
 
+  # reap and reconcile remove broken entries from a lock written before
+  # installs recorded managedBy, under an appName since renamed.
+  reap-pre-managed-by-entries = mkBatsCheck {
+    name = "reap-pre-managed-by-entries";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      REAP_ALL_APP = reapAllApp;
+      RECONCILE_ALL_APP = reconcileAllApp;
+      PRE_MANAGED_BY_LOCK = ./tests/fixtures/pre-managed-by-lock.json;
+    };
+  };
+
   # check reports links whose store path lacks the target's own GC root.
   check-gc-roots = mkBatsCheck {
     name = "check-gc-roots";
