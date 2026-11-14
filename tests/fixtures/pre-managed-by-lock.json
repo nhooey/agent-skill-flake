@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "skills": {
+    "github-pull-request-changeset-prompt": {
+      "storePath": "/nix/store/z245p6rlv9wx3l2wn5sa47nhblvzz1sh-claude-skill-github-pull-request-changeset-prompt-0.1.0",
+      "installedAt": "2026-06-06T10:52:59Z",
+      "installedBy": "agent-skills-devshell"
+    },
+    "github-pull-request-stacked": {
+      "storePath": "/nix/store/xkcnlwbs30188iywbr0xncx070y1skr9-claude-skill-github-pull-request-stacked-0.1.0",
+      "installedAt": "2026-06-06T10:52:59Z",
+      "installedBy": "agent-skills-devshell"
+    },
+    "github-pull-request-status-line": {
+      "storePath": "/nix/store/zm3cjg36afpbmzrb7by161rma04ykgv0-claude-skill-github-pull-request-status-line-0.1.0",
+      "installedAt": "2026-06-06T10:52:59Z",
+      "installedBy": "agent-skills-devshell"
+    },
+    "github-pull-request-watcher": {
+      "storePath": "/nix/store/c676ak9k3q8xs0475hpyrywi3nvxzsik-claude-skill-github-pull-request-watcher-0.1.0",
+      "installedAt": "2026-06-06T10:52:59Z",
+      "installedBy": "agent-skills-devshell"
+    }
+  }
+}

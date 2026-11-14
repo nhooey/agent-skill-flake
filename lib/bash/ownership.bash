@@ -9,6 +9,11 @@
 #      the legacy shared `claude-skill-<name>`. This is a naming-convention
 #      signal — single-lineage assumption: a user with forks of
 #      agent-skill-flake could see false-positives across lineages.
+#   3. If the symlink target is broken and no GC root names it, accept a
+#      lock entry written before installs recorded `managedBy`: the
+#      directory's lock lists <name> with no `managedBy`, and the link
+#      points into that entry's `storePath`, a missing
+#      `/nix/store/*-claude-skill-*` path.
 
 # is_ours_live  $entry  $upstream_url
 # Returns 0 if the symlink is alive AND its sentinel matches upstream_url.
@@ -24,7 +29,8 @@ is_ours_live() {
 
 # is_ours_broken  $entry  $gcroots_dir
 # Returns 0 if the symlink target is missing AND a GC root for it exists
-# (the naming-convention fallback). Best-effort.
+# (the naming-convention fallback), or the lock holds a pre-`managedBy`
+# entry for it (is_ours_broken_by_lock). Best-effort.
 is_ours_broken() {
   local entry="$1" gcroots_dir="$2" name root
   [ -L "$entry" ] || return 1
@@ -37,5 +43,30 @@ is_ours_broken() {
       return 0
     fi
   done
+  is_ours_broken_by_lock "$entry"
+}
+
+# is_ours_broken_by_lock  $entry
+# Returns 0 if the lock in the entry's directory lists it with no
+# `managedBy` and a `storePath` that is a missing claude-skill store
+# path, and the link points into that store path.
+is_ours_broken_by_lock() {
+  local entry="$1" lock name store_path target
+  lock="$(dirname "$entry")/.agent-skill-flake-lock.json"
+  [ -f "$lock" ] || return 1
+  name=$(basename "$entry")
+  store_path=$(jq -r --arg n "$name" '
+    .skills[$n] // empty
+    | select((.managedBy // "") == "")
+    | .storePath // empty' "$lock" 2>/dev/null) || return 1
+  case "$store_path" in
+  /nix/store/*-claude-skill-*) ;;
+  *) return 1 ;;
+  esac
+  [ -e "$store_path" ] && return 1
+  target=$(readlink "$entry")
+  case "$target" in
+  "$store_path" | "$store_path"/*) return 0 ;;
+  esac
   return 1
 }
