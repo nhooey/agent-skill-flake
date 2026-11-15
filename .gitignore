@@ -1,3 +1,12 @@
 /result
 /result-*
 /.worktrees/
+
+# Project-scope skill installs from `nix develop`'s startup hooks; the
+# skills' preferences files beside them are the project's own. The
+# directory itself is re-included so a clone-local exclude of the whole
+# directory can't hide the preferences files.
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/*.preferences.md
+/.claude/skills
