@@ -898,7 +898,7 @@ Options under `agent-skill-flake.devshellSkills`:
 | `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
 | `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
 | `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
-| `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the two `skills` commands are always included. |
+| `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the three `skills` commands are always included. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
 dogfoods the module in its own [`flake.nix`](flake.nix) (listing the bundle's
