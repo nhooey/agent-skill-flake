@@ -440,8 +440,8 @@ re-prefixing.
 A "marketplace" flake pulls several upstream skill flakes, optionally
 cherry-picks and namespace-prefixes them, and exposes a merged package
 set + install apps + a devshell that installs everything. The five
-helpers below promote that logic out of the consumer (which used to
-hand-roll it against the private `lib/internal.nix` module).
+helpers below give the consumer that logic without importing the private
+`lib/internal.nix` module.
 
 If you only need the top-level result, reach for
 [`mkAggregateSkillsFlake`](#mkaggregateskillsflake) — it composes the
@@ -454,8 +454,7 @@ other four. They are also exposed individually for finer control.
 
 ### `mkInstaller` — installer over an arbitrary skill set
 
-The single primitive that used to force consumers to import
-`lib/internal.nix`. Builds a `bin/install-<appName>` over an
+Builds a `bin/install-<appName>` over an
 already-built `[ { name; drv; } ]` list, resolving the agent profile for
 you.
 

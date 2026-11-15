@@ -1,8 +1,7 @@
 # Marketplace / aggregation helpers — the supported public surface for
 # building a flake that pulls several upstream skill flakes, optionally
-# prefixes them, and installs an arbitrary skill set. These promote logic
-# that aggregator ("marketplace") consumers used to hand-roll against the
-# private `internal.nix` module.
+# prefixes them, and installs an arbitrary skill set, without the
+# consumer importing the private `internal.nix` module.
 #
 # Kept in their own module (rather than inline in lib/default.nix) so both
 # the public surface (lib/default.nix) and lib/mk-aggregate-skills-flake.nix
@@ -19,8 +18,7 @@
 let
   withNamePrefix = import ./with-name-prefix.nix { };
 
-  # Installer over an arbitrary, already-built skill set. The single
-  # primitive that used to force consumers to import internal.nix: a public
+  # Installer over an arbitrary, already-built skill set: a public
   # wrapper around `internal.mkInstaller` that resolves the agent profile
   # itself.
   mkInstaller =

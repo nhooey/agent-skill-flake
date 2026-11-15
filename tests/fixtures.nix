@@ -224,8 +224,7 @@ in
 
   # Same appName "converge", source dropped — the union shrinks to base
   # (alpha, beta) only, so reconciling with it must sweep the now-stray
-  # src-gamma left by the full reconcile. This is the regression test for
-  # the git-skills stray-leftover bug.
+  # src-gamma left by the full reconcile.
   fixtureAggConvergeReduced = mkAgg {
     skillsDir = ./example-skills-dir;
     name = "converge";
@@ -349,9 +348,8 @@ in
   };
 
   # ── Combination (mkCombination) ──────────────────────────────────────
-  # Regression guard for the dropped-`packages` smell: feed the combination
-  # back in as a source — the re-aggregated set must contain its prefixed
-  # key (`agent-skill-cx-gamma`). (`fixtureCombination` is in the `let` above.)
+  # Feed the combination back in as a source — the re-aggregated set must
+  # contain its prefixed key (`agent-skill-cx-gamma`). (`fixtureCombination` is in the `let` above.)
   fixtureCombinationReused = mkAgg {
     name = "combo-reused";
     sources = [ { source = fixtureCombination; } ];

@@ -125,8 +125,7 @@ let
   # and checks.nix already iterates per system with `nixpkgs` in scope.
 
   # `lib.mkInstaller` over an arbitrary [{name;drv;}] set (alpha + beta
-  # lifted straight off fixtureAll). The primitive that used to force the
-  # internal.nix import.
+  # lifted straight off fixtureAll), without importing internal.nix.
   arbitraryInstaller = self.lib.mkInstaller {
     inherit nixpkgs system;
     appName = "arbitrary";
@@ -1113,7 +1112,7 @@ in
         + "reconcile-aggregate-base --scope=project invocation. Got:\n${script}";
     };
 
-  # Convergence (the git-skills stray-leftover regression): the full union
+  # Convergence: the full union
   # installs base + a prefixed source (src-gamma); reconciling with the
   # reduced aggregate (same appName, source dropped) sweeps src-gamma and
   # leaves base alone. Both reconciles share appName "converge" so the
@@ -1181,8 +1180,7 @@ in
   # Cherry-pick (per-source `skills`): only the selected skill installs; the
   # dropped sibling never lands. Covers both the verbatim source arm (`alpha`
   # kept, `beta` dropped) and the prefixed arm (`px-alpha` kept, `px-beta`
-  # dropped) — the regression for the `skills` field the reconcile rewrite
-  # ignored.
+  # dropped).
   aggregate-cherry-pick = mkBatsCheck {
     name = "aggregate-cherry-pick";
     env = {
@@ -1240,9 +1238,8 @@ in
   # mkCombination — an aggregate that is also a source, plus an env.
   # ──────────────────────────────────────────────────────────────
 
-  # Source-ability (the dropped-`packages` regression): re-aggregating a
-  # combination must surface its prefixed key. Fails against the old
-  # hand-wrapped shape (no `packages`); passes with the helper.
+  # Source-ability: re-aggregating a combination must surface its prefixed
+  # key, which needs the combination to expose `packages`.
   combination-source-able = mkEvalCheck {
     name = "combination-source-able";
     cond = fixtureCombinationReused.packages.${system} ? "agent-skill-cx-gamma";

@@ -40,8 +40,7 @@
     description = ''
       When `true`, also reconcile every agent-skill-flake-tagged package in
       `home.packages` (in addition to whatever is listed in `skills`).
-      Mirrors the auto-discovery the deprecated darwin module did over
-      `environment.systemPackages`. Off by default — consumers usually
+      Off by default — consumers usually
       prefer a single explicit `skills` list as the source of truth.
     '';
   };
