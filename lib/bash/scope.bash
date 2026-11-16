@@ -260,10 +260,17 @@ wants_help() {
 # change as "$3: $1 -> $2" only when one was made. Direct `readlink`
 # (no -f) compares the link's literal target, so an already-correct link
 # is left untouched and silent — the install/reconcile no-op fast path.
+# Only a symlink is ever replaced: a file or directory at $1 is the
+# project's own, so it is left as it is, with a warning, and the call
+# returns 1.
 ensure_symlink() {
   local link=$1 dest=$2 label=$3
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    printf 'WARNING: %s is the project'"'"'s own file; not replacing it with a link\n' "$link" >&2
+    return 1
+  fi
   if [ "$(readlink "$link" 2>/dev/null)" != "$dest" ]; then
-    rm -rf "$link"
+    rm -f "$link"
     ln -sfn "$dest" "$link"
     printf '%s: %s -> %s\n' "$label" "$link" "$dest"
   fi

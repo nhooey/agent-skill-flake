@@ -95,14 +95,18 @@ lock_remove() {
 
 # remove_skill_links  $skill_name
 # Remove a skill's user-facing symlink (<target_root>/<name>) and this
-# target's per-user GC root (see gc_root_path). Leaves the lock untouched —
+# target's per-user GC root (see gc_root_path). Every entry this flake
+# makes is a symlink, so a file or directory at that path is the
+# project's own and is never removed. Leaves the lock untouched —
 # reconcile owns the lock and rebuilds it wholesale, so its sweep removes
 # only the links and defers the lock to lock_replace_all. A legacy shared
 # root (claude-skill-<name>) is left alone: another target may depend on
 # it; lineage_sweep removes it once nothing can.
 remove_skill_links() {
   local skill_name="$1"
-  rm -f "$target_root/$skill_name"
+  if [ -L "$target_root/$skill_name" ]; then
+    rm -f "$target_root/$skill_name"
+  fi
   rm -f "$(gc_root_path "$skill_name")"
 }
 

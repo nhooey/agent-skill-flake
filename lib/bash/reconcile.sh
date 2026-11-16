@@ -40,17 +40,20 @@ fi
 # 1. Install / refresh each declared skill (idempotent).
 #    keep_set doubles as the O(1) membership test the step-2 sweep uses to
 #    skip declared entries (vs. a per-entry linear scan of a names list).
+#    A skill whose path holds the project's own file or directory is
+#    kept in keep_set but left unlinked, unrooted and out of the lock.
 declare -A keep_set=()
+declare -a linked_skills=()
 for entry in "${skills_list[@]}"; do
   parse_skill_entry "$entry"
+  keep_set["$skill_name"]=1
 
-  ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)'
+  ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)' || continue
 
   if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$skill_name" "$store_path"; then
     printf 'WARNING: could not write GC root for %s\n' "$skill_name" >&2
   fi
-
-  keep_set["$skill_name"]=1
+  linked_skills+=("$entry")
 done
 
 # 1b. Link each declared preferences file beside the skills, GC-rooted
@@ -62,12 +65,7 @@ for entry in "${preferences_list[@]}"; do
   pref_file=${entry%%:*}
   pref_path=${entry#*:}
   keep_set["$pref_file"]=1
-  if [ -e "$target_root/$pref_file" ] && [ ! -L "$target_root/$pref_file" ]; then
-    printf 'WARNING: %s is the project'"'"'s own file; not linking the declared preferences over it\n' \
-      "$target_root/$pref_file" >&2
-    continue
-  fi
-  ensure_symlink "$target_root/$pref_file" "$pref_path" 'reconciled (preferences)'
+  ensure_symlink "$target_root/$pref_file" "$pref_path" 'reconciled (preferences)' || continue
   if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$pref_file" "$pref_path"; then
     printf 'WARNING: could not write GC root for %s\n' "$pref_file" >&2
   fi
@@ -85,6 +83,11 @@ done
 # (is_ours_broken_by_lock). An entry with no recorded owner
 # (a stray with no lock entry) falls back to the lineage rule: swept
 # iff its sentinel / GC root marks it ours.
+#
+# Only symlinks are swept. A file or directory the lock names as ours is
+# one the project put in place of a link this flake made, such as a
+# `<skill>.preferences.md` committed where a declared one used to be
+# linked: it is kept, and only its GC root goes.
 swept=0
 if [ -d "$target_root" ]; then
   shopt -s nullglob
@@ -94,7 +97,10 @@ if [ -d "$target_root" ]; then
 
     installed_by=$(lock_installed_by "$name")
     if [ -n "$installed_by" ]; then
-      if [ "$installed_by" = "${owner_app:-}" ]; then
+      if [ "$installed_by" = "${owner_app:-}" ] && [ ! -L "$entry" ]; then
+        rm -f "$(gc_root_path "$name")"
+        printf 'kept: %s is the project'"'"'s own file, not a link this flake made\n' "$entry"
+      elif [ "$installed_by" = "${owner_app:-}" ]; then
         remove_skill_links "$name"
         printf 'reconciled (sweep): %s\n' "$entry"
         swept=$((swept + 1))
@@ -125,8 +131,8 @@ fi
 # 3. Rewrite the aggregate lock to match the declared set exactly.
 #    Skills not in the declared set are dropped from the lock here
 #    (their symlinks/GC roots were already removed in step 2).
-if [ ${#skills_list[@]} -gt 0 ]; then
-  lock_replace_all "${skills_list[@]}"
+if [ ${#linked_skills[@]} -gt 0 ]; then
+  lock_replace_all "${linked_skills[@]}"
 else
   lock_replace_all
 fi

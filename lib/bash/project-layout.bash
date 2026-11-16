@@ -253,7 +253,7 @@ ensure_project_layout() {
   mkdir -p "$target_root"
   if [ -n "$link_path" ]; then
     mkdir -p "$(dirname "$link_path")"
-    ensure_symlink "$link_path" "$link_dest" 'linked'
+    ensure_symlink "$link_path" "$link_dest" 'linked' || return 1
   fi
   sync_project_excludes
 }

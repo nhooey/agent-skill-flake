@@ -1130,8 +1130,9 @@ in
   # a silent no-op (no per-skill `reconciled (install): …` lines), matching
   # the silent-no-op behavior from #13.
   # Declared preferences are linked beside the skills, GC-rooted and
-  # locked; a project's own file at that path is left alone; dropping them
-  # sweeps the link, and purge removes it.
+  # locked; a project's own file at that path is left alone, even one the
+  # lock records as a link this flake made; dropping them sweeps the link,
+  # and purge removes it. Only symlinks are ever replaced or swept.
   aggregate-reconcile-preferences = mkBatsCheck {
     name = "aggregate-reconcile-preferences";
     env = {
