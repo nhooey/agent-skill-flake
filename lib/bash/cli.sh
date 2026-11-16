@@ -6,6 +6,7 @@
 #   upstream_url       this lineage's managedBy URL
 #   project_link       the profile's project-scope link (.claude/skills)
 #   reconcile_script   store path of reconcile.sh, sourced by sync-project
+#   shipped_defaults_file  store path of lib/config/defaults.toml
 # and the sourced modules config.bash, apply.bash, ownership.bash,
 # lock.bash and project-layout.bash.
 
@@ -21,6 +22,9 @@ Commands:
   sync-project   Install the current repo's configured skills into
                  <repo-root>/$project_suffix and remove the ones it installed
                  that are no longer configured.
+  config show    Print the user-global config merged over the shipped
+                 defaults, as JSON. With --defaults, print the shipped
+                 defaults file, which lists and explains every setting.
   help           Show this help and exit.
 
 sync-project options:
@@ -31,19 +35,72 @@ sync-project options:
                         (default: /nix/var/nix/gcroots/per-user/\$USER).
 
 Files:
+  $shipped_defaults_file
+      shipped defaults: every setting and its default (config show --defaults)
   $(global_config_file)
       user-global: [defaults], [repo."<host>/<owner>/<name>"], [agents.<agent>]
   <repo-root>/$LOCAL_CONFIG_RELPATH
       in-checkout override of the repo's table; never committed
 
-Precedence: the local file > the user-global repo entry > [defaults]. The
+Each file names only what it changes; a key the shipped defaults don't
+have is an error. Precedence: the local file > the user-global repo entry
+> [defaults] > the shipped defaults. The
 local file replaces the repo entry unless it has a \`merge\` table; see the
 README's "User config" section.
 EOF
 }
 
+# load_global_config — the user-global config, validated and merged over
+# the shipped defaults, as JSON. With no user-global file, the shipped
+# defaults alone.
+load_global_config() {
+  local file shipped global='{}'
+  shipped=$(read_shipped_defaults) || {
+    printf 'agent-skill-flake: could not read the shipped defaults %s\n' "$shipped_defaults_file" >&2
+    return 1
+  }
+  file=$(global_config_file)
+  if [ -f "$file" ]; then
+    global=$(read_toml "$file") || {
+      printf 'agent-skill-flake: could not read %s\n' "$file" >&2
+      return 1
+    }
+  else
+    printf 'agent-skill-flake: no config at %s; using the shipped defaults\n' "$file" >&2
+  fi
+  validate_config "$shipped" "$global" null || return 1
+  merge_over_defaults "$shipped" "$global"
+}
+
+cmd_config() {
+  local arg sub=${1:-} defaults=0
+  shift || true
+  if [ "$sub" != show ]; then
+    printf 'agent-skill-flake config: expected `show`, got: %s\n' "${sub:-nothing}" >&2
+    return 2
+  fi
+  for arg in "$@"; do
+    case "$arg" in
+    --defaults) defaults=1 ;;
+    -h | --help)
+      cli_usage
+      return 0
+      ;;
+    *)
+      printf 'agent-skill-flake config show: unexpected argument: %s\n' "$arg" >&2
+      return 2
+      ;;
+    esac
+  done
+  if [ "$defaults" = 1 ]; then
+    cat "$shipped_defaults_file"
+  else
+    load_global_config
+  fi
+}
+
 cmd_apply() {
-  local arg file global rc=0
+  local arg config rc=0
   for arg in "$@"; do
     case "$arg" in
     -h | --help)
@@ -57,18 +114,8 @@ cmd_apply() {
     esac
   done
 
-  file=$(global_config_file)
-  if [ -f "$file" ]; then
-    global=$(read_toml "$file") || {
-      printf 'agent-skill-flake: could not read %s\n' "$file" >&2
-      return 1
-    }
-  else
-    printf 'agent-skill-flake: no config at %s; no agent settings to write\n' "$file"
-    global='{}'
-  fi
-
-  apply_agents "$global" || rc=1
+  config=$(load_global_config) || return 1
+  apply_agents "$config" || rc=1
   register_git_hook || rc=1
   return "$rc"
 }
@@ -113,7 +160,7 @@ build_installable() {
 
 # sync_project_run [--gcroots-dir=<path>] — the work behind sync-project.
 sync_project_run() {
-  local root origin key gfile lfile global local_json resolved origin_kind source_label
+  local root origin key gfile lfile shipped global local_json resolved origin_kind source_label
   local inst out name outs names count
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   root=$(git rev-parse --show-toplevel)
@@ -124,6 +171,10 @@ sync_project_run() {
   gfile=$(global_config_file)
   lfile=$(local_config_file "$root")
   [ -f "$gfile" ] || [ -f "$lfile" ] || return 0
+  shipped=$(read_shipped_defaults) || {
+    printf 'agent-skill-flake: could not read the shipped defaults %s\n' "$shipped_defaults_file" >&2
+    return 1
+  }
   global=$(read_toml_if_present "$gfile") || {
     printf 'agent-skill-flake: could not read %s\n' "$gfile" >&2
     return 1
@@ -132,7 +183,8 @@ sync_project_run() {
     printf 'agent-skill-flake: could not read %s\n' "$lfile" >&2
     return 1
   }
-  resolved=$(resolve_repo_config "$global" "$local_json" "$key") || return 1
+  validate_config "$shipped" "$global" "$local_json" || return 1
+  resolved=$(resolve_repo_config "$global" "$local_json" "$key" "$shipped") || return 1
   [ "$(jq -r .found <<<"$resolved")" = "true" ] || return 0
 
   if [ -d "$root/skills-devshell" ]; then
@@ -145,7 +197,7 @@ sync_project_run() {
   local) source_label="local: $LOCAL_CONFIG_RELPATH" ;;
   user-global) source_label="user-global: $gfile [repo.\"$key\"]" ;;
   "user-global defaults") source_label="user-global: $gfile [defaults]" ;;
-  *)
+  "shipped defaults")
     printf 'agent-skill-flake: no skills configured for %s; nothing to do\n' "$key"
     return 0
     ;;
@@ -227,6 +279,10 @@ cmd_sync_project() {
 }
 
 case "${1:-}" in
+config)
+  shift
+  cmd_config "$@"
+  ;;
 apply)
   shift
   cmd_apply "$@"

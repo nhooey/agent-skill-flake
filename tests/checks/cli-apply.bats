@@ -151,12 +151,35 @@ EOF
   refute [ -e "$SETTINGS" ]
 }
 
-@test "apply skips an agent with no writer yet" {
+@test "apply refuses an unknown key and changes nothing" {
   cat >>"$XDG_CONFIG_HOME/agent-skill-flake/config.toml" <<'EOF'
 [agents.some-other-agent]
 trusted-dirs = ["/x"]
 EOF
   run "$CLI" apply
+  assert_failure
+  assert_output --partial 'unknown key `agents.some-other-agent`; known keys there: claude-code'
+  refute [ -e "$SETTINGS" ]
+  refute [ -e "$GIT_CONFIG_GLOBAL" ]
+}
+
+@test "config show --defaults prints the shipped file; config show merges over it" {
+  run "$CLI" config show --defaults
   assert_success
-  assert_output --partial "some-other-agent: skipped; no writer for this agent yet"
+  assert_output --partial 'trusted-dirs = []'
+  assert_output --partial '# Flake installables'
+
+  run "$CLI" config show
+  assert_success
+  assert_equal "$(jq -c '.agents."claude-code"."trusted-dirs"' <<<"$output")" \
+    '["~/git","/srv/shared","/already"]'
+  assert_equal "$(jq -c .defaults.skills <<<"$output")" '[]'
+}
+
+@test "config show with no config file prints the shipped defaults as JSON" {
+  rm "$XDG_CONFIG_HOME/agent-skill-flake/config.toml"
+  run bash -c '"$1" config show 2>/dev/null' -- "$CLI"
+  assert_success
+  assert_equal "$(jq -cS . <<<"$output")" \
+    '{"agents":{"claude-code":{"trusted-dirs":[]}},"defaults":{"skills":[]},"repo":{}}'
 }

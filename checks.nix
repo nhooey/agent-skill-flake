@@ -511,8 +511,9 @@ in
   # The user config and the `agent-skill-flake` command.
   # ──────────────────────────────────────────────────────────────
 
-  # TOML parsing through Nix, origin normalization, and the precedence and
-  # merge rules, against lib/bash/config.bash directly. `nix` provides
+  # The shipped defaults (complete, commented, unknown keys refused), TOML
+  # parsing through Nix, origin normalization, and the precedence and merge
+  # rules, against lib/bash/config.bash directly. `nix` provides
   # `nix-instantiate`, which reads the TOML (a dummy store: no builds).
   user-config-resolve = mkBatsCheck {
     name = "user-config-resolve";
@@ -520,7 +521,10 @@ in
       pkgs.jq
       pkgs.nix
     ];
-    env.CONFIG_BASH = ./lib/bash/config.bash;
+    env = {
+      CONFIG_BASH = ./lib/bash/config.bash;
+      DEFAULTS_TOML = ./lib/config/defaults.toml;
+    };
   };
 
   # `apply`: settings.json's additionalDirectories (idempotent, other keys
