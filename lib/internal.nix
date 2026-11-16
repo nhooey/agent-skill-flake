@@ -822,6 +822,7 @@ let
           upstream_url='${provenance.upstreamUrl}'
           ${projectLinkEnv profile}
           reconcile_script='${./bash/reconcile.sh}'
+          shipped_defaults_file='${./config/defaults.toml}'
         ''
         + lib.concatMapStringsSep "\n" (m: "source ${m}") (
           projectScopeModules

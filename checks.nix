@@ -125,8 +125,7 @@ let
   # and checks.nix already iterates per system with `nixpkgs` in scope.
 
   # `lib.mkInstaller` over an arbitrary [{name;drv;}] set (alpha + beta
-  # lifted straight off fixtureAll). The primitive that used to force the
-  # internal.nix import.
+  # lifted straight off fixtureAll), without importing internal.nix.
   arbitraryInstaller = self.lib.mkInstaller {
     inherit nixpkgs system;
     appName = "arbitrary";
@@ -265,18 +264,37 @@ in
     env.INIT_APP = initApp;
   };
 
-  # Package builds.
-  example-skill-builds = skill;
-
-  # `mkSkillFlake` exposes the skill at `packages.<system>.skill-<name>`
-  # by default — the `skill-` prefix prevents collision with same-named
-  # entries in nixpkgs or aggregator flakes (e.g. `git`).
-  example-skill-package-named = mkBatsCheck {
-    name = "example-skill-package-named";
-    env.SKILL_PKG_ROOT = "${
-      fixture.packages.${system}."agent-skill-example-skill"
-    }/share/claude-skills/example-skill";
+  # The dev shell's `flake-checks` tool: argument parsing and the nix
+  # command lines it builds, read through --dry-run (no nix in the sandbox).
+  flake-checks-cli = mkBatsCheck {
+    name = "flake-checks-cli";
+    extraInputs = [ pkgs.git ];
+    env.FLAKE_CHECKS = lib.getExe (import ./scripts { inherit pkgs; }).flake-checks;
   };
+
+  # `mkSkillFlake` exposes the skill under the prefixed key
+  # `agent-skill-<name>`, never the bare name, so it can't collide with a
+  # same-named entry in nixpkgs or an aggregator flake (e.g. `git`). The
+  # prefixed key and `default` are the same derivation, and its
+  # `packageKey` passthru names the key aggregators re-key by.
+  example-skill-package-named =
+    let
+      pkgsOut = fixture.packages.${system};
+      prefixed = pkgsOut."agent-skill-example-skill" or null;
+    in
+    mkEvalCheck {
+      name = "example-skill-package-named";
+      cond =
+        prefixed != null
+        && !(pkgsOut ? "example-skill")
+        && prefixed.outPath == pkgsOut.default.outPath
+        && prefixed.packageKey == "agent-skill-example-skill";
+      msg =
+        "example-skill-package-named: expected packages.agent-skill-example-skill "
+        + "(same output as default, packageKey agent-skill-example-skill) and no "
+        + "bare example-skill key. Got keys: "
+        + builtins.toJSON (builtins.attrNames pkgsOut);
+    };
 
   # Layout: required files present, plumbing/hidden absent, sentinel
   # JSON present with the expected required fields.
@@ -300,12 +318,16 @@ in
     env.PREVIEW_APP = previewApp;
   };
 
-  # Single-skill flake exposes a reap app — sanity check that
-  # mk-skill-flake wires it correctly. Behavior is shared with the
-  # multi-skill check below; this just verifies the binding.
-  example-skill-reap-exists = mkBatsCheck {
-    name = "example-skill-reap-exists";
-    env.REAP_SKILL_APP = reapSkillApp;
+  # Single-skill reap removes a broken managed entry and its GC root,
+  # keeps the live install and unmanaged entries, and is a no-op on a
+  # clean target.
+  example-skill-reap = mkBatsCheck {
+    name = "example-skill-reap";
+    extraInputs = [ pkgs.findutils ];
+    env = {
+      INSTALL_APP = installApp;
+      REAP_SKILL_APP = reapSkillApp;
+    };
   };
 
   # Single-skill uninstall (no args) defaults to the skill the flake
@@ -497,8 +519,9 @@ in
   # The user config and the `agent-skill-flake` command.
   # ──────────────────────────────────────────────────────────────
 
-  # TOML parsing through Nix, origin normalization, and the precedence and
-  # merge rules, against lib/bash/config.bash directly. `nix` provides
+  # The shipped defaults (complete, commented, unknown keys refused), TOML
+  # parsing through Nix, origin normalization, and the precedence and merge
+  # rules, against lib/bash/config.bash directly. `nix` provides
   # `nix-instantiate`, which reads the TOML (a dummy store: no builds).
   user-config-resolve = mkBatsCheck {
     name = "user-config-resolve";
@@ -506,7 +529,10 @@ in
       pkgs.jq
       pkgs.nix
     ];
-    env.CONFIG_BASH = ./lib/bash/config.bash;
+    env = {
+      CONFIG_BASH = ./lib/bash/config.bash;
+      DEFAULTS_TOML = ./lib/config/defaults.toml;
+    };
   };
 
   # `apply`: settings.json's additionalDirectories (idempotent, other keys
@@ -565,10 +591,18 @@ in
     env.REAP_ALL_APP = reapAllApp;
   };
 
-  # Single-skill flake exposes a purge app (sibling of reap).
-  example-skill-purge-exists = mkBatsCheck {
-    name = "example-skill-purge-exists";
-    env.PURGE_SKILL_APP = purgeSkillApp;
+  # Single-skill purge removes the live install, its GC root and lock
+  # entry, spares unmanaged entries; --dry-run changes nothing.
+  example-skill-purge = mkBatsCheck {
+    name = "example-skill-purge";
+    extraInputs = [
+      pkgs.findutils
+      pkgs.jq
+    ];
+    env = {
+      INSTALL_APP = installApp;
+      PURGE_SKILL_APP = purgeSkillApp;
+    };
   };
 
   # Purge removes EVERY live lineage entry (no declared set, no names) and
@@ -1097,23 +1131,16 @@ in
       + "aggregate and no source aggregate leaking in.";
   };
 
-  # `reconcileScript system` is the declarative dev-shell one-liner: the
-  # combined reconcile binary over the union at --scope=project. It is a
-  # single command — one owner of the target.
-  aggregate-skills-flake-reconcile-script =
-    let
-      script = agg.reconcileScript system;
-    in
-    mkEvalCheck {
-      name = "aggregate-skills-flake-reconcile-script";
-      cond =
-        lib.hasInfix "/bin/reconcile-aggregate-base --scope=project" script && !(lib.hasInfix "\n" script);
-      msg =
-        "aggregate-skills-flake-reconcile-script: expected a single "
-        + "reconcile-aggregate-base --scope=project invocation. Got:\n${script}";
-    };
+  # `reconcileScript system` is the declarative dev-shell one-liner: run
+  # from inside a git checkout, it reconciles the whole union (base +
+  # verbatim + prefixed sources) into that checkout's .agents/skills.
+  aggregate-skills-flake-reconcile-script = mkBatsCheck {
+    name = "aggregate-skills-flake-reconcile-script";
+    extraInputs = [ pkgs.git ];
+    env.RECONCILE_SCRIPT = agg.reconcileScript system;
+  };
 
-  # Convergence (the git-skills stray-leftover regression): the full union
+  # Convergence: the full union
   # installs base + a prefixed source (src-gamma); reconciling with the
   # reduced aggregate (same appName, source dropped) sweeps src-gamma and
   # leaves base alone. Both reconciles share appName "converge" so the
@@ -1182,8 +1209,7 @@ in
   # Cherry-pick (per-source `skills`): only the selected skill installs; the
   # dropped sibling never lands. Covers both the verbatim source arm (`alpha`
   # kept, `beta` dropped) and the prefixed arm (`px-alpha` kept, `px-beta`
-  # dropped) — the regression for the `skills` field the reconcile rewrite
-  # ignored.
+  # dropped).
   aggregate-cherry-pick = mkBatsCheck {
     name = "aggregate-cherry-pick";
     env = {
@@ -1241,9 +1267,8 @@ in
   # mkCombination — an aggregate that is also a source, plus an env.
   # ──────────────────────────────────────────────────────────────
 
-  # Source-ability (the dropped-`packages` regression): re-aggregating a
-  # combination must surface its prefixed key. Fails against the old
-  # hand-wrapped shape (no `packages`); passes with the helper.
+  # Source-ability: re-aggregating a combination must surface its prefixed
+  # key, which needs the combination to expose `packages`.
   combination-source-able = mkEvalCheck {
     name = "combination-source-able";
     cond = fixtureCombinationReused.packages.${system} ? "agent-skill-cx-gamma";
@@ -1330,9 +1355,10 @@ in
     };
 
   # mkDevshellSkillsFlake surfaces a single combination as runnable apps
-  # (reconcile = converge, purge = remove-all — the verbs the root devShell
-  # wiring invokes at runtime; reap = prune-broken) and re-exposes the union's
-  # per-skill packages as a composable source.
+  # the root devShell wiring invokes by name — reconcile converges, reap
+  # prunes broken entries, purge removes the set — and re-exposes the
+  # union's per-skill packages as a composable source. The bats test runs
+  # each app against a custom target.
   devshell-skills-flake =
     let
       dsf = self.lib.mkDevshellSkillsFlake {
@@ -1340,16 +1366,17 @@ in
         name = "fixture-devshell";
         sources = [ { source = fixtureAll; } ];
       };
+      apps = dsf.apps.${system};
     in
-    mkEvalCheck {
+    mkBatsCheck {
       name = "devshell-skills-flake";
-      cond =
-        (dsf.apps.${system} ? reconcile)
-        && (dsf.apps.${system} ? purge)
-        && (dsf.apps.${system} ? reap)
-        && (dsf.packages.${system} ? "agent-skill-alpha")
-        && (dsf.combinations ? default);
-      msg = "devshell-skills-flake: must surface reconcile/purge/reap apps and the union's per-skill packages.";
+      extraInputs = [ pkgs.jq ];
+      env = {
+        RECONCILE_APP = apps.reconcile.program;
+        REAP_APP = apps.reap.program;
+        PURGE_APP = apps.purge.program;
+        ALPHA_PKG = dsf.packages.${system}."agent-skill-alpha";
+      };
     };
 
   # With `envName` omitted, mkDevshellSkillsFlake's default must be
@@ -1373,46 +1400,17 @@ in
         + dsf.combinations.default.env.${system}.name;
     };
 
-  # `devshellSkillsHook` exposes `standardCommands` — the repo-agnostic
-  # ci/dev/maintenance trio (check / fmt / update-flake) every consumer
-  # otherwise re-hand-rolls. Imports the hook as the pure function it is
-  # and asserts all three entries verbatim — including `help`, so help-text
-  # drift breaks CI too (the whole point of factoring them out).
-  devshell-hook-standard-commands =
-    let
-      cmds = (import ./lib/devshell-skills-hook.nix { }).standardCommands;
-    in
-    mkEvalCheck {
-      name = "devshell-hook-standard-commands";
-      cond =
-        builtins.length cmds == 3
-        &&
-          cmds == [
-            {
-              category = "ci";
-              name = "check";
-              help = "Run the full test suite via nix flake check";
-              command = ''nix flake check "$@"'';
-            }
-            {
-              category = "dev";
-              name = "fmt";
-              help = "Format the tree with treefmt (nixfmt + shfmt)";
-              command = ''nix fmt "$@"'';
-            }
-            {
-              category = "maintenance";
-              name = "update-flake";
-              help = "Update all flake inputs and rewrite flake.lock";
-              command = ''nix flake update "$@"'';
-            }
-          ];
-      msg =
-        "devshell-hook-standard-commands: standardCommands must be exactly the "
-        + "ci/dev/maintenance trio (check / fmt / update-flake) with matching "
-        + "category, name, help, and command. Got:\n"
-        + builtins.toJSON cmds;
-    };
+  # `devshellSkillsHook` exposes `standardCommands`, the repo-agnostic
+  # ci/dev/maintenance trio (check / fmt / update-flake). The bats test runs
+  # each command's text against a stub `nix` and checks the subcommand it
+  # runs and that the caller's arguments reach it.
+  devshell-hook-standard-commands = mkBatsCheck {
+    name = "devshell-hook-standard-commands";
+    extraInputs = [ pkgs.jq ];
+    env.STANDARD_COMMANDS = pkgs.writeText "standard-commands.json" (
+      builtins.toJSON (import ./lib/devshell-skills-hook.nix { }).standardCommands
+    );
+  };
 
   # ──────────────────────────────────────────────────────────────
   # flakeModules.devshellSkills — the exposed dev-shell flake-parts module.

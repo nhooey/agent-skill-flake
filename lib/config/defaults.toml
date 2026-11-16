@@ -1,0 +1,33 @@
+# agent-skill-flake's shipped defaults: every setting the `agent-skill-flake`
+# command reads, set to its default. It ships inside the package and is read
+# on every run; `agent-skill-flake config show --defaults` prints it.
+#
+# Your own ${XDG_CONFIG_HOME:-$HOME/.config}/agent-skill-flake/config.toml
+# names only what it changes. It is merged over this file key by key: tables
+# merge recursively, and a list or other value replaces the default whole. A
+# key this file doesn't have is an error.
+#
+# A repository's <repo-root>/.config/agent-skill-flake/config.local.toml has
+# the keys of one [repo."…"] table, plus an optional `merge` table (see the
+# README's "User config" section).
+
+# Settings under each configured repository's own table. A repository with
+# neither a [repo."<host>/<owner>/<name>"] table nor a local file is left
+# alone, whatever this says.
+[defaults]
+# Flake installables, or /nix/store paths, whose skills `sync-project`
+# installs into the repository's .agents/skills. Each must build to a
+# package with share/claude-skills/<name>/SKILL.md. Empty: no skills.
+skills = []
+
+# One table per repository, keyed by its normalized origin URL, such as
+# [repo."github.com/acme/widget"], holding any of the keys of [defaults].
+# None by default.
+[repo]
+
+# One table per agent that `apply` writes settings for.
+[agents.claude-code]
+# Directories added to permissions.additionalDirectories in
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json. A leading `~` is
+# expanded. Empty: settings.json is left alone.
+trusted-dirs = []

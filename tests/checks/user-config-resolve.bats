@@ -1,15 +1,21 @@
 #!/usr/bin/env bats
-# Inputs: CONFIG_BASH — lib/bash/config.bash, sourced directly.
+# Inputs: CONFIG_BASH — lib/bash/config.bash, sourced directly;
+#         DEFAULTS_TOML — lib/config/defaults.toml, the shipped defaults.
 #
-# The user config: TOML read through Nix into JSON, origin URLs normalized
-# to the `<host>/<owner>/<name>` repo key, and the precedence rules — the
-# local file replaces the user-global repo entry by default, and with a
-# `merge` table is deep-merged over it, with `merge.override` paths taken
-# whole from the local file.
+# The user config: the shipped defaults complete and commented, an empty
+# user config giving exactly the defaults, unknown keys refused, TOML read
+# through Nix into JSON, origin URLs normalized to the
+# `<host>/<owner>/<name>` repo key, and the precedence rules — the local
+# file replaces the user-global repo entry by default, and with a `merge`
+# table is deep-merged over it, with `merge.override` paths taken whole
+# from the local file. The precedence tests use keys outside the schema to
+# show nested merging: resolve_repo_config merges, validate_config checks.
 setup() {
   source "$BATS_HELPERS"
   setup_isolated_env
   source "$CONFIG_BASH"
+  shipped_defaults_file=$DEFAULTS_TOML
+  SHIPPED=$(read_shipped_defaults)
 }
 
 # resolve <global-toml> <local-toml|-> <key> — resolve_repo_config over two
@@ -22,7 +28,115 @@ resolve() {
     printf '%s\n' "$2" >"$BATS_TEST_TMPDIR/local.toml"
     local_json=$(read_toml "$BATS_TEST_TMPDIR/local.toml")
   fi
-  resolve_repo_config "$global_json" "$local_json" "$3"
+  resolve_repo_config "$global_json" "$local_json" "$3" "$SHIPPED"
+}
+
+# validate <global-toml|-> <local-toml|-> — validate_config over two TOML
+# snippets, `-` meaning an absent file.
+validate() {
+  local global_json="null" local_json="null"
+  if [ "$1" != "-" ]; then
+    printf '%s\n' "$1" >"$BATS_TEST_TMPDIR/global.toml"
+    global_json=$(read_toml "$BATS_TEST_TMPDIR/global.toml")
+  fi
+  if [ "$2" != "-" ]; then
+    printf '%s\n' "$2" >"$BATS_TEST_TMPDIR/local.toml"
+    local_json=$(read_toml "$BATS_TEST_TMPDIR/local.toml")
+  fi
+  validate_config "$SHIPPED" "$global_json" "$local_json"
+}
+
+GLOBAL_KNOWN='
+[defaults]
+skills = ["default-skills"]
+
+[repo."github.com/acme/widget"]
+skills = ["global-skills"]
+
+[agents.claude-code]
+trusted-dirs = ["~/git"]
+'
+
+@test "the shipped defaults set every setting the code reads, and no others" {
+  assert_equal "$(jq -c '[paths(type != "object" or . == {}) | join(".")] | sort' <<<"$SHIPPED")" \
+    '["agents.claude-code.trusted-dirs","defaults.skills","repo"]'
+  assert_equal "$(jq -c .defaults.skills <<<"$SHIPPED")" '[]'
+  assert_equal "$(jq -c '.agents."claude-code"."trusted-dirs"' <<<"$SHIPPED")" '[]'
+}
+
+@test "every key and table in the shipped defaults has a comment above it" {
+  local prev="" line
+  while IFS= read -r line; do
+    case "$line" in
+    '' | '#'*) ;;
+    *)
+      case "$prev" in
+      '#'*) ;;
+      *) fail "no comment above: $line" ;;
+      esac
+      ;;
+    esac
+    prev=$line
+  done <"$DEFAULTS_TOML"
+}
+
+@test "an empty user config gives exactly the shipped defaults" {
+  run merge_over_defaults "$SHIPPED" '{}'
+  assert_success
+  assert_equal "$(jq -cS . <<<"$output")" "$(jq -cS . <<<"$SHIPPED")"
+
+  run validate '' -
+  assert_success
+
+  run resolve '' 'merge = {}' github.com/acme/widget
+  assert_success
+  assert_equal "$(jq -c .effective <<<"$output")" '{"skills":[]}'
+  assert_equal "$(jq -r .skillsOrigin <<<"$output")" "shipped defaults"
+}
+
+@test "a sparse user config changes only its keys" {
+  run merge_over_defaults "$SHIPPED" '{"defaults": {"skills": ["s"]}}'
+  assert_success
+  assert_equal "$(jq -c .defaults.skills <<<"$output")" '["s"]'
+  assert_equal "$(jq -c '.agents."claude-code"."trusted-dirs"' <<<"$output")" '[]'
+}
+
+@test "an unknown key is refused, naming the file and the key" {
+  run validate 'colour = "red"' -
+  assert_failure
+  assert_output --partial 'config.toml: unknown key `colour`'
+
+  run validate '[defaults]
+skils = []' -
+  assert_failure
+  assert_output --partial 'unknown key `defaults.skils`; known keys there: skills'
+
+  run validate '[repo."github.com/acme/widget"]
+tools = { lint = "x" }' -
+  assert_failure
+  assert_output --partial 'unknown key `repo."github.com/acme/widget".tools`'
+
+  run validate '[agents.some-other-agent]
+trusted-dirs = ["/x"]' -
+  assert_failure
+  assert_output --partial 'unknown key `agents.some-other-agent`'
+
+  run validate '[agents.claude-code]
+trusted_dirs = ["/x"]' -
+  assert_failure
+  assert_output --partial 'unknown key `agents.claude-code.trusted_dirs`'
+
+  run validate - 'notes = "x"'
+  assert_failure
+  assert_output --partial 'config.local.toml: unknown key `notes`'
+
+  run validate - 'merge = { overide = ["skills"] }'
+  assert_failure
+  assert_output --partial 'unknown key `merge.overide`'
+
+  run validate "$GLOBAL_KNOWN" 'skills = []
+merge = { override = ["skills"] }'
+  assert_success
 }
 
 GLOBAL='

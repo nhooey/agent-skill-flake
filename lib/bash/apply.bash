@@ -1,7 +1,7 @@
 # apply.bash — the writers behind `agent-skill-flake apply`.
 #
-# `apply` reads the user-global config (config.bash) and brings user-level
-# files in line with it: each agent's settings, through the writer for that
+# `apply` reads the user-global config merged over the shipped defaults
+# (config.bash) and brings user-level files in line with it: each agent's settings, through the writer for that
 # agent, and the git config hook that runs `sync-project` after a checkout.
 #
 # Every writer changes one thing and leaves the rest of its file alone, is
@@ -11,10 +11,8 @@
 # prints what to add by hand and returns 1; it changes nothing.
 #
 # Adding an agent: write `agent_writer_<agent>` (dashes become underscores)
-# taking the agent's config table as JSON, and add the agent's name to
-# AGENT_WRITERS.
-
-AGENT_WRITERS=(claude-code)
+# taking the agent's config table as JSON, and add its `[agents.<agent>]`
+# table, with every setting at its default, to lib/config/defaults.toml.
 
 GIT_HOOK_NAME="agent-skill-flake-sync"
 GIT_HOOK_EVENT="post-checkout"
@@ -69,7 +67,7 @@ expand_home_dirs() {
 agent_writer_claude_code() {
   local agent=$1 settings dirs current updated reason
   settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-  dirs=$(jq -c '."trusted-dirs" // []' <<<"$agent")
+  dirs=$(jq -c '."trusted-dirs"' <<<"$agent")
   if ! jq -e 'type == "array" and all(type == "string")' >/dev/null <<<"$dirs"; then
     printf 'claude-code: trusted-dirs must be a list of directory paths\n' >&2
     return 1
@@ -108,23 +106,14 @@ agent_writer_claude_code() {
   printf 'claude-code: trusted dirs written to permissions.additionalDirectories in %s\n' "$settings"
 }
 
-# apply_agents <global-json> — run the writer for each [agents.<agent>]
-# table. Returns 1 if any writer refused or failed.
+# apply_agents <config-json> — run the writer for each [agents.<agent>]
+# table of the merged config. Returns 1 if any writer refused or failed.
 apply_agents() {
-  local global=$1 agent fn rc=0 known
+  local config=$1 agent rc=0
   while IFS= read -r agent; do
     [ -n "$agent" ] || continue
-    known=0
-    for fn in "${AGENT_WRITERS[@]}"; do
-      [ "$fn" = "$agent" ] && known=1
-    done
-    if [ "$known" = 0 ]; then
-      printf '%s: skipped; no writer for this agent yet (known: %s)\n' "$agent" "${AGENT_WRITERS[*]}" >&2
-      continue
-    fi
-    fn="agent_writer_${agent//-/_}"
-    "$fn" "$(jq -c --arg a "$agent" '.agents[$a]' <<<"$global")" || rc=1
-  done < <(jq -r '(.agents // {}) | keys[]' <<<"$global")
+    "agent_writer_${agent//-/_}" "$(jq -c --arg a "$agent" '.agents[$a]' <<<"$config")" || rc=1
+  done < <(jq -r '.agents | keys[]' <<<"$config")
   return "$rc"
 }
 

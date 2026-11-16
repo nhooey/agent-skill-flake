@@ -133,8 +133,7 @@ EOF
 [repo."github.com/acme/widget"]
 skills = ["$ALPHA_PKG"]
 EOF
-  write_local 'merge = { override = ["skills"] }
-notes = "local only"'
+  write_local 'merge = { override = ["skills"] }'
   sync
   assert_success
   assert_output --partial "skill alpha <- $ALPHA_PKG (user-global: $GLOBAL_CONFIG [repo.\"github.com/acme/widget\"])"

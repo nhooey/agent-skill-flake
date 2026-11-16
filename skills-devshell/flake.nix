@@ -14,22 +14,53 @@
     # skillspkgs' curated `authoring-with-git` combination (nix + humanizer +
     # anthropic/daymade skill-creation + superpowers + the whole git/GitHub
     # pack), surfaced through its own subdir flake so it stays re-composable as
-    # a source. This is the dev shell's entire skill set in one combination.
+    # a source.
     skillspkgs-combinations = {
       url = "github:nhooey/skillspkgs?dir=sources/combinations";
+      inputs.nixpkgs.follows = "nixpkgs";
+      # The combination's own git and nix packs come from the skill
+      # repositories pinned below, so each skill is installed from one rev.
+      inputs.git-skills.follows = "git-skills";
+      inputs.nix-skills.follows = "nix-skills";
+    };
+
+    # Skill repositories, the same ones `github:nhooey/skillspkgs` aggregates.
+    # They follow `nixpkgs` but not `agent-skill-flake`, so each keeps its own
+    # compatible builder.
+    coding-agent-skills = {
+      url = "github:nhooey/coding-agent-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    git-skills = {
+      url = "github:nhooey/git-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-skills = {
+      url = "github:nhooey/nix-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    shell-skills = {
+      url = "github:nhooey/shell-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    writing-skills = {
+      url = "github:nhooey/writing-skills";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  # One `mkDevshellSkillsFlake` call: the dev shell's whole skill set as a
-  # single combination, surfaced as runnable apps (reconcile / purge / …).
-  # `authoring-with-git` already bundles the git/GitHub pack alongside the
-  # authoring tooling, deduped into one consistent set, so it's the lone source.
+  # One `mkDevshellSkillsFlake` call: the dev shell's whole skill set,
+  # surfaced as runnable apps (reconcile / purge / …). `authoring-with-git`
+  # bundles the git/GitHub pack alongside the authoring tooling; the base
+  # skills every agent run in this checkout needs come from their own repos.
   outputs =
     {
       nixpkgs,
       agent-skill-flake,
       skillspkgs-combinations,
+      coding-agent-skills,
+      shell-skills,
+      writing-skills,
       ...
     }@inputs:
     agent-skill-flake.lib.mkDevshellSkillsFlake {
@@ -41,6 +72,22 @@
       packagePrefix = "agent-skill-";
       sources = [
         { source = skillspkgs-combinations.combinations.authoring-with-git; }
+        # Safe shell commands: named deletes, PIDs, no machine-wide changes.
+        { source = shell-skills; }
+        # Headless runs in a checkout, a tidy scratchpad, the plans graph,
+        # kanban-shaped turn responses, and how one skill refers to another.
+        {
+          source = coding-agent-skills;
+          skills = [
+            "coding-agent-headless-in-checkout"
+            "coding-agent-kanban-turn-responses"
+            "coding-agent-plans-as-graph"
+            "coding-agent-scratchpad-scripts"
+            "coding-agent-skill-references"
+          ];
+        }
+        # Prose in READMEs, SKILL.md files, commits and replies.
+        { source = writing-skills; }
       ];
     };
 }

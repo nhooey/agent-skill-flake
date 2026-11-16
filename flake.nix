@@ -57,8 +57,8 @@
 
       # Dogfood the exposed dev-shell module: it provides the motd, the
       # install-skills startup, and the standard + skills command lists, so
-      # the hand-rolled wiring below collapses to the options block plus this
-      # repo's own `packages`. We spread `devshellSkillsModule` (the same two
+      # this repo sets only the options block plus its own `packages`. We
+      # spread `devshellSkillsModule` (the same two
       # pieces the exported bundle wraps) DIRECTLY here rather than importing
       # `self.flakeModules.devshellSkills`: referencing `self`'s outputs from
       # inside the flake's own `imports` is an infinite recursion (the import
@@ -78,9 +78,9 @@
       agent-skill-flake.devshellSkills.name = "agent-skill-flake";
 
       # System-independent outputs: the library, the activation modules, and
-      # the flake-parts dev-shell module consumers import in place of the
-      # hand-rolled devshell wiring (see lib/devshell-skills-flake-module.nix
-      # for the why — ~10 repos duplicate this boilerplate).
+      # the flake-parts dev-shell module consumers import in place of
+      # writing the devshell wiring themselves (see
+      # lib/devshell-skills-flake-module.nix).
       flake = {
         lib = flakeLib;
         homeManagerModules.default = import ./home-manager-module.nix { inherit self nixpkgs; };
@@ -151,6 +151,9 @@
             p.bats-assert
             p.bats-file
           ]);
+
+          # The repository's own tools (scripts/), on the dev shell's PATH.
+          tools = import ./scripts { inherit pkgs; };
         in
         {
           # Route the two root-level cleanup apps through the same
@@ -191,18 +194,22 @@
           };
 
           # The motd, install-skills startup, and standard + skills command
-          # lists now come from self.flakeModules.devshellSkills (imported
-          # above). Only this repo's own tool `packages` remain hand-rolled —
-          # devshell `packages` is a list option, so these concatenate onto
-          # whatever the module contributes (currently none). The reconcile at
-          # project scope, the `reap-skills`/`update-skills-devshell` pair, and
-          # the purge-everything escape hatch all live in the module/hook now.
+          # lists come from the dev-shell module (imported above); this repo
+          # adds only its own tool `packages`. devshell `packages` is a list
+          # option, so these concatenate onto whatever the module contributes.
           devshells.default.packages = [
             batsWith
             pkgs.coreutils
             pkgs.findutils
             pkgs.git
             pkgs.jq
+          ];
+          devshells.default.commands = [
+            {
+              category = "ci";
+              package = tools.flake-checks;
+              help = "List the flake's checks and build chosen ones (list | run <name>... | all)";
+            }
           ];
         };
     };

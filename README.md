@@ -440,8 +440,8 @@ re-prefixing.
 A "marketplace" flake pulls several upstream skill flakes, optionally
 cherry-picks and namespace-prefixes them, and exposes a merged package
 set + install apps + a devshell that installs everything. The five
-helpers below promote that logic out of the consumer (which used to
-hand-roll it against the private `lib/internal.nix` module).
+helpers below give the consumer that logic without importing the private
+`lib/internal.nix` module.
 
 If you only need the top-level result, reach for
 [`mkAggregateSkillsFlake`](#mkaggregateskillsflake) — it composes the
@@ -454,8 +454,7 @@ other four. They are also exposed individually for finer control.
 
 ### `mkInstaller` — installer over an arbitrary skill set
 
-The single primitive that used to force consumers to import
-`lib/internal.nix`. Builds a `bin/install-<appName>` over an
+Builds a `bin/install-<appName>` over an
 already-built `[ { name; drv; } ]` list, resolving the agent profile for
 you.
 
@@ -903,7 +902,7 @@ Options under `agent-skill-flake.devshellSkills`:
 | `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
 | `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
 | `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
-| `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the two `skills` commands are always included. |
+| `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the three `skills` commands are always included. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
 dogfoods the module in its own [`flake.nix`](flake.nix) (listing the bundle's
@@ -1066,7 +1065,8 @@ nix profile install github:nhooey/agent-skill-flake#agent-skill-flake   # puts i
 
 | File | Holds |
 |------|-------|
-| `${XDG_CONFIG_HOME:-$HOME/.config}/agent-skill-flake/config.toml` | User-global: `[defaults]`, one `[repo."<host>/<owner>/<name>"]` table per repository, and `[agents.<agent>]` tables. |
+| [`lib/config/defaults.toml`](lib/config/defaults.toml), shipped in the package | Every setting with its default and a comment. `agent-skill-flake config show --defaults` prints it. |
+| `${XDG_CONFIG_HOME:-$HOME/.config}/agent-skill-flake/config.toml` | User-global: `[defaults]`, one `[repo."<host>/<owner>/<name>"]` table per repository, and `[agents.<agent>]` tables, naming only what you change. |
 | `<repo-root>/.config/agent-skill-flake/config.local.toml` | An override for one checkout, with the shape of one repo table. Never committed. |
 
 ```toml
@@ -1095,6 +1095,14 @@ merge = { override = ["skills"] }              # optional: see "Merging" below
 The TOML is read through Nix (`builtins.fromTOML`, via `nix-instantiate`),
 so nothing but Nix is needed to parse it.
 
+**Shipped defaults.** Your files are merged over the shipped defaults file,
+so a setting you leave out keeps its default, and with no config file at
+all the command runs on the defaults alone. A key the shipped file doesn't
+have, such as a misspelt setting or an agent with no writer, is an error
+naming the file and the key, and nothing is changed.
+`agent-skill-flake config show` prints your user-global file merged over
+the defaults, as JSON.
+
 **Repo keys.** A repo table's key is the normalized `origin` URL:
 `git@github.com:acme/widget.git`, `https://github.com/acme/widget(.git)` and
 `ssh://git@github.com[:port]/acme/widget` are all `github.com/acme/widget`.
@@ -1112,7 +1120,7 @@ Two entries that provide the same skill name are an error.
 ### Precedence and merging
 
 Highest first: **the local file > the user-global repo entry >
-`[defaults]`**.
+`[defaults]` > the shipped `[defaults]`**.
 
 - **By default the local file replaces the user-global entry** for that
   repo entirely. Only `[defaults]` still sits underneath it.
@@ -1120,8 +1128,8 @@ Highest first: **the local file > the user-global repo entry >
   deep-merged over the user-global entry: tables merge key by key,
   recursively, and any other value (string, number, boolean, array) from
   the local file wins. `merge` itself never reaches the result.
-- **`merge.override`** lists dotted paths, such as `"skills"` or
-  `"tools.lint"`, whose whole subtree, descendants included, is taken from
+- **`merge.override`** lists dotted paths, such as `"skills"`, whose
+  whole subtree, descendants included, is taken from
   the local file instead of being merged. A listed path the local file
   doesn't set keeps the merged value. Keys that contain a dot can't be
   named in a path.
@@ -1134,14 +1142,15 @@ from one layer, and `sync-project` names that layer for each skill.
 
 ### `agent-skill-flake apply`
 
-Reads the user-global file and writes:
+Reads the user-global file, merged over the shipped defaults, and writes:
 
 - **Each agent's settings.** For `[agents.claude-code]`, `trusted-dirs` is
   added to `permissions.additionalDirectories` in
   `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`; a leading `~` is
   expanded. Directories already listed stay, the configured ones are added
   once each, and every other key is kept. Only `claude-code` has a writer
-  so far; another agent's table is skipped with a note. Writers live in
+  so far, so it is the only agent the shipped defaults list; another
+  agent's table is an unknown key. Writers live in
   [`lib/bash/apply.bash`](lib/bash/apply.bash), one function per agent.
 - **The git hook.** In your global git config:
 

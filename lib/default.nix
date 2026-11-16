@@ -64,11 +64,10 @@ in
 
   # ── Marketplace / aggregation surface ────────────────────────────────
   # Convenience functions for flakes that aggregate several upstream skill
-  # flakes (the "marketplace" consumer). These replace hand-rolled logic
-  # that used to reach into the private `internal.nix` module.
+  # flakes (the "marketplace" consumer), so they never need to import the
+  # private `internal.nix` module.
   inherit (marketplace)
-    # Installer over an arbitrary already-built `[ { name; drv; } ]` set —
-    # the primitive that used to force the internal.nix import.
+    # Installer over an arbitrary already-built `[ { name; drv; } ]` set.
     mkInstaller
     # The plural of withNamePrefix: prefix-wrap every skill in a source.
     withNamePrefixSource
