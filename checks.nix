@@ -299,12 +299,16 @@ in
     env.PREVIEW_APP = previewApp;
   };
 
-  # Single-skill flake exposes a reap app — sanity check that
-  # mk-skill-flake wires it correctly. Behavior is shared with the
-  # multi-skill check below; this just verifies the binding.
-  example-skill-reap-exists = mkBatsCheck {
-    name = "example-skill-reap-exists";
-    env.REAP_SKILL_APP = reapSkillApp;
+  # Single-skill reap removes a broken managed entry and its GC root,
+  # keeps the live install and unmanaged entries, and is a no-op on a
+  # clean target.
+  example-skill-reap = mkBatsCheck {
+    name = "example-skill-reap";
+    extraInputs = [ pkgs.findutils ];
+    env = {
+      INSTALL_APP = installApp;
+      REAP_SKILL_APP = reapSkillApp;
+    };
   };
 
   # Single-skill uninstall (no args) defaults to the skill the flake
@@ -564,10 +568,18 @@ in
     env.REAP_ALL_APP = reapAllApp;
   };
 
-  # Single-skill flake exposes a purge app (sibling of reap).
-  example-skill-purge-exists = mkBatsCheck {
-    name = "example-skill-purge-exists";
-    env.PURGE_SKILL_APP = purgeSkillApp;
+  # Single-skill purge removes the live install, its GC root and lock
+  # entry, spares unmanaged entries; --dry-run changes nothing.
+  example-skill-purge = mkBatsCheck {
+    name = "example-skill-purge";
+    extraInputs = [
+      pkgs.findutils
+      pkgs.jq
+    ];
+    env = {
+      INSTALL_APP = installApp;
+      PURGE_SKILL_APP = purgeSkillApp;
+    };
   };
 
   # Purge removes EVERY live lineage entry (no declared set, no names) and
