@@ -233,8 +233,10 @@ sync_project_run() {
   cd "$root"
   # shellcheck disable=SC1090 # reconcile_script is a store path set by the wrapper
   source "$reconcile_script" --scope=project "$@"
+  # linked_skills is set by reconcile.sh: the declared skills it linked,
+  # leaving out any whose path holds the project's own file.
   printf 'agent-skill-flake: %d project skill(s) in sync in %s/%s (%s)\n' \
-    "${#skills_list[@]}" "$root" "$project_suffix" "$source_label"
+    "${#linked_skills[@]}" "$root" "$project_suffix" "$source_label"
 }
 
 cmd_sync_project() {
