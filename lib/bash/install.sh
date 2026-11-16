@@ -110,7 +110,7 @@ symlink)
     parse_skill_entry "$entry"
     target="$target_root/$skill_name"
 
-    ensure_symlink "$target" "$skill_subpath" 'installed (symlink)'
+    ensure_symlink "$target" "$skill_subpath" 'installed (symlink)' || continue
 
     if [ "$gcroots_ok" = "1" ] && ! ensure_gc_root "$skill_name" "$store_path" announce; then
       printf 'WARNING: could not write GC root for %s; store path may be GC-eligible\n' "$skill_name" >&2
@@ -124,11 +124,15 @@ profile)
   for entry in "${effective_skills[@]}"; do
     parse_skill_entry "$entry"
     target="$target_root/$skill_name"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      printf 'WARNING: %s is the project'"'"'s own file; not replacing it with a link\n' "$target" >&2
+      continue
+    fi
     if ! nix profile install "$store_path" 2>/dev/null; then
       printf 'Note: %s already in profile; use %s to bump it\n' "$skill_name" "'nix profile upgrade'" >&2
     fi
     profile_subpath="${HOME}/.nix-profile/${SKILLS_SHARE_SUBDIR}/${skill_name}"
-    rm -rf "$target"
+    rm -f "$target"
     ln -sfn "$profile_subpath" "$target"
     printf 'installed (profile): %s -> %s\n' "$target" "$profile_subpath"
     lock_upsert "$skill_name" "$store_path"

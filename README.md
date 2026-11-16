@@ -703,7 +703,11 @@ the store and GC-rooted like a skill, records it in the lock, and lists it
 in the project's exclude block. A preferences entry dropped from the flake
 is swept like a dropped skill, and `purge` removes it. A key naming no skill
 in the union fails evaluation. A regular file already at that path is the
-project's own: `reconcile` warns and leaves it in place. The single `name` owner means one `purge` (or `reap`) removes the
+project's own: `reconcile` warns and leaves it in place, and keeps it when
+the entry is dropped, even where the file took the place of the flake's own
+link (as checking out a commit that tracks the file does). The flake only
+ever replaces or removes symlinks, so a file or directory of the project's
+at a skill's path is left alone too. The single `name` owner means one `purge` (or `reap`) removes the
 whole set. See [`skills-devshell/flake.nix`](skills-devshell/flake.nix) for
 the live example.
 
