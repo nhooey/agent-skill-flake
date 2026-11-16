@@ -151,6 +151,9 @@
             p.bats-assert
             p.bats-file
           ]);
+
+          # The repository's own tools (scripts/), on the dev shell's PATH.
+          tools = import ./scripts { inherit pkgs; };
         in
         {
           # Route the two root-level cleanup apps through the same
@@ -200,6 +203,13 @@
             pkgs.findutils
             pkgs.git
             pkgs.jq
+          ];
+          devshells.default.commands = [
+            {
+              category = "ci";
+              package = tools.flake-checks;
+              help = "List the flake's checks and build chosen ones (list | run <name>... | all)";
+            }
           ];
         };
     };

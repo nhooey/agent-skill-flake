@@ -264,6 +264,14 @@ in
     env.INIT_APP = initApp;
   };
 
+  # The dev shell's `flake-checks` tool: argument parsing and the nix
+  # command lines it builds, read through --dry-run (no nix in the sandbox).
+  flake-checks-cli = mkBatsCheck {
+    name = "flake-checks-cli";
+    extraInputs = [ pkgs.git ];
+    env.FLAKE_CHECKS = lib.getExe (import ./scripts { inherit pkgs; }).flake-checks;
+  };
+
   # `mkSkillFlake` exposes the skill under the prefixed key
   # `agent-skill-<name>`, never the bare name, so it can't collide with a
   # same-named entry in nixpkgs or an aggregator flake (e.g. `git`). The
