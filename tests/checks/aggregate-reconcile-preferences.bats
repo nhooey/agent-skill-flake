@@ -108,6 +108,7 @@ setup() {
   run "$RECONCILE_PREFS_APP" "${scope_args[@]}"
   assert_success
   assert_output --partial "$CUSTOM_TARGET/beta is the project's own file"
+  assert_output --partial "1 declared skill(s) installed"
   refute [ -L "$CUSTOM_TARGET/beta" ]
   assert_equal "$(cat "$CUSTOM_TARGET/beta/SKILL.md")" "mine"
   assert_equal "$(jq -r '.skills | has("beta")' "$lock")" "false"

@@ -142,4 +142,4 @@ lock_replace_preferences "${pref_entries[@]}"
 sync_project_excludes
 
 printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
-  "${#skills_list[@]}" "$swept"
+  "${#linked_skills[@]}" "$swept"

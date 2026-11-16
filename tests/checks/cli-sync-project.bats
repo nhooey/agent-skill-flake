@@ -128,6 +128,21 @@ EOF
   refute_output --partial "reconciled (sweep)"
 }
 
+@test "a skill whose path holds the project's own directory isn't counted in sync" {
+  cat >"$GLOBAL_CONFIG" <<'EOF'
+[repo."github.com/acme/widget"]
+skills = ["path:./skill-flake#agent-skills-all"]
+EOF
+  mkdir -p "$PROJ/.agents/skills/beta"
+  printf 'mine\n' >"$PROJ/.agents/skills/beta/SKILL.md"
+  sync
+  assert_success
+  assert_output --partial "$PROJ/.agents/skills/beta is the project's own file"
+  assert_output --partial "agent-skill-flake: 1 project skill(s) in sync"
+  assert_store_symlink "$PROJ/.agents/skills/alpha"
+  assert_equal "$(cat "$PROJ/.agents/skills/beta/SKILL.md")" "mine"
+}
+
 @test "merge mode keeps the repo entry's skills when the local file doesn't set them" {
   cat >"$GLOBAL_CONFIG" <<EOF
 [repo."github.com/acme/widget"]
