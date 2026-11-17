@@ -346,6 +346,14 @@ let
       # still be traced back to what it was called upstream. Defaults to
       # `name` (no rename).
       originalSkillName ? name,
+      # Packages whose `bin/` the skill's scripts need at run time, such
+      # as `[ pkgs.babashka ]`. When non-empty, each executable file
+      # directly in `scripts/` is wrapped with `makeWrapper --prefix PATH`,
+      # so it finds them without the user installing them. The wrapper
+      # keeps the script's name; the original moves beside it as
+      # `.<name>-wrapped`. Only the Nix-built install is wrapped: a copy of
+      # the source tree runs the scripts against the user's own PATH.
+      scriptInputs ? [ ],
       # Provenance from lib/default.nix: which agent-skill-flake lineage built
       # this, what rev / dirty state, and the source narHash for
       # differentiation across dirty builds. Written verbatim into the
@@ -375,6 +383,7 @@ let
       pname = "claude-skill-${name}";
       inherit version src;
       dontBuild = true;
+      nativeBuildInputs = lib.optional (scriptInputs != [ ]) pkgs.makeWrapper;
       # Pass the JSON via env so we don't have to escape it inside the bash
       # heredoc; bash will see it as a single literal string.
       passAsFile = [ "sentinel" ];
@@ -417,6 +426,20 @@ let
             cp -r "$d/." "$out/share/claude-skills/${name}/$d/"
           fi
         done
+        ${lib.optionalString (scriptInputs != [ ]) ''
+          # A shell script gets the PATH line after its shebang, so it
+          # keeps its path and runs under any bash, macOS's 3.2 among
+          # them, which misreads makeWrapper's PATH edits when a skill
+          # runs it as `bash <script>`. Any other executable is wrapped.
+          for f in "$out/share/claude-skills/${name}/scripts/"*; do
+            [ -f "$f" ] && [ -x "$f" ] || continue
+            if head -n 1 "$f" | grep -Eq '^#!.*[/ ](ba|da|k|z)?sh( |$)'; then
+              sed -i '1a PATH=${lib.makeBinPath scriptInputs}''${PATH:+:$PATH}; export PATH' "$f"
+            else
+              wrapProgram "$f" --prefix PATH : ${lib.escapeShellArg (lib.makeBinPath scriptInputs)}
+            fi
+          done
+        ''}
         install -Dm644 "$sentinelPath" \
           "$out/share/claude-skills/${name}/.agent-skill-flake-managed.json"
         runHook postInstall

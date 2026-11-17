@@ -72,6 +72,7 @@ agent-skill-flake.lib.mkSkillFlake {
   version        = "0.1.0";
   extraDirs      = [ ];           # ship additional top-level dirs alongside SKILL.md/references/scripts
   extraFiles     = [ ];           # ship additional top-level files (shell globs evaluated in `src`)
+  scriptInputs   = pkgs: [ ];     # tools the scripts/ executables find on PATH (see "Build behavior")
   agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   # rename (optional) — see "Renaming & name collisions" below:
   renameFn       = ctx: ctx.name;            # identity (no rename)
@@ -92,6 +93,7 @@ agent-skill-flake.lib.mkSkillFlake {
 | `version`     | no       | `"0.1.0"`                                                            | Skill package version. |
 | `extraDirs`   | no       | `[ ]`                                                                | Additional top-level directories from `src` to ship into the install. Use for upstream skills with non-standard layouts. Missing dirs are silently ignored. |
 | `extraFiles`  | no       | `[ ]`                                                                | Additional top-level files from `src` to ship at the install root. Each entry is a shell glob evaluated in `src` (nullglob: no-match silently dropped; directory matches are skipped). |
+| `scriptInputs` | no      | `pkgs: [ ]`                                                          | Function from the system's `pkgs` to the packages the skill's scripts run, such as `pkgs: [ pkgs.babashka ]`. Each executable directly in `scripts/` finds their `bin/` on PATH; see [Build behavior](#build-behavior). |
 | `agent`       | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). Throws at eval if the name isn't a known profile. |
 | `renameFn`    | no       | `ctx: ctx.name`                                                      | Formula deriving the effective name from a context attrset. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
 | `source`      | no       | `null`                                                               | The skill's origin repo, supplied from your flake `self` (+ owner/repo). The default `namespaceFn` reads `ctx.source.owner` from it; also feeds `renameFn`'s `ctx.source.*`. |
@@ -202,6 +204,7 @@ agent-skill-flake.lib.mkAllSkillsFlake {
   agent          = "claude-code"; # selects an agent profile (see "Targeting other agents")
   extraDirs      = [ ];           # additional top-level dirs (applied to every discovered skill)
   extraFiles     = [ ];           # additional top-level files (shell globs; applied to every discovered skill)
+  scriptInputs   = { };           # per skill: { my-skill = pkgs: [ pkgs.babashka ]; }
   # rename (optional) — see "Renaming & name collisions" below:
   renameFn       = ctx: ctx.name;            # identity (no rename)
   source         = null;                     # skills' origin repo, for ctx.source.* / namespaceFn
@@ -219,6 +222,7 @@ agent-skill-flake.lib.mkAllSkillsFlake {
 | `agent`      | no       | `"claude-code"`                                                      | Which agent's filesystem layout to target. See [Targeting other agents](#targeting-other-agents). |
 | `extraDirs`  | no       | `[ ]`                                                                | Additional top-level directories to ship into each discovered skill's install. Applied uniformly to every skill; missing dirs are silently ignored. |
 | `extraFiles` | no       | `[ ]`                                                                | Additional top-level files to ship at each discovered skill's install root. Each entry is a shell glob evaluated per-skill (nullglob: no-match silently dropped; directory matches are skipped). |
+| `scriptInputs` | no     | `{ }`                                                                | Attrset from a discovered skill's name (before `renameFn`) to a `pkgs: [ … ]` function, as mkSkillFlake's `scriptInputs`. A name that matches no discovered skill is an eval error. |
 | `renameFn`   | no       | `ctx: ctx.name`                                                      | Per-skill name formula. See [Renaming & name collisions](#renaming--avoiding-claude-code-name-collisions). |
 | `source`     | no       | `null`                                                               | The skills' origin repo, supplied from your flake `self` (+ owner/repo). The default `namespaceFn` reads `ctx.source.owner`; also feeds `renameFn`'s `ctx.source.*`. |
 | `namespaceFn`| no       | `ctx: ctx.source.owner`                                             | Owner segment spliced into every per-skill package key (and `agent-skills-<segment>-all`). Non-empty string → used; `""` omits it; `null` (default with no derivable owner) is a hard eval error. Touches only keys, not installed names. |
@@ -287,6 +291,20 @@ the source root (e.g. `obra/superpowers`' `visual-companion.md`,
 `code-reviewer.md`), match them with `extraFiles` shell globs (e.g.
 `[ "*.md" "*.sh" "*.dot" ]`). Anything not matched by the whitelist is
 still ignored.
+
+`scripts/` is copied verbatim, so its scripts run against the user's
+PATH. When they need a tool the user may not have, such as `bb` for a
+Babashka program, name its package in `scriptInputs`: each executable
+file directly in `scripts/` then finds their `bin/` first on PATH. A
+shell script (a `bash`, `sh`, `dash`, `ksh` or `zsh` shebang) gets one
+`PATH=…${PATH:+:$PATH}; export PATH` line after its shebang, so it keeps
+its path and runs as `bash <script>` under any bash, macOS's 3.2 among
+them. Any other executable is wrapped with `makeWrapper --prefix PATH`,
+keeping its name, with the original beside it as `.<name>-wrapped`.
+Files that aren't executable (libraries, data, tests) stay as they are.
+The PATH change exists only in the Nix-built install: a skill copied from its source tree by other means runs its
+scripts unwrapped, so such a script should say plainly what's missing
+when a tool isn't on PATH.
 
 The expected source layout matches the [Anthropic agent-skill format][skills]:
 
