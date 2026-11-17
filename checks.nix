@@ -27,6 +27,8 @@ let
     fixtureExtraFilesOff
     fixtureExtraFilesNoMatch
     fixtureExtraFilesDirSkip
+    fixtureScriptInputs
+    fixtureAllScriptInputs
     fixtureAggConvergeFull
     fixtureAggConvergeReduced
     fixtureAggPreferences
@@ -388,6 +390,19 @@ in
     env.SKILL_ROOT = "${
       fixtureExtraFilesDirSkip.packages.${system}.default
     }/share/claude-skills/example-skill-extra-files";
+  };
+
+  # `scriptInputs` wraps each executable in `scripts/` so it runs with
+  # an empty caller PATH, leaves other files alone, and in
+  # mkAllSkillsFlake applies only to the skills it names.
+  example-skill-script-inputs = mkBatsCheck {
+    name = "example-skill-script-inputs";
+    env = {
+      SKILL_ROOT = "${
+        fixtureScriptInputs.packages.${system}.default
+      }/share/claude-skills/example-skill-script-inputs";
+      ALL_SKILLS_ROOT = "${fixtureAllScriptInputs.packages.${system}.default}/share/claude-skills";
+    };
   };
 
   # ──────────────────────────────────────────────────────────────

@@ -1,0 +1,1 @@
+Data beside greet.sh: not executable, so the build leaves it unwrapped.

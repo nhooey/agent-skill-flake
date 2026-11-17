@@ -55,6 +55,11 @@
   # `visual-companion.md`, `code-reviewer.md`) that the strict
   # SKILL.md + references/ + scripts/ whitelist would otherwise drop.
   extraFiles ? [ ],
+  # The packages the skill's scripts need at run time, as a function of
+  # the system's `pkgs`, such as `pkgs: [ pkgs.babashka ]`. Each
+  # executable file directly in `scripts/` is wrapped to find their
+  # `bin/` first on PATH; see `mkSkill` in internal.nix.
+  scriptInputs ? (_pkgs: [ ]),
   # Which agent's filesystem layout to target. Each profile in
   # lib/agent-profiles.nix names a per-scope install suffix
   # (`$HOME/<personalSuffix>` for personal scope,
@@ -99,6 +104,7 @@ let
     internal.mkSkill system {
       name = effectiveName;
       originalSkillName = skillName;
+      scriptInputs = scriptInputs nixpkgs.legacyPackages.${system};
       inherit
         src
         version

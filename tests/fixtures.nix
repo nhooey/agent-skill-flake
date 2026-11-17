@@ -166,6 +166,20 @@ in
     extraFiles = [ "*" ];
   };
 
+  # `scriptInputs`: `scripts/greet.sh` runs `hello`, which only the
+  # wrapper puts on its PATH; `scripts/data.txt` isn't executable and
+  # stays unwrapped. The multi-skill variant wraps `beta` alone.
+  fixtureScriptInputs = mkSkill {
+    skillName = "example-skill-script-inputs";
+    src = ./example-skill-script-inputs;
+    scriptInputs = pkgs: [ pkgs.hello ];
+  };
+  fixtureAllScriptInputs = mkAll {
+    skillsDir = ./example-skills-dir;
+    name = "example-skills-dir-script-inputs";
+    scriptInputs.beta = pkgs: [ pkgs.hello ];
+  };
+
   # Single-skill fixture built with `agent = "codex"` so the install scope
   # tests can assert the codex profile's `.codex/skills/` suffix is used
   # (instead of `.claude/skills/`).

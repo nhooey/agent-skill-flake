@@ -88,6 +88,11 @@
   # loose-file case across obra/superpowers' 14 skills). Same semantics
   # as mkSkill's `extraFiles`.
   extraFiles ? [ ],
+  # The packages each skill's scripts need at run time, keyed by the
+  # skill's discovered (pre-rename) name, each a function of the system's
+  # `pkgs`: `{ my-skill = pkgs: [ pkgs.babashka ]; }`. A skill left out
+  # gets no wrapping. Same semantics as mkSkillFlake's `scriptInputs`.
+  scriptInputs ? { },
   # Injected by lib/default.nix from this flake's `self`. Same role as in
   # mk-skill-flake.nix.
   provenance,
@@ -105,6 +110,12 @@ let
   forAllSystems = internal.forAllSystems systems;
 
   discovered = internal.discoverSkills skillsDir;
+
+  # A `scriptInputs` key that names no discovered skill is an error, so a
+  # renamed skill can't silently lose its scripts' tools.
+  unknownScriptInputs = lib.subtractLists (map (s: s.name) discovered) (
+    builtins.attrNames scriptInputs
+  );
 
   pp = if packagePrefix == null then internal.defaultPackagePrefix else packagePrefix;
 
@@ -162,6 +173,7 @@ let
       drv = internal.mkSkill system {
         inherit (s) name src;
         originalSkillName = s.originalName;
+        scriptInputs = (scriptInputs.${s.originalName} or (_pkgs: [ ])) nixpkgs.legacyPackages.${system};
         inherit extraDirs extraFiles provenance;
       };
     }) renamed;
@@ -243,6 +255,8 @@ let
       inherit provenance profile;
     };
 in
+assert lib.assertMsg (unknownScriptInputs == [ ])
+  "mkAllSkillsFlake: scriptInputs names no discovered skill: ${lib.concatStringsSep ", " unknownScriptInputs}";
 {
   packages = forAllSystems (
     system:
