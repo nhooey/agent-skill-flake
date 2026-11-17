@@ -1395,6 +1395,13 @@ and `git worktree add`), prints at most two lines, and always exits 0, so
 it never fails a git command. Run it without `--from-hook` to see the
 details of a failure.
 
+The hook reads only the user-global config, never the checkout's own
+`config.local.toml` (as `--ignore-local` does). A cloned repository can
+commit that file, and the hook builds every installable its `skills`
+name, so reading it would let `git clone` alone build and run code the
+repository chose. A repository configured only by its local file syncs
+when you run `sync-project` yourself.
+
 ### Ignoring the local file
 
 `install`, `reconcile` and `sync-project` list
