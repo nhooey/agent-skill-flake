@@ -100,7 +100,7 @@ if [ -d "$target_root" ]; then
     installed_by=$(lock_installed_by "$name")
     if [ -n "$installed_by" ]; then
       if [ "$installed_by" = "${owner_app:-}" ] && [ ! -L "$entry" ]; then
-        rm -f "$(gc_root_path "$name")"
+        remove_gc_roots "$name"
         printf 'kept: %s is the project'"'"'s own file, not a link this flake made\n' "$entry"
       elif [ "$installed_by" = "${owner_app:-}" ]; then
         remove_skill_links "$name"

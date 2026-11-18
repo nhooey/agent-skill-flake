@@ -19,6 +19,8 @@ Removes the install-side artifacts for each named skill:
                                      (this target's per-user GC root;
                                      other targets' roots and a shared
                                      claude-skill-<name> root stay)
+  - <gcroots>/claude-skill-<target-hash>-<name>.previous
+                                     (the root of the build before it)
   - the entry in <target>/.agent-skill-flake-lock.json
 
 Refuses to touch entries that aren't managed by this agent-skill-flake

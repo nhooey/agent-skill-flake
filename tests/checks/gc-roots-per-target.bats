@@ -97,6 +97,113 @@ app_in() {
   assert_store_symlink "$(gc_root alpha "$TARGET_A")" "target A's root"
 }
 
+@test "a target keeps the roots of its current and previous builds only" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha beta
+  assert_success
+  local root prev alpha_sp beta_sp older="$BATS_TEST_TMPDIR/older-build" gc
+  root=$(gc_root alpha "$TARGET_A")
+  prev=$root.previous
+  alpha_sp=$(readlink "$root")
+  beta_sp=$(readlink "$(gc_root beta "$TARGET_A")")
+  # Stand-ins for alpha's last build (beta's store path) and the one
+  # before it (a dir that exists, as a store path would).
+  mkdir -p "$older"
+  ln -sfn "$older" "$prev"
+  ln -sfn "$beta_sp" "$root"
+
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  assert_equal "$(readlink "$root")" "$alpha_sp"
+  assert_equal "$(readlink "$prev")" "$beta_sp"
+  for gc in "$GCROOTS_DIR"/*; do
+    [ "$(readlink "$gc")" != "$older" ] || fail "$gc still roots the build before last"
+  done
+
+  # Reinstalling the same build moves nothing.
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  assert_equal "$(readlink "$prev")" "$beta_sp"
+}
+
+@test "reap drops a previous-build root whose current root is gone" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha beta
+  assert_success
+  local alpha_root beta_root beta_sp
+  alpha_root=$(gc_root alpha "$TARGET_A")
+  beta_root=$(gc_root beta "$TARGET_A")
+  beta_sp=$(readlink "$beta_root")
+  ln -s "$beta_sp" "$alpha_root.previous"
+  ln -s "$(readlink "$alpha_root")" "$beta_root.previous"
+  rm "$beta_root"
+
+  app_in "$REAP_ALL_APP" "$TARGET_A"
+  assert_success
+  assert_output --partial "reaped GC root (previous build, current root gone): $beta_root.previous"
+  refute [ -L "$beta_root.previous" ]
+  assert_store_symlink "$alpha_root.previous" "alpha's previous-build root"
+  assert_equal "$(jq -r '.skills.beta.storePath' "$TARGET_A/.agent-skill-flake-lock.json")" "$beta_sp"
+}
+
+@test "uninstall removes the previous-build root with the current one" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha beta
+  assert_success
+  local root
+  root=$(gc_root alpha "$TARGET_A")
+  ln -s "$(readlink "$(gc_root beta "$TARGET_A")")" "$root.previous"
+
+  app_in "$UNINSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  refute [ -L "$root" ]
+  refute [ -L "$root.previous" ]
+}
+
+@test "reconcile moves the build it replaces to the previous-build root" {
+  app_in "$RECONCILE_ALL_APP" "$TARGET_A"
+  assert_success
+  local root alpha_sp beta_sp
+  root=$(gc_root alpha "$TARGET_A")
+  alpha_sp=$(readlink "$root")
+  beta_sp=$(readlink "$(gc_root beta "$TARGET_A")")
+  ln -sfn "$beta_sp" "$root"
+
+  app_in "$RECONCILE_ALL_APP" "$TARGET_A"
+  assert_success
+  assert_equal "$(readlink "$root")" "$alpha_sp"
+  assert_equal "$(readlink "$root.previous")" "$beta_sp"
+}
+
+@test "reaping a previous-build root whose build is gone leaves the lock alone" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  local root lock="$TARGET_A/.agent-skill-flake-lock.json" before
+  root=$(gc_root alpha "$TARGET_A")
+  ln -s /nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-gone "$root.previous"
+  before=$(jq -c '.skills.alpha' "$lock")
+
+  app_in "$REAP_ALL_APP" "$TARGET_A"
+  assert_success
+  assert_output --partial "reaped GC root (target gone): $root.previous"
+  refute [ -L "$root.previous" ]
+  assert_store_symlink "$root" "alpha's current root"
+  assert_equal "$(jq -c '.skills.alpha' "$lock")" "$before"
+}
+
+@test "a previous-build root doesn't supersede a legacy root" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha beta
+  assert_success
+  local legacy="$GCROOTS_DIR/claude-skill-alpha" beta_sp
+  beta_sp=$(readlink "$(gc_root beta "$TARGET_A")")
+  # The legacy root's store path is only some target's previous build,
+  # which its next rebuild moves on from.
+  ln -s "$beta_sp" "$(gc_root alpha "$TARGET_A").previous"
+  rm "$(gc_root beta "$TARGET_A")"
+  ln -s "$beta_sp" "$legacy"
+
+  app_in "$REAP_ALL_APP" "$TARGET_A"
+  assert_success
+  assert_equal "$(readlink "$legacy")" "$beta_sp"
+}
+
 @test "purge drops a gone target's roots, and its dry run only lists them" {
   app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
   assert_success

@@ -20,7 +20,9 @@ Optional:
   -h, --help            Show this help and exit.
 
 A root ${GC_ROOT_PREFIX}<tag>-<name> stays when a found target has tag
-<tag> and links <name>. Targets are found by their lock files, by the
+<tag> and links <name>, and so does its previous-build root,
+${GC_ROOT_PREFIX}<tag>-<name>${GC_ROOT_PREVIOUS_SUFFIX}, while that
+current root is there. Targets are found by their lock files, by the
 records (${GC_ROOT_PREFIX}<tag>${GC_ROOT_RECORD_SUFFIX}) installs leave
 beside their roots, and at \$HOME/$personal_suffix. Legacy shared roots
 (${GC_ROOT_PREFIX}<name>), records of dirs that exist, and anything
@@ -122,7 +124,7 @@ fi
 grace_cutoff=$(($(date +%s) - 3600))
 declare -a removals=() reasons=()
 declare -A missing_tags=()
-not_found=0 unlinked=0 gone_records=0
+not_found=0 unlinked=0 orphan_previous=0 gone_records=0
 kept_owned=0 kept_legacy=0 kept_records=0 kept_young=0
 for name in "${names[@]}"; do
   gc_root_parse "$name"
@@ -138,12 +140,15 @@ for name in "${names[@]}"; do
     fi
     reason='install target gone'
     ;;
-  root)
+  root | previous)
     dir=${target_of[$gc_root_parsed_tag]:-}
     if [ -z "$dir" ]; then
       reason='install target not found'
     elif [ ! -L "$dir/$gc_root_parsed_name" ]; then
       reason='skill no longer linked'
+    elif [ "$gc_root_parsed_kind" = previous ] &&
+      [ -z "${link_of[${name%"$GC_ROOT_PREVIOUS_SUFFIX"}]+x}" ]; then
+      reason='previous build, current root gone'
     else
       kept_owned=$((kept_owned + 1))
       continue
@@ -161,6 +166,7 @@ for name in "${names[@]}"; do
     missing_tags[$gc_root_parsed_tag]=1
     ;;
   'skill no longer linked') unlinked=$((unlinked + 1)) ;;
+  'previous build, current root gone') orphan_previous=$((orphan_previous + 1)) ;;
   esac
   removals+=("$name")
   reasons+=("$reason")
@@ -193,6 +199,7 @@ printf '\n%s %d of %d %s* entries in %s:\n' \
   "$verb" "$((${#removals[@]} - failed))" "${#names[@]}" "$GC_ROOT_PREFIX" "$gcroots_dir"
 printf '  %s of %s not found\n' "$(plural "$not_found" root)" "$(plural "${#missing_tags[@]}" 'install target')"
 printf '  %s whose skill a found target no longer links\n' "$(plural "$unlinked" root)"
+printf '  %s whose current root is gone\n' "$(plural "$orphan_previous" 'previous-build root')"
 printf '  %s of install targets gone\n' "$(plural "$gone_records" record)"
 printf 'Kept %d: %s of found install targets, %s, %s of live targets, %d younger than an hour.\n' \
   "$((kept_owned + kept_legacy + kept_records + kept_young))" \

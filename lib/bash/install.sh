@@ -39,7 +39,10 @@ Default (symlink mode):
   For each skill, creates a symlink at <target>/<skill> pointing to its
   content under the Nix store, and registers a per-user GC root for this
   target dir (<gcroots>/claude-skill-<target-hash>-<skill>) so the store
-  path is protected from \`nix-store --gc\`.
+  path is protected from \`nix-store --gc\`. When that replaces an older
+  build still in the store, the older build moves to the previous-build
+  root (<gcroots>/claude-skill-<target-hash>-<skill>.previous), and the
+  build before it loses its root.
 
 --profile:
   Installs each skill into your Nix profile (\`nix profile install\`),

@@ -1165,6 +1165,13 @@ The Nix-native install. Three things happen:
    gcroots dir with `--gcroots-dir=<path>` (test-suite use; rarely useful
    in practice).
 
+   A target roots its current and previous builds of each skill, and no
+   older ones. When an install or reconcile replaces a skill's store
+   path, the replaced path moves to
+   `claude-skill-<target-hash>-<skillName>.previous`, displacing the
+   build before it. Uninstall removes both roots, and `reap` and `purge`
+   remove a previous-build root whose current root is gone.
+
    Beside its roots, each target keeps a record,
    `claude-skill-<target-hash>.target`, a link to its resolved dir, which
    Nix ignores. Target dirs come and go, such as a git worktree's
@@ -1180,7 +1187,8 @@ The Nix-native install. Three things happen:
    still exist, by their lock files under `$HOME` and each
    `--search=<dir>`, by their records and at the personal scope, and
    lists every `claude-skill-<target-hash>-<skillName>` root whose
-   target it didn't find or no longer links the skill. It names each dir
+   target it didn't find or no longer links the skill, and every
+   previous-build root whose current root is gone. It names each dir
    its search couldn't read, since a target inside one looks gone. It
    removes the roots only with `--delete`, refuses `--delete` when it
    finds no lock file at all, and keeps legacy shared roots and anything
@@ -1188,9 +1196,13 @@ The Nix-native install. Three things happen:
    store path, and no garbage collection.
 
    ```sh
-   nix run github:nhooey/agent-skill-flake#prune-gc-roots              # list, with counts
-   nix run github:nhooey/agent-skill-flake#prune-gc-roots -- --delete  # remove them
+   nix run --refresh github:nhooey/agent-skill-flake#prune-gc-roots              # list, with counts
+   nix run --refresh github:nhooey/agent-skill-flake#prune-gc-roots -- --delete  # remove them
    ```
+
+   `--refresh` skips Nix's cached copy of the branch: a `prune-gc-roots`
+   older than previous-build roots takes each one for a root of a skill
+   named `<skillName>.previous`, which no target links, and lists it.
 
    A shared root with no target hash, `claude-skill-<skillName>`, is
    left by older installs. Ownership checks still accept it, and
@@ -1217,7 +1229,8 @@ The Nix-native install. Three things happen:
 The user-facing symlink is read-only by virtue of pointing into the
 store. To **upgrade** a skill, re-run `nix run .#install`: the symlink
 is replaced atomically, the new store path becomes the GC root, the
-old path becomes GC-eligible, and the lock entry is refreshed.
+old path keeps the previous-build root, the one before it becomes
+GC-eligible, and the lock entry is refreshed.
 
 ### `--profile`: via `nix profile install`
 
