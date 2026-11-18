@@ -23,6 +23,7 @@ SKILLS_SHARE_SUBDIR="share/claude-skills"       # per-skill content path under a
 GC_ROOT_PREFIX="claude-skill-"                  # per-user GC-root filename prefix
 GC_ROOT_TAG_LEN=12                              # hex chars of the target-dir hash in a root's name
 GC_ROOT_RECORD_SUFFIX=".target"                 # suffix of the link naming a tag's target dir
+GC_ROOT_PREVIOUS_SUFFIX=".previous"             # suffix of a root's previous-build root
 SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
 
 # GC roots. Every install target (the user scope, each project's skill
@@ -32,6 +33,12 @@ SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
 # target dir's resolved absolute path. A root name shared by every target
 # would let the last target to install a skill take the root, leaving the
 # other targets' links pointing at unrooted store paths.
+#
+# A target keeps its current and previous builds of each skill only: when
+# a new build replaces a root's store path, the replaced one moves to
+#   <gcroots_dir>/claude-skill-<tag>-<name>.previous
+# displacing the build before it, and lineage_sweep drops a previous-build
+# root whose current root is gone.
 #
 # Beside a target's roots, install and reconcile keep a record,
 #   <gcroots_dir>/claude-skill-<tag>.target -> <resolved target dir>
@@ -60,6 +67,14 @@ gc_root_path() {
   printf '%s/%s%s-%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "${2:-$gc_root_tag}" "$1"
 }
 
+# remove_gc_roots <name> — remove this target's current and previous-build
+# roots for <name>.
+remove_gc_roots() {
+  local root
+  root=$(gc_root_path "$1")
+  rm -f "$root" "$root$GC_ROOT_PREVIOUS_SUFFIX"
+}
+
 # legacy_gc_root_path <name> -> the legacy, target-shared root for <name>.
 legacy_gc_root_path() {
   printf '%s/%s%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "$1"
@@ -70,10 +85,11 @@ gc_root_record_path() {
   printf '%s/%s%s%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "$gc_root_tag" "$GC_ROOT_RECORD_SUFFIX"
 }
 
-# gc_root_parse <root-filename> -> sets gc_root_parsed_kind (root, record
-# or legacy), gc_root_parsed_tag (empty for the legacy form) and
-# gc_root_parsed_name (empty for a record). Returns 1 if the filename
-# lacks the prefix.
+# gc_root_parse <root-filename> -> sets gc_root_parsed_kind (root,
+# previous, record or legacy), gc_root_parsed_tag (empty for the legacy
+# form) and gc_root_parsed_name (the skill or preferences file; empty for
+# a record). Returns 1 if the filename lacks the prefix. Neither a skill
+# name nor a preferences file name ends in the previous suffix.
 gc_root_parse() {
   local rest
   case "$1" in
@@ -84,6 +100,12 @@ gc_root_parse() {
     gc_root_parsed_kind=root
     gc_root_parsed_tag=${BASH_REMATCH[1]}
     gc_root_parsed_name=${BASH_REMATCH[2]}
+    case "$gc_root_parsed_name" in
+    *"$GC_ROOT_PREVIOUS_SUFFIX")
+      gc_root_parsed_kind=previous
+      gc_root_parsed_name=${gc_root_parsed_name%"$GC_ROOT_PREVIOUS_SUFFIX"}
+      ;;
+    esac
   elif [[ $rest =~ ^([0-9a-f]{$GC_ROOT_TAG_LEN})"$GC_ROOT_RECORD_SUFFIX"$ ]]; then
     gc_root_parsed_kind=record
     gc_root_parsed_tag=${BASH_REMATCH[1]}
@@ -111,16 +133,24 @@ ensure_gc_root_record() {
 }
 
 # ensure_gc_root <name> <store-path> [announce] — point this target's root
-# for <name> at <store-path>; with "announce", print a change as
-# "GC root: <root> -> <store-path>". Returns 1 if the root can't be written.
+# for <name> at <store-path>, moving the build it replaces, if that is
+# still in the store, to the previous-build root; with "announce", print a
+# change as "GC root: <root> -> <store-path>". Returns 1 if a root can't
+# be written; the current root is written even when the previous-build
+# root can't be, since the link already points at the new build.
 ensure_gc_root() {
-  local root
+  local root old status=0
   root=$(gc_root_path "$1")
-  [ "$(readlink "$root" 2>/dev/null)" = "$2" ] && return 0
+  old=$(readlink "$root" 2>/dev/null) || old=""
+  [ "$old" = "$2" ] && return 0
+  if [ -n "$old" ] && [ -e "$old" ]; then
+    ln -sfn "$old" "$root$GC_ROOT_PREVIOUS_SUFFIX" 2>/dev/null || status=1
+  fi
   ln -sfn "$2" "$root" 2>/dev/null || return 1
   if [ "${3:-}" = announce ]; then
     printf 'GC root: %s -> %s\n' "$root" "$2"
   fi
+  return "$status"
 }
 
 # Print "<app_name>: <msg>" then the standard "See --help" pointer to stderr —

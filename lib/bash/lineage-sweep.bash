@@ -45,12 +45,13 @@ lineage_sweep() {
   #      - every root and the record of a target whose record points at a
   #        dir that is gone (a removed worktree's skills dir, say);
   #      - any root whose store-path target no longer exists in the store;
+  #      - a previous-build root whose current root is gone;
   #      - a legacy shared root (claude-skill-<name>, no target tag) whose
   #        store path another, live target's root also points at.
   #    A live legacy root no per-target root covers is kept: some target
   #    not yet re-installed may still have only that root protecting it.
   #    The lock entry goes too only when the store path is gone and the
-  #    root was this target's.
+  #    root was this target's current one.
   if [ -d "$gcroots_dir" ]; then
     local -A link_of=() gone_tags=() tagged_targets=()
     local -a gc_names=()
@@ -67,6 +68,8 @@ lineage_sweep() {
     done < <(find "$gcroots_dir" -mindepth 1 -maxdepth 1 -type l -name "${GC_ROOT_PREFIX}*" -printf '%f\t%l\n' | sort)
     for gc_name in "${gc_names[@]}"; do
       gc_root_parse "$gc_name"
+      # Only current roots supersede a legacy root: a previous-build root
+      # moves on at the next rebuild, leaving its store path unrooted.
       if [ "$gc_root_parsed_kind" = root ] && [ -z "${gone_tags[$gc_root_parsed_tag]+x}" ]; then
         tagged_targets[${link_of[$gc_name]}]=1
       fi
@@ -82,6 +85,9 @@ lineage_sweep() {
         continue
       elif [ ! -e "$target" ]; then
         reason='target gone'
+      elif [ "$gc_root_parsed_kind" = previous ] &&
+        [ -z "${link_of[${gc_name%"$GC_ROOT_PREVIOUS_SUFFIX"}]+x}" ]; then
+        reason='previous build, current root gone'
       elif [ "$gc_root_parsed_kind" = legacy ] && [ -n "${tagged_targets[$target]+x}" ]; then
         reason='legacy, superseded by a per-target root'
       else
@@ -91,7 +97,7 @@ lineage_sweep() {
         printf 'would %s GC root (%s): %s\n' "$sweep_verb" "$reason" "$gc"
       else
         rm -f "$gc"
-        if [ "$reason" = 'target gone' ]; then
+        if [ "$reason" = 'target gone' ] && [ "$gc_root_parsed_kind" != previous ]; then
           if [ "$gc_root_parsed_tag" = "$gc_root_tag" ]; then
             lock_remove "$name"
           elif [ -z "$gc_root_parsed_tag" ]; then

@@ -88,6 +88,32 @@ prune() {
   assert [ -d "$store_path" ]
 }
 
+@test "a previous-build root stays only beside a live target's current root" {
+  install_into "$TARGET_KEEP" alpha beta
+  install_into "$TARGET_GONE" alpha
+  drop_records
+  rm -r "$TARGET_GONE"
+  local alpha_root beta_root gone_root sp
+  alpha_root=$(gc_root alpha "$TARGET_KEEP")
+  beta_root=$(gc_root beta "$TARGET_KEEP")
+  gone_root=$(gc_root alpha "$TARGET_GONE")
+  sp=$(readlink "$beta_root")
+  ln -s "$sp" "$alpha_root.previous"
+  ln -s "$sp" "$beta_root.previous"
+  ln -s "$sp" "$gone_root.previous"
+  rm "$beta_root"
+  age_roots
+
+  prune --delete
+  assert_success
+  assert_output --partial "removed (previous build, current root gone): $beta_root.previous"
+  assert_output --partial "removed (install target not found): $gone_root.previous"
+  assert_output --partial "1 previous-build root whose current root is gone"
+  assert_store_symlink "$alpha_root.previous" "the live target's previous-build root"
+  refute [ -L "$beta_root.previous" ]
+  refute [ -L "$gone_root.previous" ]
+}
+
 @test "roots younger than an hour are kept" {
   install_into "$TARGET_KEEP" alpha
   install_into "$TARGET_GONE" alpha

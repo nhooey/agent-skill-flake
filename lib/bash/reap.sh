@@ -15,8 +15,11 @@ Optional:
 
 Removes managed entries (managedBy=$upstream_url) whose symlink
 targets have been garbage-collected, orphan GC roots whose store-path
-targets no longer exist, and shared claude-skill-<name> GC roots whose
-store path a per-target root also protects.
+targets no longer exist, every root of an install target whose dir is
+gone, previous-build roots (claude-skill-<target-hash>-<name>.previous)
+whose current root is gone, and shared claude-skill-<name> GC roots
+whose store path a per-target current root also protects. A
+previous-build root beside its current root stays.
 EOF
 }
 
