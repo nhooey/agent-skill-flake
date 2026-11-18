@@ -1,0 +1,16 @@
+# pylint's settings for the skill-layout check (lib/bash/skill-layout-check.sh).
+# pylint resolves each import against the Python that runs the check, with the
+# script's own folder on the path: `import-error` reports a module that Python
+# can't import, such as a standard-library module removed from it, and
+# `syntax-error` a script it can't parse. The check fails a script with any
+# comment that holds `pylint:`, found by Python's tokenize in the script's own
+# coding, so no control comment in a script can switch these off.
+[MAIN]
+persistent=no
+
+[MESSAGES CONTROL]
+disable=all
+enable=import-error,syntax-error
+
+[REPORTS]
+score=no

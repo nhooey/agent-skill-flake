@@ -1,0 +1,3 @@
+# A misspelled setting, which is an error rather than a setting left out.
+[description]
+trigger-frist = ["some-skill"]

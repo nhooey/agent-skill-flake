@@ -205,6 +205,16 @@ let
   aggCherryPickReconcile = fixtureAggCherryPick.apps.${system}.reconcile.program;
   aggCherryPickPrefixedReconcile = fixtureAggCherryPickPrefixed.apps.${system}.reconcile.program;
 
+  # The shared skill checks, and what they take from each fixture
+  # repository under tests/example-skill-checks-*.
+  skillChecks = import ./lib/skill-checks.nix { inherit pkgs; };
+  skillCheckFixtures = {
+    good = skillChecks.forRepository ./tests/example-skill-checks-good;
+    bad = skillChecks.forRepository ./tests/example-skill-checks-bad;
+    flake = skillChecks.forRepository ./tests/example-skill-checks-flake;
+    settings = skillChecks.forRepository ./tests/example-skill-checks-settings;
+  };
+
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
   mockHomeManagerLib = import ./tests/modules/mock-home-manager-lib.nix {
     lib = nixpkgs.lib;
@@ -1776,5 +1786,90 @@ in
       name = "darwin-shim-defaults-user";
       cond = forwarded.enable == true && builtins.length forwarded.skills == 1;
       msg = "darwin-shim-defaults-user: shim did not forward under " + "system.primaryUser 'bob'";
+    };
+
+  # ──────────────────────────────────────────────────────────────
+  # The shared skill checks every skill repository gets
+  # (lib/skill-checks.nix), on the tests/example-skill-checks-* fixtures.
+  # ──────────────────────────────────────────────────────────────
+
+  # Each rule of the skill-layout check, broken by one skill of the bad
+  # fixture, and kept by every skill of the good one.
+  skill-layout-check = mkBatsCheck {
+    name = "skill-layout-check";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      SKILL_LAYOUT_CHECK = lib.getExe skillChecks.programs.skill-layout;
+      GOOD_SETTINGS = skillCheckFixtures.good.input;
+      GOOD_SKILLS = skillCheckFixtures.good.skills;
+      BAD_SETTINGS = skillCheckFixtures.bad.input;
+      BAD_SKILLS = skillCheckFixtures.bad.skills;
+    };
+  };
+
+  # Each rule of the skill-description check, the same way, with the
+  # skill-flake rule broken by the flake fixture's skills.
+  skill-description-check = mkBatsCheck {
+    name = "skill-description-check";
+    extraInputs = [ pkgs.jq ];
+    env = {
+      SKILL_DESCRIPTION_CHECK = lib.getExe skillChecks.programs.skill-description;
+      GOOD_SETTINGS = skillCheckFixtures.good.input;
+      GOOD_SKILLS = skillCheckFixtures.good.skills;
+      BAD_SETTINGS = skillCheckFixtures.bad.input;
+      BAD_SKILLS = skillCheckFixtures.bad.skills;
+      FLAKE_SETTINGS = skillCheckFixtures.flake.input;
+      FLAKE_SKILLS = skillCheckFixtures.flake.skills;
+    };
+  };
+
+  # The checks a skill repository gets, as built for the good fixture: both
+  # pass in the sandbox.
+  skill-checks-good-layout = skillCheckFixtures.good.checks.skill-layout;
+  skill-checks-good-description = skillCheckFixtures.good.checks.skill-description;
+
+  # Which checks each settings fixture gets: the settings fixture's
+  # `skills-dir` and `[layout] enable = false` leave it the description check
+  # alone, run on pack/; `[description] enable = false` leaves the layout
+  # check alone; and a repository whose skills folder is missing, or holds
+  # only a .gitkeep, gets no check.
+  skill-checks-settings =
+    let
+      names = root: builtins.attrNames (skillChecks.forRepository root).checks;
+      got = {
+        settings = names ./tests/example-skill-checks-settings;
+        description-off = names ./tests/example-skill-checks-description-off;
+        no-skills-folder = names ./tests/example-source-dir;
+        empty-skills-folder = names ./tests/example-skill-checks-empty;
+      };
+    in
+    mkEvalCheck {
+      name = "skill-checks-settings";
+      cond =
+        got == {
+          settings = [ "skill-description" ];
+          description-off = [ "skill-layout" ];
+          no-skills-folder = [ ];
+          empty-skills-folder = [ ];
+        }
+        && skillCheckFixtures.settings.settings.skills-dir == "pack";
+      msg = "skill-checks-settings: the fixtures got these checks: " + builtins.toJSON got;
+    };
+  skill-checks-settings-description = skillCheckFixtures.settings.checks.skill-description;
+
+  # A misspelled setting, or a setting of the wrong type, in
+  # skill-checks.toml fails evaluation rather than being left out or read
+  # some other way.
+  skill-checks-bad-settings =
+    let
+      fails =
+        root: !(builtins.tryEval (builtins.deepSeq (skillChecks.forRepository root).settings true)).success;
+    in
+    mkEvalCheck {
+      name = "skill-checks-bad-settings";
+      cond = fails ./tests/example-skill-checks-typo && fails ./tests/example-skill-checks-wrong-type;
+      msg =
+        "skill-checks-bad-settings: `trigger-frist`, or `enable = \"no\"`, in skill-checks.toml "
+        + "evaluated without an error";
     };
 }

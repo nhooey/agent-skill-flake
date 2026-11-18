@@ -1,0 +1,48 @@
+# The shared skill checks' settings, each set to its default. A skill
+# repository changes them in a `skill-checks.toml` at its root, naming only
+# what it changes: tables merge key by key, a list or other value replaces
+# the default whole, and a key this file doesn't have is an error. See the
+# README's "Skill checks" section.
+
+# The folder, relative to the repository root, holding one folder per skill.
+# The checks are left out when it doesn't exist or holds no folder.
+skills-dir = "skills"
+
+# `checks.<system>.skill-layout`: a skill's folder holds only what an
+# installed skill runs, and its Python scripts import only what the Python
+# running the check provides and the modules beside them.
+[layout]
+enable = true
+
+# No folder by one of these names sits anywhere under the skills folder.
+test-folders = ["test", "tests", "golden", "stubs"]
+
+# No file whose name matches one of these shell patterns sits anywhere under
+# the skills folder.
+test-files = ["test_*", "*_test", "*_test.*", "*.bats"]
+
+# No two skills ship a Python script of the same module name, so tests that
+# import every skill's scripts from one `sys.path` find the one they mean.
+unique-script-modules = true
+
+# Every folder directly under `tests/` is named after a skill.
+tests-name-skills = false
+
+# `checks.<system>.skill-description`: every skill's SKILL.md opens with a
+# frontmatter block that names the skill and describes it.
+[description]
+enable = true
+
+# Skills whose description opens on when to load the skill, with
+# `trigger-first-prefix`, and stays within 500 characters. A name that is no
+# skill's folder is an error.
+trigger-first = []
+trigger-first-prefix = "Load "
+
+# Each skill's own `flake.nix` builds it with `mkSkillFlake` under its folder
+# name as `skillName`.
+skill-flake = false
+
+# Every relative link in SKILL.md outside a code block names a file inside
+# the skill's folder.
+relative-links = true

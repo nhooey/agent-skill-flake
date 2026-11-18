@@ -1,0 +1,1 @@
+A test case that belongs in tests/has-test-folder/.
