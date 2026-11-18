@@ -50,6 +50,10 @@
   # the skills as `<skill>.preferences.md`, for skills whose "Your
   # preferences" section reads one. Each key must name a skill in the union.
   preferences ? { },
+  # The command a project reconcile names for updating these skills when one
+  # differs from the personal scope's copy; null names
+  # `nix flake update --flake <project-root>`.
+  projectUpdateCommand ? null,
   # Systems to fan out over. Defaults to `defaultSystems` (the
   # `nix-systems/default` flake input injected by lib/default.nix) rather
   # than a hardcoded platform list, so downstream consumers retarget the
@@ -325,6 +329,7 @@ let
           provenance
           profile
           preferences
+          projectUpdateCommand
           ;
       };
   combinedPreview =

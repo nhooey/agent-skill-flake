@@ -48,9 +48,11 @@ let
   # ── Sentinel ─────────────────────────────────────────────────────────
   # The `.agent-skill-flake-managed.json` record written into every installed
   # skill. Single source of truth for the schema/field set; `mkSkill`
-  # builds it at eval, and `withNamePrefix` rewrites only `skillName` on an
-  # already-built file via jq (see lib/with-name-prefix.nix) — keep the two
-  # in sync through this definition.
+  # builds it at eval and adds `contentHash` (see ./bash/content-hash.bash)
+  # when it builds the skill, and `withNamePrefix` rewrites only
+  # `skillName` and `contentHash` on an already-built file via jq (see
+  # lib/with-name-prefix.nix) — keep the two in sync through this
+  # definition.
   mkSentinel =
     {
       name,
@@ -387,6 +389,8 @@ let
         name = lib.escapeShellArg name;
         normalizeFrontmatterAwk = lib.escapeShellArg normalizeFrontmatterAwk;
         scriptInputsPath = lib.escapeShellArg (lib.makeBinPath scriptInputs);
+        scriptInputsNames = lib.escapeShellArg (lib.concatMapStringsSep " " lib.getName scriptInputs);
+        contentHashBash = lib.escapeShellArg "${./bash/content-hash.bash}";
       };
     in
     assert assertValidSkillName name "skill name";
@@ -394,7 +398,7 @@ let
       pname = "claude-skill-${name}";
       inherit version src;
       dontBuild = true;
-      nativeBuildInputs = lib.optional (scriptInputs != [ ]) pkgs.makeWrapper;
+      nativeBuildInputs = [ pkgs.jq ] ++ lib.optional (scriptInputs != [ ]) pkgs.makeWrapper;
       # Pass the JSON via env so we don't have to escape it inside the bash
       # heredoc; bash will see it as a single literal string.
       passAsFile = [ "sentinel" ];
@@ -547,6 +551,18 @@ let
     ./bash/project-layout.bash
   ];
 
+  # Reconcile at project scope also compares each declared skill with the
+  # personal scope's copy (./bash/personal-scope.bash), and names the agent
+  # in what it reports.
+  reconcileModules = projectScopeModules ++ [
+    ./bash/content-hash.bash
+    ./bash/personal-scope.bash
+  ];
+  agentEnv = profile: ''
+    agent_display_name='${profile.displayName or "The agent"}'
+    personal_takes_precedence='${if profile.personalTakesPrecedence or false then "1" else ""}'
+  '';
+
   mkInstaller =
     system:
     {
@@ -662,6 +678,11 @@ let
       # `<skill>.preferences.md` beside the installed skills, linked from
       # the store, where a skill's "Your preferences" section reads it.
       preferences ? { },
+      # The command a project reconcile names for updating the project's
+      # skills when one differs from the personal scope's copy; null names
+      # `nix flake update --flake <project-root>`. The
+      # AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND variable overrides it.
+      projectUpdateCommand ? null,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -685,6 +706,7 @@ let
       inherit appName profile skills;
       runtimeInputs = with pkgs; [
         coreutils
+        findutils
         git
         gnugrep
         jq
@@ -693,10 +715,15 @@ let
         upstream_url='${provenance.upstreamUrl}'
         owner_app='${appName}'
         ${projectLinkEnv profile}
+        default_project_update_command=${
+          lib.escapeShellArg (if projectUpdateCommand == null then "" else projectUpdateCommand)
+        }
       ''
+      + agentEnv profile
       + preferencesArray;
-      sourceModules = projectScopeModules;
-      # project_link is consumed only by the sourced project-layout.bash.
+      sourceModules = reconcileModules;
+      # project_link and the agent's names are consumed only by the
+      # sourced modules.
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
@@ -809,6 +836,7 @@ let
       name = "agent-skill-flake";
       runtimeInputs = with pkgs; [
         coreutils
+        findutils
         git
         gnugrep
         gnused
@@ -836,8 +864,9 @@ let
           reconcile_script='${./bash/reconcile.sh}'
           shipped_defaults_file='${./config/defaults.toml}'
         ''
+        + agentEnv profile
         + lib.concatMapStringsSep "\n" (m: "source ${m}") (
-          projectScopeModules
+          reconcileModules
           ++ [
             ./bash/config.bash
             ./bash/apply.bash

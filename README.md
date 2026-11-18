@@ -319,6 +319,18 @@ The `SKILL.md` frontmatter `name:` is **normalized at build time** to the
 effective skill name (post-`renameFn`), so the source value doesn't have to
 match `skillName` / the directory — see the next section.
 
+Beside the content, `.agent-skill-flake-managed.json` (the sentinel)
+records which agent-skill-flake built the skill, and its `contentHash`:
+a hash of the skill folder's paths, file kinds and bytes, without the
+sentinel, written `v1:sha256:<hex>`, where `v1:sha256` names how it was
+computed. It is taken before `scriptInputs` and the build's shebang
+patching write store paths into the scripts, and counts the script inputs
+by name, so the same source gives the same hash under any nixpkgs. For the
+same reason it doesn't see a `postInstall` or `postFixup` added with
+`overrideAttrs`: two builds that differ only there record the same hash.
+A project `reconcile` compares it to tell two copies of a skill apart (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+
 ## Renaming & avoiding Claude Code name collisions
 
 Claude Code has a **flat skill namespace**: a skill's identity is its
@@ -449,8 +461,10 @@ agent-skill-flake.lib.withNamePrefix {
 
 What the wrapper preserves from the upstream sentinel:
 `originalSkillName`, `managedBy`/`managedByRev`/`managedByDirty`/
-`managedByNarHash`, `version`, `schemaVersion`. Only `skillName` is
-rewritten. Traceability back to the upstream lineage survives
+`managedByNarHash`, `version`, `schemaVersion`. `skillName` is rewritten,
+and `contentHash` becomes a hash of the upstream one and the new name, so
+two wraps of the same skill under the same prefix compare equal whatever
+nixpkgs built them. Traceability back to the upstream lineage survives
 re-prefixing.
 
 ## Marketplace / aggregation
@@ -632,6 +646,15 @@ bearing *its own* `name`. So multiple aggregates (or a hand-rolled
 installer) can share one skills directory, each declaratively owning its
 own slice without sweeping the others'.
 
+**The personal scope.** The reconcile leaves out a declared skill whose copy
+in the personal skills directory is the same version, and installs one
+whose copy there is a different version, with a warning (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+`reconcileScript system` is a plain command, so a dev shell adds
+`--strict` (fail on a different version) or `--ignore-personal-scope`
+(don't compare) by appending it:
+`shellHook = "${agg.reconcileScript system} --strict";`.
+
 ### `mkCombination`
 
 A **combination** is a curated, cross-cutting union of skills that is, by
@@ -728,6 +751,13 @@ at a skill's path is left alone too. The single `name` owner means one `purge` (
 whole set. See [`skills-devshell/flake.nix`](skills-devshell/flake.nix) for
 the live example.
 
+`projectUpdateCommand` (default `"update-skills-devshell"`, the hook's
+command) is what `reconcile` names for updating these skills when one
+differs from the personal scope's copy (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+`mkAggregateSkillsFlake` and `mkCombination` take it too, defaulting to
+`null`, which names `nix flake update --flake <project-root>`.
+
 ### `devshellSkillsHook`
 
 Root-side wiring for a `skills-devshell/` sub-flake invoked at runtime.
@@ -759,7 +789,17 @@ per repo:
   menu replaces re-defining all three per repo.
 
 Params (all optional): `dir` (`"skills-devshell"`), `scope` (`"project"`),
-`reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`). Pure — no provenance
+`reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`), `reconcileArgs`
+(`[ ]`: arguments added to every reconcile run, on `nix develop` and by
+`reconcile-skills` and `update-skills-devshell`, such as `[ "--strict" ]`
+or `[ "--ignore-personal-scope" ]`; see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds).
+The `<dir>` sub-flake has its own lock, so it must lock an
+agent-skill-flake whose reconcile has these flags: an older one refuses
+them as unexpected arguments, and every dev-shell entry fails).
+Every reconcile run sets `AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND` to
+`update-skills-devshell`, the command a warning about a skill that differs
+from the personal scope's copy names for the project. Pure — no provenance
 threading. Assumes numtide/devshell, which exports `$PRJ_ROOT`. Usage is
 shown under [the `skills-devshell`
 section](#project-scope-dev-shell-skills-the-skills-devshell-sub-flake) below.
@@ -922,6 +962,7 @@ Options under `agent-skill-flake.devshellSkills`:
 | `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
 | `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
 | `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
+| `reconcileArgs` | `[ ]` | Arguments added to every run of `reconcileApp`, such as `[ "--strict" ]` or `[ "--ignore-personal-scope" ]` (see [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)). The `<dir>` sub-flake must lock an agent-skill-flake whose reconcile has these flags, or every dev-shell entry fails. |
 | `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the three `skills` commands are always included. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
@@ -1146,6 +1187,8 @@ flags:
 |-----------------------|--------------------------------------|---------|
 | `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where each target's `claude-skill-<target-hash>-<skillName>` roots go (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
 | `--profile`           | (off)                                | `install` only: install via `nix profile install` instead of the default direct-symlink mode. See [`--profile`](#--profile-via-nix-profile-install). |
+| `--strict`            | (off)                                | `reconcile --scope=project` only: exit 1 when a declared skill differs from the personal scope's copy. See [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds). |
+| `--ignore-personal-scope` | (off)                            | `reconcile --scope=project` only: don't compare the declared skills with the personal scope's copies. |
 | `-h`, `--help`        | —                                    | Print help and exit. |
 
 Positional args after the flags are skill-name selectors (subset install):
@@ -1158,6 +1201,76 @@ nix run .#install -- --scope=project nix-flakes git-ssh
 args, or only the named subset when given. An unknown skill name is a
 hard error listing what's available — the install-time equivalent of
 eval-time typo protection.
+
+### A skill the personal scope already holds
+
+An agent reads the personal skills directory as well as the project's, and
+Claude Code uses the personal copy when both hold a skill of the same
+name. So `reconcile --scope=project` compares each declared skill with the
+personal directory's copy of that name:
+
+- **The same version:** the project's copy isn't installed. A link an
+  earlier reconcile made is removed with its GC root, its `skills` entry
+  in the lock and its exclude line, and the lock lists the skill under
+  `satisfiedByPersonalScope` (see [Lock file](#lock-file)). The run prints
+  `N declared skill(s) left to the same version in <personal-dir>.`
+- **A different version:** the project's copy is installed as well, and
+  the run prints one line per skill on stderr, naming both versions, the
+  copy the agent uses, and how to bring each side up to date:
+
+  ```text
+  WARNING: beta is sha256:3f0c2a91d4b7 in the personal scope (/home/me/.claude/skills/beta) and sha256:8e51b0c6a2f9 in this project; both are installed. Claude Code uses the personal copy. To update both to the latest: for the personal copy, run `my-home-update`; for the project's, run `update-skills-devshell`.
+  ```
+
+  With `--strict` the line starts `ERROR:`, and the reconcile exits 1 once
+  it has converged.
+- **No copy of that name, or no personal directory** (as in CI or a
+  sandbox): the skill installs as at any other scope. So does a personal
+  entry whose links pass through the project's own skills directory, which
+  is the project's copy under another name, and a personal copy that can't
+  be read, which the run reports in one `WARNING:` line.
+
+Every reconcile compares afresh, from the files, and never trusts what an
+earlier run recorded: once the personal copy is removed or changes, the
+next reconcile installs the project's.
+
+Two copies are the same version when their content hashes match. When
+both copies are in the Nix store and their sentinels record a
+`contentHash` of the same scheme (see [Build behavior](#build-behavior)),
+those are compared, and the store path, the sentinel's `version` and
+`managedByRev` take no part. Otherwise, as for a copy built by an
+agent-skill-flake that didn't record the hash, or one outside the store,
+both folders are hashed as they stand, computed the same way. That
+fallback sees the store paths the build wrote into the scripts (patched
+shebangs, `scriptInputs`' PATH lines and wrappers), so the same source
+built against two different nixpkgs compares as a different version: the
+project's copy is installed too, with the warning.
+
+The personal directory is the one the agent reads,
+`$HOME/<agent.personalSuffix>` (`~/.claude/skills` for Claude Code),
+followed through any symlinks, as when Home Manager links it to another
+directory. A project whose skills directory is that same directory skips
+the comparison. These environment variables change what the reconcile
+looks at and says:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AGENT_SKILL_FLAKE_PERSONAL_DIR` | `$HOME/<agent.personalSuffix>` | The personal skills directory to compare with. |
+| `AGENT_SKILL_FLAKE_PERSONAL_UPDATE_COMMAND` | (unset) | The command that updates the personal skills, quoted in the warning. Unset, the warning says to update the flake that installs the personal directory and rebuild it. |
+| `AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND` | the builder's `projectUpdateCommand`, else `nix flake update --flake <project-root>` | The command that updates the project's skills. [`mkDevshellSkillsFlake`](#mkdevshellskillsflake) builds in `update-skills-devshell`, and [`devshellSkillsHook`](#devshellskillshook) also sets the variable to it. |
+
+The personal update command belongs to the user's machine, so set it where
+the user's environment is set, such as Home Manager's
+`home.sessionVariables`. A dev shell passes `--strict` or
+`--ignore-personal-scope` by appending it to `reconcileScript`'s command
+(`"${agg.reconcileScript system} --strict"`), through
+[`devshellSkillsHook`](#devshellskillshook)'s `reconcileArgs`, or through
+the [flake module's](#flakemodulesdevshellskills) `reconcileArgs` option.
+The two flags together are a usage error, and so is either one at
+personal or custom scope, as `--root` is outside custom scope. Personal and
+custom scope reconciles, and `install`, don't compare. `agent-skill-flake
+sync-project` does compare, with the defaults and the variables above, and
+rejects both flags as unexpected arguments.
 
 ### Default: symlink + GC root
 
@@ -1606,13 +1719,30 @@ indexed by name so you can `cat` it for an overview:
       "skillName": "garnix-ci",
       "originalSkillName": "garnix-ci",
       "version": "0.1.0",
+      "contentHash": "v1:sha256:8e51b0c6a2f9...",
       "storePath": "/nix/store/...-claude-skill-garnix-ci-0.1.0",
       "installedAt": "2026-04-27T12:34:56Z",
+      "installedBy": "agent-skills-all"
+    }
+  },
+  "satisfiedByPersonalScope": {
+    "nix-flakes": {
+      "personalCopy": "/home/me/.claude/skills/nix-flakes",
+      "contentHash": "v1:sha256:3f0c2a91d4b7...",
+      "checkedAt": "2026-04-27T12:34:56Z",
       "installedBy": "agent-skills-all"
     }
   }
 }
 ```
+
+`satisfiedByPersonalScope`, present only when it lists something, holds the
+declared skills a project `reconcile` left to the personal scope's copy of
+the same version, with that copy's path and their content hash (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+Such a skill has no `skills` entry, link, GC root or exclude line in the
+project. Each reconcile rewrites the list from what it finds, and `purge`
+clears it.
 
 The lock is **descriptive, not authoritative**: install / reconcile / reap /
 purge / uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
@@ -1655,7 +1785,11 @@ Built-in profiles (see [`lib/agent-profiles.nix`](lib/agent-profiles.nix)):
 | `cursor`       | `.cursor/skills`           | `.cursor/skills`           |
 
 A profile's optional `projectLink` names a project-root path that
-install and reconcile symlink to its project-scope directory. To add a new
+install and reconcile symlink to its project-scope directory. Its
+`displayName` names the agent in reconcile's messages, and
+`personalTakesPrecedence`, set for `claude-code`, lets the warning about a
+skill that differs from the personal scope's copy say the agent uses the
+personal one. To add a new
 agent, append an entry to `lib/agent-profiles.nix`. An
 unknown `agent` value throws at eval with the list of known profiles.
 

@@ -11,10 +11,12 @@
 # Behavior: produces a new derivation with the same on-disk contents as
 # the input but moved to `share/claude-skills/<prefix>-<oldName>/`. The
 # `SKILL.md` frontmatter `name:` and the `.agent-skill-flake-managed.json`
-# sentinel `skillName` are rewritten to the prefixed name; everything
-# else in the sentinel (managedBy*, originalSkillName, version, ...)
-# is preserved verbatim so traceability back to the upstream lineage
-# survives. Passthru is refreshed so the wrapped drv behaves like a
+# sentinel `skillName` are rewritten to the prefixed name, and its
+# `contentHash` becomes a hash of the original's and the new name, so it
+# stays independent of the nixpkgs the original was built against;
+# everything else in the sentinel (managedBy*, originalSkillName,
+# version, ...) is preserved verbatim so traceability back to the
+# upstream lineage survives. Passthru is refreshed so the wrapped drv behaves like a
 # first-class `mkSkill` output to the rest of the library (home-manager
 # activation, installer, reconcile, mkSkillsEnv).
 #
@@ -105,6 +107,7 @@ let
           srcDir = lib.escapeShellArg "${drv}/share/claude-skills/${oldName}";
           newName = lib.escapeShellArg newName;
           normalizeFrontmatterAwk = lib.escapeShellArg normalizeFrontmatterAwk;
+          contentHashBash = lib.escapeShellArg "${./bash/content-hash.bash}";
         }
       }\n";
       meta = drv.meta or { };

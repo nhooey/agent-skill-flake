@@ -8,6 +8,8 @@
 #   name                    the skill's installed name
 #   normalizeFrontmatterAwk lib/normalize-frontmatter.nix, as a file
 #   scriptInputsPath        the scriptInputs' bin PATH, empty for none
+#   scriptInputsNames       the scriptInputs' names, empty for none
+#   contentHashBash         ./content-hash.bash, as a file
 #
 # extraFiles and extraDirs arrive as the derivation attributes
 # `extraFilesArgs` and `extraDirsArgs`, each a space-separated list of
@@ -18,6 +20,7 @@ eval "extra_files=($extraFilesArgs)"
 eval "extra_dirs=($extraDirsArgs)"
 normalize_frontmatter_awk=@normalizeFrontmatterAwk@
 script_inputs_path=@scriptInputsPath@
+script_inputs_names=@scriptInputsNames@
 skill_dir="$out/share/claude-skills/$skill_name"
 mkdir -p "$skill_dir"
 # extraFiles runs first so the canonical files written below
@@ -49,6 +52,17 @@ for d in references scripts "${extra_dirs[@]}"; do
     cp -r "$d/." "$skill_dir/$d/"
   fi
 done
+# The sentinel's `contentHash`, taken here: before scriptInputs and
+# fixup's shebang patching write store paths into the scripts, so
+# the same source hashes the same against any nixpkgs. The script
+# inputs' names count; their store paths don't.
+SENTINEL_FILE=.agent-skill-flake-managed.json
+# shellcheck source=/dev/null # a store path
+source @contentHashBash@
+content_hash=$(skill_content_hash "$skill_dir")
+if [ -n "$script_inputs_path" ]; then
+  content_hash=$(content_hash_extend "$content_hash" "scriptInputs $script_inputs_names")
+fi
 if [ -n "$script_inputs_path" ]; then
   # A shell script gets the PATH line after its shebang, so it
   # keeps its path and runs under any bash, macOS's 3.2 among
@@ -64,6 +78,7 @@ if [ -n "$script_inputs_path" ]; then
     fi
   done
 fi
-install -Dm644 "$sentinelPath" \
-  "$skill_dir/.agent-skill-flake-managed.json"
+jq -cS --arg h "$content_hash" '.contentHash = $h' "$sentinelPath" \
+  >"$skill_dir/$SENTINEL_FILE"
+chmod 644 "$skill_dir/$SENTINEL_FILE"
 runHook postInstall

@@ -8,6 +8,7 @@
 #   srcDir                  the input skill's installed directory
 #   newName                 the prefixed name
 #   normalizeFrontmatterAwk lib/normalize-frontmatter.nix, as a file
+#   contentHashBash         ./content-hash.bash, as a file
 runHook preInstall
 srcDir=@srcDir@
 new_name=@newName@
@@ -26,14 +27,25 @@ awk -v newname="$new_name" \
 mv "$dstDir/SKILL.md.tmp" "$dstDir/SKILL.md"
 chmod 644 "$dstDir/SKILL.md"
 
-# Sentinel: rewrite `skillName`, leave everything else verbatim
-# so `originalSkillName`, `managedBy*`, and `version` still
-# trace back to the original lineage. mkSkill guarantees the
-# file exists, but the `-f` guard keeps us robust if the input
-# was hand-built without one.
+# Sentinel: rewrite `skillName`, and a recorded `contentHash` as
+# a hash of the original's and the new name (see
+# lib/bash/content-hash.bash): the copied files carry the
+# original build's store paths, so hashing them would tie the
+# hash to its nixpkgs. Everything else stays verbatim so
+# `originalSkillName`, `managedBy*`, and `version` still trace
+# back to the original lineage. mkSkill guarantees the file
+# exists, but the `-f` guard keeps us robust if the input was
+# hand-built without one.
 if [ -f "$dstDir/.agent-skill-flake-managed.json" ]; then
-  jq --arg n "$new_name" \
-    '.skillName = $n' \
+  # shellcheck source=/dev/null # a store path
+  source @contentHashBash@
+  old_hash=$(jq -r '.contentHash // empty' "$dstDir/.agent-skill-flake-managed.json")
+  new_hash=""
+  if [ -n "$old_hash" ]; then
+    new_hash=$(content_hash_extend "$old_hash" "skillName $new_name")
+  fi
+  jq --arg n "$new_name" --arg h "$new_hash" \
+    '.skillName = $n | if $h == "" then . else .contentHash = $h end' \
     "$dstDir/.agent-skill-flake-managed.json" \
     >"$dstDir/.agent-skill-flake-managed.json.tmp"
   mv "$dstDir/.agent-skill-flake-managed.json.tmp" \

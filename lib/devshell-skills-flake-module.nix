@@ -109,6 +109,18 @@ in
       '';
     };
 
+    reconcileArgs = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "--strict" ];
+      description = ''
+        Arguments added to every run of `reconcileApp`: on `nix develop`,
+        and by `reconcile-skills` and `update-skills-devshell`. `--strict`
+        fails the reconcile when a declared skill differs from the personal
+        scope's copy; `--ignore-personal-scope` skips that comparison.
+      '';
+    };
+
     includeStandardCommands = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -132,6 +144,7 @@ in
             scope
             reconcileApp
             removeApp
+            reconcileArgs
             ;
         };
       in

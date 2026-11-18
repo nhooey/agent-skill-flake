@@ -1,7 +1,7 @@
 print_help() {
   cat <<EOF
 Usage: $app_name --scope=<personal|project|custom> [--root=<path>] \\
-                 [--gcroots-dir=<path>]
+                 [--gcroots-dir=<path>] [--strict] [--ignore-personal-scope]
 
 Required:
   --scope=personal              Reconcile \$HOME/$personal_suffix
@@ -10,6 +10,7 @@ Required:
 
 EOF
   print_project_layout_usage
+  print_personal_scope_usage
   cat <<EOF
 Optional:
   --gcroots-dir=<path>          Override per-user GC-roots dir
@@ -27,10 +28,13 @@ if wants_help "$@"; then
   exit 0
 fi
 
-parse_scope_no_positionals "$@" || exit $?
+parse_personal_scope_args "$@"
+parse_scope_no_positionals "${personal_scope_remaining_args[@]}" || exit $?
+validate_personal_scope_args || exit $?
 
 ensure_project_layout || exit 1
 mkdir -p "$target_root"
+personal_scope_init
 gcroots_ok=1
 if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
   gcroots_ok=0
@@ -44,11 +48,25 @@ fi
 #    skip declared entries (vs. a per-entry linear scan of a names list).
 #    A skill whose path holds the project's own file or directory is
 #    kept in keep_set but left unlinked, unrooted and out of the lock.
+#    At project scope, a skill the personal scope holds at the same
+#    version is left to that copy, and one it holds at another version is
+#    reported (see personal-scope.bash).
 declare -A keep_set=()
 declare -a linked_skills=()
 for entry in "${skills_list[@]}"; do
   parse_skill_entry "$entry"
   keep_set["$skill_name"]=1
+
+  if [ -L "$target_root/$skill_name" ] || [ ! -e "$target_root/$skill_name" ]; then
+    personal_scope_compare "$skill_name" "$skill_subpath"
+    case "$personal_verdict" in
+    same)
+      personal_scope_defer "$skill_name"
+      continue
+      ;;
+    different) personal_scope_report_difference "$skill_name" ;;
+    esac
+  fi
 
   ensure_symlink "$target_root/$skill_name" "$skill_subpath" 'reconciled (install)' || continue
 
@@ -140,6 +158,9 @@ else
 fi
 lock_replace_preferences "${pref_entries[@]}"
 sync_project_excludes
+# Record what was left to the personal scope; with --strict, stop here if
+# a declared skill differs from it.
+personal_scope_finish
 
 printf '\n%d declared skill(s) installed; %d stray managed entr(y/ies) swept.\n' \
   "${#linked_skills[@]}" "$swept"

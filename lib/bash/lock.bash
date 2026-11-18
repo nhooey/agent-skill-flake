@@ -188,6 +188,56 @@ lock_replace_preferences() {
   mv -f "$tmp" "$lock"
 }
 
+# lock_replace_personal_scope  [name copy hash]...
+# Rebuild .satisfiedByPersonalScope, the declared skills a project
+# reconcile left to the personal scope's copy of the same version (see
+# personal-scope.bash), from the args, three per skill: its name, the
+# personal copy's path and their content hash. Scoped to `owner_app` as
+# lock_replace_all scopes .skills. With no args and no such table, the lock
+# is left as it is.
+lock_replace_personal_scope() {
+  local lock tmp now owner entries
+  lock=$(lock_path)
+  if [ $# -eq 0 ] && { [ ! -f "$lock" ] ||
+    ! jq -e 'has("satisfiedByPersonalScope")' "$lock" >/dev/null 2>&1; }; then
+    return 0
+  fi
+  tmp="$lock.tmp.$$"
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  owner="${owner_app:-}"
+  lock_init_if_absent
+  entries='[]'
+  while [ $# -ge 3 ]; do
+    entries=$(jq -n --argjson cur "$entries" --arg n "$1" --arg p "$2" --arg h "$3" \
+      '$cur + [{name: $n, personalCopy: $p, contentHash: $h}]')
+    shift 3
+  done
+  jq --argjson new "$entries" --arg owner "$owner" --arg t "$now" '
+    (.satisfiedByPersonalScope // {}
+      | with_entries(select((.value.installedBy // "") != ""
+        and (.value.installedBy // "") != $owner))) as $others
+    | ($new | map({key: .name, value: ({personalCopy, contentHash, checkedAt: $t}
+        + (if $owner == "" then {} else {installedBy: $owner} end))})
+      | from_entries) as $ours
+    | ($others + $ours) as $all
+    | if $all == {} then del(.satisfiedByPersonalScope)
+      else .satisfiedByPersonalScope = $all end' \
+    "$lock" >"$tmp"
+  mv -f "$tmp" "$lock"
+}
+
+# lock_clear_personal_scope — drop .satisfiedByPersonalScope, every
+# appName's, as purge does when it clears the target.
+lock_clear_personal_scope() {
+  local lock tmp
+  lock=$(lock_path)
+  [ -f "$lock" ] || return 0
+  jq -e 'has("satisfiedByPersonalScope")' "$lock" >/dev/null 2>&1 || return 0
+  tmp="$lock.tmp.$$"
+  jq 'del(.satisfiedByPersonalScope)' "$lock" >"$tmp"
+  mv -f "$tmp" "$lock"
+}
+
 # lock_has_preferences  $file  -> 0 if the lock records $file as a
 # preferences link reconcile made, of any appName.
 lock_has_preferences() {

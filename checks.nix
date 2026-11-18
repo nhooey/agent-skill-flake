@@ -1209,6 +1209,70 @@ in
     extraInputs = [ pkgs.jq ];
   };
 
+  # A project reconcile leaves a skill the personal scope holds at the same
+  # content to that copy, recorded in the lock, and installs one it holds at
+  # another version with one warning line; it checks again every run, fails
+  # under --strict, compares nothing under --ignore-personal-scope, and is
+  # unchanged with no personal scope. Copies of the same content at other
+  # store paths, built at another version or wrapped by withNamePrefix,
+  # count as the same version.
+  project-reconcile-personal-scope =
+    let
+      # alpha and beta again, at version 9.9.9: other store paths, the same
+      # content.
+      released =
+        skillName:
+        (self.lib.mkSkillFlake {
+          inherit nixpkgs skillName;
+          src = ./tests/example-skills-dir + "/${skillName}";
+          version = "9.9.9";
+          namespaceFn = _: "";
+        }).packages.${system}.default;
+      alphaReleased = released "alpha";
+      prefixed =
+        skill:
+        self.lib.withNamePrefix {
+          inherit pkgs skill;
+          namePrefix = "px";
+        };
+      pxAlpha = prefixed alphaPkg;
+      prefixedReconcile = internal.mkReconcile system {
+        appName = "px";
+        skills = [
+          {
+            name = "px-alpha";
+            drv = pxAlpha;
+          }
+        ];
+        inherit (self.lib) provenance;
+        profile = internal.resolveAgentProfile "claude-code";
+      };
+      devshell = self.lib.mkDevshellSkillsFlake {
+        inherit nixpkgs;
+        name = "personal-scope-devshell";
+        sources = [ { source = fixtureAll; } ];
+      };
+    in
+    mkBatsCheck {
+      name = "project-reconcile-personal-scope";
+      env = {
+        RECONCILE_APP = reconcileAllApp;
+        ALPHA_PKG = alphaPkg;
+        BETA_PKG = betaPkg;
+        BETA_OTHER_PKG = fixtureAllScriptInputs.packages.${system}."agent-skill-beta";
+        ALPHA_RELEASED_PKG = alphaReleased;
+        BETA_RELEASED_PKG = released "beta";
+        PREFIXED_RECONCILE_APP = "${prefixedReconcile}/bin/reconcile-px";
+        PX_ALPHA_PKG = pxAlpha;
+        PX_ALPHA_RELEASED_PKG = prefixed alphaReleased;
+        DEVSHELL_RECONCILE_APP = devshell.apps.${system}.reconcile.program;
+      };
+      extraInputs = [
+        pkgs.git
+        pkgs.jq
+      ];
+    };
+
   # A preferences key naming no skill in the union fails at evaluation,
   # listing the skills the union holds.
   aggregate-preferences-unknown-skill =
@@ -1450,6 +1514,36 @@ in
       builtins.toJSON (import ./lib/devshell-skills-hook.nix { }).standardCommands
     );
   };
+
+  # `reconcileArgs` reach every run of the reconcile app the hook makes, and
+  # no other app; every reconcile run names update-skills-devshell as the
+  # project's update command, through the environment.
+  devshell-hook-reconcile-args =
+    let
+      hook = import ./lib/devshell-skills-hook.nix { reconcileArgs = [ "--strict" ]; };
+      plain = import ./lib/devshell-skills-hook.nix { };
+      text = nm: (lib.findFirst (c: c.name == nm) { command = ""; } hook.commands).command;
+      strict = "#reconcile\" -- --scope=project '--strict'";
+      updateEnv = "AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND=update-skills-devshell nix run";
+    in
+    mkEvalCheck {
+      name = "devshell-hook-reconcile-args";
+      cond =
+        lib.hasInfix strict hook.startup
+        && lib.hasInfix "${strict} \"$@\"" (text "reconcile-skills")
+        && lib.hasInfix strict (text "update-skills-devshell")
+        && !(lib.hasInfix "--strict" (text "reap-skills"))
+        && lib.all (lib.hasInfix updateEnv) [
+          hook.startup
+          (text "reconcile-skills")
+          (text "update-skills-devshell")
+        ]
+        && !(lib.hasInfix "--strict" plain.startup);
+      msg =
+        "devshell-hook-reconcile-args: reconcileArgs must follow --scope on the "
+        + "startup, reconcile-skills and update-skills-devshell reconcile runs only, "
+        + "each prefixed with the project update command. Got startup: ${hook.startup}";
+    };
 
   # ──────────────────────────────────────────────────────────────
   # flakeModules.devshellSkills — the exposed dev-shell flake-parts module.

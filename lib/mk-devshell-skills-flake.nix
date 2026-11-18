@@ -36,6 +36,13 @@
   # "Your preferences" section, linked by reconcile beside the skills as
   # `<skill>.preferences.md`. Identical to mkAggregateSkillsFlake.preferences.
   preferences ? { },
+  # The command the reconcile names for updating this skill set when a skill
+  # differs from the personal scope's copy: the `update-skills-devshell`
+  # command devshellSkillsHook adds. Built in here, so the reconcile names
+  # it even when the root flake locks an agent-skill-flake whose hook
+  # doesn't pass it; the AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND variable
+  # overrides it.
+  projectUpdateCommand ? "update-skills-devshell",
   systems ? defaultSystems,
   # Injected by lib/default.nix, as in the other builders.
   provenance,
@@ -57,6 +64,7 @@ let
       packagePrefix
       agent
       preferences
+      projectUpdateCommand
       ;
   };
 in

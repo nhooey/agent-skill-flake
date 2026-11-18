@@ -90,4 +90,7 @@ if [ "$dry_run" != "1" ] && [ "$assume_yes" != "1" ]; then
 fi
 
 lineage_sweep
+# The skills a project reconcile left to the personal scope go with the
+# rest of the declared set.
+[ "$dry_run" = "1" ] || lock_clear_personal_scope
 sync_project_excludes
