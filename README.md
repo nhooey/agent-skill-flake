@@ -897,8 +897,10 @@ import plus an options block:
 
 The module sets `devshells.default`'s `name`, `motd`, the install-skills
 `startup`, and `commands` (the ci/dev/maintenance trio plus `reap-skills` /
-`reconcile-skills` / `update-skills-devshell`). It is scope-limited to **dev-shell wiring only** —
-`treefmt` is deliberately not bundled, since real consumers diverge on it.
+`reconcile-skills` / `update-skills-devshell`). Beside that dev-shell wiring
+it brings the [shared skill checks](#skill-checks), which do nothing in a
+flake without a skills folder. `treefmt` is deliberately not bundled, since
+real consumers diverge on it.
 
 - **No `devshell` input required.** The exported module bundles
   agent-skill-flake's own `inputs.devshell.flakeModule`. **Caveat:** if you
@@ -926,6 +928,82 @@ Options under `agent-skill-flake.devshellSkills`:
 dogfoods the module in its own [`flake.nix`](flake.nix) (listing the bundle's
 pieces directly rather than `self.flakeModules.devshellSkills`, which would be
 an eval cycle).
+
+## Skill checks
+
+Every flake that imports [`flakeModules.devshellSkills`](#flakemodulesdevshellskills)
+gets two checks on its own skills folder, so `nix flake check` runs them with
+nothing to name:
+
+- `checks.<system>.skill-layout`: an installed skill holds only what it runs,
+  and its scripts run on any Python 3.
+- `checks.<system>.skill-description`: every SKILL.md opens with frontmatter
+  that names the skill and describes it.
+
+Each prints one line per problem, `<skill>: <problem> (<rule>)`, and fails
+when there is any. A flake that wires its own dev shell imports
+`flakeModules.skillChecks`, the checks alone. A flake without a skills folder
+gets neither check.
+
+### Rules
+
+| Check | Rule | Fails when |
+|---|---|---|
+| `skill-layout` | `test-folders` | A folder named in `test-folders` sits anywhere under the skills folder. Tests go in `tests/<skill>/`. |
+| `skill-layout` | `test-files` | A file matching a pattern in `test-files` sits anywhere under the skills folder. |
+| `skill-layout` | `standard-library-imports` | A skill's Python script, `scripts/**/*.py`, imports a module that is neither the standard library nor a `.py` file or package in the script's own folder. [FawltyDeps](https://github.com/tweag/FawltyDeps) finds these, as undeclared dependencies of a project that declares none. |
+| `skill-layout` | `unique-script-modules` | Two Python scripts in different folders share a module name. |
+| `skill-layout` | `tests-name-skills` | A folder directly under `tests/` is named after no skill. |
+| `skill-description` | `folder-name` | A skill's folder name isn't lowercase letters and digits in words joined by hyphens, at most 64 characters. |
+| `skill-description` | `skill-md` | A skill folder holds no SKILL.md, or the skills folder holds no skill. |
+| `skill-description` | `frontmatter` | SKILL.md doesn't open with a block between `---` lines, or the block isn't a YAML mapping, read with `yq --front-matter=extract`. |
+| `skill-description` | `name` | The frontmatter's `name` isn't the folder name. |
+| `skill-description` | `description` | `description` is missing, not a string, blank, or over 1,024 characters. |
+| `skill-description` | `trigger-first` | A skill in `trigger-first` has a description that doesn't open on `trigger-first-prefix` or runs over 500 characters, or a name in `trigger-first` is no skill's folder. |
+| `skill-description` | `skill-flake` | With `skill-flake` on, a skill has no `flake.nix`, or its `outputs` doesn't call `mkSkillFlake` with the folder name as `skillName`. The check calls `outputs` with a stand-in `mkSkillFlake` to read it, so the flake builds nothing. |
+| `skill-description` | `relative-links` | A relative link in SKILL.md, outside code blocks and code spans, names no file inside the skill's folder. [lychee](https://lychee.cli.rs) checks it offline, on a copy of the skill alone, so a link out of the skill fails too. |
+
+### Settings: `skill-checks.toml`
+
+A skill repository changes the checks' settings in a `skill-checks.toml` at
+its root. It names only what it changes: tables merge key by key, and a list
+or other value replaces the default whole. A key that isn't a setting, or a
+value of the wrong type, fails evaluation. The file is data that only the
+checks read, so a repository can add it before its `flake.lock` reaches a
+version of agent-skill-flake with the checks.
+
+```toml
+# skill-checks.toml
+[description]
+trigger-first = ["my-skill-one", "my-skill-two"]
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `skills-dir` | `"skills"` | The folder, relative to the root, holding one folder per skill. Without it, neither check is made. |
+| `layout.enable` | `true` | Make `checks.<system>.skill-layout`. |
+| `layout.test-folders` | `["test", "tests", "golden", "stubs"]` | Folder names that mark tests or their data. |
+| `layout.test-files` | `["test_*", "*_test", "*_test.*", "*.bats"]` | Shell patterns of test file names. |
+| `layout.unique-script-modules` | `true` | Check the `unique-script-modules` rule. |
+| `layout.tests-name-skills` | `true` | Check the `tests-name-skills` rule. |
+| `description.enable` | `true` | Make `checks.<system>.skill-description`. |
+| `description.trigger-first` | `[]` | Skills held to the `trigger-first` rule. |
+| `description.trigger-first-prefix` | `"Load "` | What a trigger-first description opens on. |
+| `description.skill-flake` | `false` | Check the `skill-flake` rule, for a repository whose skills each have their own `flake.nix`. |
+| `description.relative-links` | `true` | Check the `relative-links` rule. |
+
+[`lib/config/skill-checks.toml`](lib/config/skill-checks.toml) holds the
+defaults, [`lib/skill-checks.nix`](lib/skill-checks.nix) merges the file over
+them and builds the checks, and the scripts in
+[`lib/bash/`](lib/bash/skill-layout-check.sh) apply the rules.
+
+To run the checks against a skill repository's checkout before its lock
+moves to a version with them, point its `agent-skill-flake` input at a
+checkout of this repository:
+
+```bash
+nix flake check --override-input agent-skill-flake path:/path/to/agent-skill-flake --no-write-lock-file
+```
 
 ## Install scope
 

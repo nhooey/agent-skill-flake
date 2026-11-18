@@ -1,0 +1,5 @@
+# A skill repository that keeps every rule of the shared skill checks, with
+# the settings that are off by default turned on.
+[description]
+trigger-first = ["trigger-skill"]
+skill-flake = true

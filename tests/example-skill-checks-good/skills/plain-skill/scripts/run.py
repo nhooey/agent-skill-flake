@@ -1,0 +1,11 @@
+"""Imports only the standard library and the modules beside it."""
+
+from __future__ import annotations
+
+import json
+import os.path
+
+import common
+from helpers import greet
+
+print(json.dumps([os.path.sep, common.NAME, greet()]))

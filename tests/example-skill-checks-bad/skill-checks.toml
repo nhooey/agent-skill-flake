@@ -1,0 +1,4 @@
+# A skill repository in which each skill breaks one rule of the shared skill
+# checks, named after what it does wrong.
+[description]
+trigger-first = ["trigger-without-load", "trigger-too-long", "no-such-skill"]

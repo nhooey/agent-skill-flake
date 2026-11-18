@@ -1,0 +1,6 @@
+# A skill repository that keeps its skills in pack/ and turns the layout
+# check off.
+skills-dir = "pack"
+
+[layout]
+enable = false

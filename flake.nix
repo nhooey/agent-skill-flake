@@ -42,14 +42,16 @@
       # works without any embedded skill set (pure cleanup tool).
       internal = import ./lib/internal.nix { inherit nixpkgs; };
 
-      # The two flake-parts pieces that make up the devshell-skills bundle:
-      # agent-skill-flake's OWN devshell flakeModule + the local module. Defined
-      # ONCE here and referenced in BOTH the exported bundle (flake.flakeModules.
-      # devshellSkills) and the dogfood `imports` below, so the two sites can
-      # never drift apart silently.
+      # The flake-parts pieces that make up the devshell-skills bundle:
+      # agent-skill-flake's OWN devshell flakeModule, the local dev-shell
+      # module, and the shared skill checks, which every skill repository
+      # gets through this bundle. Defined ONCE here and referenced in BOTH the
+      # exported bundle (flake.flakeModules.devshellSkills) and the dogfood
+      # `imports` below, so the two sites can never drift apart silently.
       devshellSkillsModule = [
         inputs.devshell.flakeModule
         ./lib/devshell-skills-flake-module.nix
+        ./lib/skill-checks-flake-module.nix
       ];
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -98,6 +100,9 @@
           imports = devshellSkillsModule;
         };
         flakeModules.default = self.flakeModules.devshellSkills;
+        # The shared skill checks alone, for a skill flake that wires its own
+        # dev shell.
+        flakeModules.skillChecks = ./lib/skill-checks-flake-module.nix;
       };
 
       perSystem =
