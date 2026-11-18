@@ -213,6 +213,8 @@ let
     bad = skillChecks.forRepository ./tests/example-skill-checks-bad;
     flake = skillChecks.forRepository ./tests/example-skill-checks-flake;
     settings = skillChecks.forRepository ./tests/example-skill-checks-settings;
+    loop = skillChecks.forRepository ./tests/example-skill-checks-loop;
+    empty = skillChecks.forRepository ./tests/example-skill-checks-empty;
   };
 
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
@@ -1806,7 +1808,9 @@ in
   # ──────────────────────────────────────────────────────────────
 
   # Each rule of the skill-layout check, broken by one skill of the bad
-  # fixture, and kept by every skill of the good one.
+  # fixture, and kept by every skill of the good one; a link loop, which
+  # stops the check, by the loop fixture's skill; and a skills folder with
+  # no skill by the empty fixture.
   skill-layout-check = mkBatsCheck {
     name = "skill-layout-check";
     extraInputs = [ pkgs.jq ];
@@ -1816,11 +1820,16 @@ in
       GOOD_SKILLS = skillCheckFixtures.good.skills;
       BAD_SETTINGS = skillCheckFixtures.bad.input;
       BAD_SKILLS = skillCheckFixtures.bad.skills;
+      LOOP_SETTINGS = skillCheckFixtures.loop.input;
+      LOOP_SKILLS = skillCheckFixtures.loop.skills;
+      EMPTY_SETTINGS = skillCheckFixtures.empty.input;
+      EMPTY_SKILLS = skillCheckFixtures.empty.skills;
     };
   };
 
   # Each rule of the skill-description check, the same way, with the
-  # skill-flake rule broken by the flake fixture's skills.
+  # skill-flake rule broken by the flake fixture's skills and a skills
+  # folder with no skill by the empty fixture.
   skill-description-check = mkBatsCheck {
     name = "skill-description-check";
     extraInputs = [ pkgs.jq ];
@@ -1832,6 +1841,8 @@ in
       BAD_SKILLS = skillCheckFixtures.bad.skills;
       FLAKE_SETTINGS = skillCheckFixtures.flake.input;
       FLAKE_SKILLS = skillCheckFixtures.flake.skills;
+      EMPTY_SETTINGS = skillCheckFixtures.empty.input;
+      EMPTY_SKILLS = skillCheckFixtures.empty.skills;
     };
   };
 
@@ -1843,8 +1854,8 @@ in
   # Which checks each settings fixture gets: the settings fixture's
   # `skills-dir` and `[layout] enable = false` leave it the description check
   # alone, run on pack/; `[description] enable = false` leaves the layout
-  # check alone; and a repository whose skills folder is missing, or holds
-  # only a .gitkeep, gets no check.
+  # check alone; a repository without a skills folder gets no check; and one
+  # whose skills folder holds only a .gitkeep gets both, which fail.
   skill-checks-settings =
     let
       names = root: builtins.attrNames (skillChecks.forRepository root).checks;
@@ -1862,7 +1873,10 @@ in
           settings = [ "skill-description" ];
           description-off = [ "skill-layout" ];
           no-skills-folder = [ ];
-          empty-skills-folder = [ ];
+          empty-skills-folder = [
+            "skill-description"
+            "skill-layout"
+          ];
         }
         && skillCheckFixtures.settings.settings.skills-dir == "pack";
       msg = "skill-checks-settings: the fixtures got these checks: " + builtins.toJSON got;

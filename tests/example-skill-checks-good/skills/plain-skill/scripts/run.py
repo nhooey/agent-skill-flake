@@ -7,6 +7,5 @@ import os.path
 import sqlite3
 
 import common
-from helpers import greet
 
-print(json.dumps([os.path.sep, common.NAME, greet(), sqlite3.sqlite_version]))
+print(json.dumps([os.path.sep, common.NAME, sqlite3.sqlite_version]))

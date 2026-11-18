@@ -936,15 +936,16 @@ gets two checks on its own skills folder, so `nix flake check` runs them with
 nothing to name:
 
 - `checks.<system>.skill-layout`: an installed skill holds only what it runs,
-  and its Python scripts import only the standard library and the modules
-  beside them.
+  and its Python scripts import only the standard library and the `.py`
+  modules beside them.
 - `checks.<system>.skill-description`: every SKILL.md opens with frontmatter
   that names the skill and describes it.
 
 Each prints one line per problem, `<skill>: <problem> (<rule>)`, and fails
 when there is any. A flake that wires its own dev shell imports
-`flakeModules.skillChecks`, the checks alone. A flake whose skills folder is
-missing, or holds no folder (only a `.gitkeep`, say), gets neither check.
+`flakeModules.skillChecks`, the checks alone. A flake without a skills folder
+gets neither check; one whose skills folder holds no skill folder (only a
+`.gitkeep`, say) gets both, and both fail.
 
 Every tool a check runs starts in an empty folder and reads the skill's
 files by absolute path, so no folder name or settings file a skill ships,
@@ -953,16 +954,24 @@ changes what it finds. pylint reads a copy of each `scripts/` folder that
 holds only its folders and `.py` files, since it puts a script's folder
 first on Python's path and would load a compiled module there, such as a
 `sqlite3.so`, in place of the standard library's. The layout check follows
-links in `scripts/` as Python's import does, so a module or package linked
-in from elsewhere is checked, and a link that names nothing is left out.
+links in `scripts/` as Python's import does, so a module linked in from
+elsewhere is checked and a link that names nothing is left out. Anything
+there that `find -L` can't walk, such as a link that loops back to its own
+folder or one above it, stops the check with status 2, the status of a tool
+that failed, and a `walkable-scripts` line holding find's own words for it.
 
 ### Rules
 
 | Check | Rule | Fails when |
 |---|---|---|
-| `skill-layout` | `test-folders` | A folder named in `test-folders` sits anywhere under the skills folder. Tests go in `tests/<skill>/`. |
-| `skill-layout` | `test-files` | A file matching a pattern in `test-files` sits anywhere under the skills folder. |
-| `skill-layout` | `standard-library-imports` | A skill's Python script, `scripts/**/*.py`, imports a module that is neither in the standard library of the Python the check is built with nor a `.py` file or folder in the script's own folder (Python imports a folder without `__init__.py` as a namespace package), or holds a comment with `pylint:` in it, such as `# pylint: disable=import-error` or `# pylint: skip-file`, which could hide one. Text in a string is no comment. |
+| both | `skills-exist` | The skills folder holds no skill folder: a folder, not a link, whose name doesn't start with a dot and isn't `__pycache__`. |
+| `skill-layout` | `dot-folders` | A folder directly in the skills folder has a name starting with a dot, such as `skills/.x/`. The checks pass over it, while agent-skill-flake builds it as a skill when it holds a SKILL.md and looks for skills in it otherwise. A file, such as `.gitkeep`, and a link pass. |
+| `skill-layout` | `test-folders` | A folder named in `test-folders`, or a link of that name, whatever it points at, sits anywhere under the skills folder. Tests go in `tests/<skill>/`. |
+| `skill-layout` | `test-files` | A file matching a pattern in `test-files`, or a link of such a name, whatever it points at, sits anywhere under the skills folder. |
+| `skill-layout` | `standard-library-imports` | A skill's Python script, `scripts/**/*.py`, imports a module that is neither in the standard library of the Python the check is built with nor a `.py` file in the script's own folder, or holds a comment with `pylint:` in it, such as `# pylint: disable=import-error` or `# pylint: skip-file`, which could hide one. A folder beside the script, a package or a namespace package, linked or not, fails, under `standard-library-names` when it has the name of a module in the checking Python's standard library; one named after a removed module is not enforced (see below). Text in a string is no comment. |
+| `skill-layout` | `standard-library-names` | A `.py` module anywhere in a skill's `scripts/`, or a folder beside a script (in a folder that holds a `.py` file), linked or not, has a name in the checking Python's `sys.stdlib_module_names`, such as `scripts/json/` or `scripts/secrets.py`. Python would import it in place of the standard library's, or the standard library's in place of it, and FawltyDeps reports no import of a standard-library name. |
+| `skill-layout` | `compiled-modules` | A compiled module, a file or link named `*.so`, `*.pyd` or `*.pyc`, sits anywhere in a skill's `scripts/`, where Python would import it in place of a standard-library module of its name. |
+| `skill-layout` | `walkable-scripts` | `find -L` reports something in a skill's `scripts/` it can't walk, such as a link loop, `scripts/loop -> .`, or a folder it can't read. The check stops with status 2. |
 | `skill-layout` | `python-syntax` | Python can't parse a skill's script. |
 | `skill-layout` | `relative-imports` | A skill's script imports relative to a package (`from . import x`); a script imports a module beside it by its name. A `# noqa` comment doesn't silence it. |
 | `skill-layout` | `unique-script-modules` | Two Python scripts in different folders share a module name. A package's `__init__.py` has its folder's name. |
@@ -983,9 +992,10 @@ tokenize:
 
 | Tool | Reports | Rule |
 |---|---|---|
-| [FawltyDeps](https://github.com/tweag/FawltyDeps) `--check-undeclared`, with no dependency declared | Each import that is neither a standard-library name nor a `.py` file or folder beside the script, the libraries pylint runs on among them | `standard-library-imports` |
-| [pylint](https://pylint.readthedocs.io) `import-error`, settings in [`lib/config/skill-checks-pylintrc`](lib/config/skill-checks-pylintrc) | Each import the Python running the check can't resolve with the script's folder on its path, such as a module removed from the standard library (`imp`, `distutils`, `cgi`) | `standard-library-imports` |
+| [FawltyDeps](https://github.com/tweag/FawltyDeps) `--check-undeclared`, with no dependency declared and an empty folder as `--base-dir`, so nothing is first-party; the folder's name holds a dash, since FawltyDeps takes that name itself as first-party | Each import that isn't a standard-library name, the libraries pylint runs on and the folders beside the script among them; jq then drops those of a `.py` file beside the script, from the list `find -L` makes | `standard-library-imports` |
+| [pylint](https://pylint.readthedocs.io) `import-error`, settings in [`lib/config/skill-checks-pylintrc`](lib/config/skill-checks-pylintrc), run on one skill at a time, since it puts the folder of every script it reads on Python's path | Each import the Python running the check can't resolve with the script's folder on its path, such as a module removed from the standard library (`imp`, `distutils`, `cgi`) | `standard-library-imports` |
 | `python3 -m tokenize`, which decodes a script by its coding line and tells comments from strings | Each comment token holding `pylint:`, which could switch `import-error` off for a line, a block or the whole file, in whatever coding the script declares, such as UTF-7 | `standard-library-imports` |
+| `python3 -c` printing `sys.stdlib_module_names`, matched against the folders and `.py` files `find -L` lists | Each `.py` module in `scripts/`, or folder beside a script, named after a module of the checking Python's standard library | `standard-library-names` |
 | pylint `syntax-error` | A script that doesn't parse | `python-syntax` |
 | [ruff](https://docs.astral.sh/ruff) `TID252` with `ban-relative-imports = "all"`, settings in [`lib/config/skill-checks-ruff.toml`](lib/config/skill-checks-ruff.toml) | Every relative import | `relative-imports` |
 
@@ -999,6 +1009,10 @@ Not enforced:
   `ConfigParser`, passes.
 - A module the checking Python has but an older Python lacks, such as
   `tomllib` before 3.11, passes.
+- A package in a skill's `scripts/` named after a module removed from the
+  standard library, such as `imp` or `distutils`, passes when a script
+  imports it: FawltyDeps counts the name as the standard library's, and
+  pylint resolves the vendored folder.
 
 A standard-library module that the checking platform lacks, such as `winreg`
 on macOS or Linux, fails.
@@ -1044,7 +1058,7 @@ trigger-first = ["my-skill-one", "my-skill-two"]
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `skills-dir` | `"skills"` | The folder, relative to the root, holding one folder per skill. Without it, or with no folder in it, neither check is made. |
+| `skills-dir` | `"skills"` | The folder, relative to the root, holding one folder per skill. Without it, neither check is made; with no skill folder in it, both fail on `skills-exist`. |
 | `layout.enable` | `true` | Make `checks.<system>.skill-layout`. |
 | `layout.test-folders` | `["test", "tests", "golden", "stubs"]` | Folder names that mark tests or their data. |
 | `layout.test-files` | `["test_*", "*_test", "*_test.*", "*.bats"]` | Shell patterns of test file names. |

@@ -125,10 +125,11 @@ let
         )
       );
 
-      # A skills folder that holds no folder, such as one kept with only a
-      # .gitkeep, counts as none.
+      # A repository without a skills folder gets no check. One whose skills
+      # folder holds no skill, such as one kept with only a .gitkeep, gets
+      # both, and each fails on the `skills-exist` rule.
       skillsPath = at settings.skills-dir;
-      hasSkills = foldersIn skillsPath != [ ];
+      hasSkillsFolder = builtins.pathExists skillsPath;
 
       # The skills folder alone in the store, so a check reruns only when a
       # skill changes.
@@ -160,7 +161,7 @@ let
     in
     {
       inherit settings input skills;
-      checks = lib.genAttrs (lib.filter (name: hasSkills && settings.${sections.${name}}.enable) (
+      checks = lib.genAttrs (lib.filter (name: hasSkillsFolder && settings.${sections.${name}}.enable) (
         lib.attrNames sections
       )) check;
     };

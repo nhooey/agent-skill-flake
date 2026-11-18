@@ -1,4 +1,5 @@
-"""A package beside run.py."""
+"""A package in scripts/, which the repository's tests may import and the
+scripts beside it don't."""
 
 import sys
 
