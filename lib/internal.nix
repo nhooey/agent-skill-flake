@@ -366,7 +366,8 @@ let
 
       # See lib/normalize-frontmatter.nix for the rename contract; the
       # script is shared with `withNamePrefix` so both rewrite frontmatter
-      # `name:` identically. Run below via `awk -v newname=… -f`.
+      # `name:` identically. Run by ./bash/mk-skill-install-phase.bash via
+      # `awk -v newname=… -f`.
       normalizeFrontmatterAwk = pkgs.writeText "normalize-skill-frontmatter.awk" normalizeFrontmatterScript;
 
       sentinel = mkSentinel {
@@ -376,6 +377,16 @@ let
           version
           provenance
           ;
+      };
+
+      # extraFiles and extraDirs are the caller's own strings, which may
+      # hold `@`, so they reach the script as derivation attributes
+      # rather than through replaceVars, whose substitution and leftover
+      # check would read an `@…@` in them as a placeholder.
+      installPhaseScript = pkgs.replaceVars ./bash/mk-skill-install-phase.bash {
+        name = lib.escapeShellArg name;
+        normalizeFrontmatterAwk = lib.escapeShellArg normalizeFrontmatterAwk;
+        scriptInputsPath = lib.escapeShellArg (lib.makeBinPath scriptInputs);
       };
     in
     assert assertValidSkillName name "skill name";
@@ -395,55 +406,11 @@ let
         isFlakeSkill = true;
         flakeSkillName = name;
       };
-      installPhase = ''
-        runHook preInstall
-        mkdir -p "$out/share/claude-skills/${name}"
-        # extraFiles runs first so the canonical files written below
-        # (awk-normalized SKILL.md, sentinel) overwrite any same-named
-        # entry copied from the source root — a glob like
-        # `extraFiles = [ "*.md" ]` legitimately matches SKILL.md, and
-        # the awk-normalized frontmatter must win.
-        #
-        # nullglob makes a non-matching pattern expand to nothing instead
-        # of being copied as a literal; the [ -f ] guard skips directory
-        # matches so `extraFiles = [ "*" ]` ships only top-level regular
-        # files (directories already have `extraDirs`).
-        shopt -s nullglob
-        for pat in ${lib.concatMapStringsSep " " lib.escapeShellArg extraFiles}; do
-          for f in $pat; do
-            [ -f "$f" ] || continue
-            install -Dm644 "$f" "$out/share/claude-skills/${name}/$(basename "$f")"
-          done
-        done
-        shopt -u nullglob
-        awk -v newname=${lib.escapeShellArg name} \
-          -f ${normalizeFrontmatterAwk} \
-          SKILL.md > "$out/share/claude-skills/${name}/SKILL.md"
-        chmod 644 "$out/share/claude-skills/${name}/SKILL.md"
-        for d in references scripts ${lib.concatMapStringsSep " " lib.escapeShellArg extraDirs}; do
-          if [ -d "$d" ]; then
-            mkdir -p "$out/share/claude-skills/${name}/$d"
-            cp -r "$d/." "$out/share/claude-skills/${name}/$d/"
-          fi
-        done
-        ${lib.optionalString (scriptInputs != [ ]) ''
-          # A shell script gets the PATH line after its shebang, so it
-          # keeps its path and runs under any bash, macOS's 3.2 among
-          # them, which misreads makeWrapper's PATH edits when a skill
-          # runs it as `bash <script>`. Any other executable is wrapped.
-          for f in "$out/share/claude-skills/${name}/scripts/"*; do
-            [ -f "$f" ] && [ -x "$f" ] || continue
-            if head -n 1 "$f" | grep -Eq '^#!.*[/ ](ba|da|k|z)?sh( |$)'; then
-              sed -i '1a PATH=${lib.makeBinPath scriptInputs}''${PATH:+:$PATH}; export PATH' "$f"
-            else
-              wrapProgram "$f" --prefix PATH : ${lib.escapeShellArg (lib.makeBinPath scriptInputs)}
-            fi
-          done
-        ''}
-        install -Dm644 "$sentinelPath" \
-          "$out/share/claude-skills/${name}/.agent-skill-flake-managed.json"
-        runHook postInstall
-      '';
+      # Each a space-separated list of `lib.escapeShellArg` words.
+      extraFilesArgs = lib.concatMapStringsSep " " lib.escapeShellArg extraFiles;
+      extraDirsArgs = lib.concatMapStringsSep " " lib.escapeShellArg extraDirs;
+      # The install script lives in its own file; see it for each value.
+      installPhase = "source ${installPhaseScript}\n";
       meta = with pkgs.lib; {
         inherit description;
         license = licenses.asl20;
@@ -494,18 +461,19 @@ let
     skills:
     if skills == [ ] then "" else lib.concatMapStringsSep "\n" (s: ''"${s.name}:${s.drv}"'') skills;
 
-  # Shared Nix-side prelude. Sets `app_name`, `personal_suffix`,
-  # `project_suffix` and sources scope.bash so `parse_scope_args` is
-  # available to the per-app bash that follows.
+  # Shared prelude, ./bash/scope-prelude.bash: sets `app_name`,
+  # `personal_suffix`, `project_suffix` and sources scope.bash so
+  # `parse_scope_args` is available to the per-app bash that follows.
   scopePrelude =
+    pkgs:
     { appName, profile }:
-    ''
-      app_name="${appName}"
-      personal_suffix='${profile.personalSuffix}'
-      project_suffix='${profile.projectSuffix}'
-
-      source ${./bash/scope.bash}
-    '';
+    "source ${
+      pkgs.replaceVars ./bash/scope-prelude.bash {
+        inherit appName;
+        inherit (profile) personalSuffix projectSuffix;
+        scopeBash = "${./bash/scope.bash}";
+      }
+    }\n";
 
   # Factory behind every installer/reap/purge/reconcile/uninstall/preview app.
   # The `<verb>` apps share one shape — `writeShellApplication` whose
@@ -557,7 +525,7 @@ let
       # scopePrelude ends with a trailing newline; each piece below is
       # newline-terminated (or empty) so no two tokens glue together.
       text =
-        scopePrelude {
+        scopePrelude pkgs {
           appName = fullAppName;
           inherit profile;
         }
@@ -857,7 +825,7 @@ let
         mainProgram = "agent-skill-flake";
       };
       text =
-        scopePrelude {
+        scopePrelude pkgs {
           appName = "agent-skill-flake sync-project";
           inherit profile;
         }

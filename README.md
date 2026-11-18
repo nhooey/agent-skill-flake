@@ -443,7 +443,7 @@ agent-skill-flake.lib.withNamePrefix {
 
 | Param        | Required | Default | Meaning |
 |--------------|----------|---------|---------|
-| `pkgs`       | yes      | —       | Nixpkgs instance for the target system. Same shape as `mkSkillsEnv`'s `pkgs`. |
+| `pkgs`       | yes      | —       | Nixpkgs instance for the target system, one that has `replaceVars`. Same shape as `mkSkillsEnv`'s `pkgs`. |
 | `namePrefix` | yes      | —       | Non-empty string. Must match `^[a-z0-9][a-z0-9-]*$`. The combined `<prefix>-<oldName>` is asserted against Claude Code's `^[a-z0-9-]{1,64}$` rule per member, so an over-long prefix fails `nix flake check`. |
 | `skill`      | yes      | —       | Either a single skill drv (`passthru.isFlakeSkill`) or a skills env drv (`passthru.isFlakeSkillsEnv`). Anything else throws. |
 
