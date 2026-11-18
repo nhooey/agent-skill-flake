@@ -1023,6 +1023,33 @@ The Nix-native install. Three things happen:
    gcroots dir with `--gcroots-dir=<path>` (test-suite use; rarely useful
    in practice).
 
+   Beside its roots, each target keeps a record,
+   `claude-skill-<target-hash>.target`, a link to its resolved dir, which
+   Nix ignores. Target dirs come and go, such as a git worktree's
+   `.agents/skills`, and a removed target's roots still point at live
+   store paths, so nothing else marks them as orphans. `reap` and `purge`,
+   in any target, remove every root of a target whose record points at a
+   dir that is gone, and the record with them.
+
+   Roots with no record can't be traced to their dir this way: those
+   written before records existed, and those an older agent-skill-flake
+   still writes, from any dev shell whose `skills-devshell/flake.lock`
+   pins a rev without records. `prune-gc-roots` finds the targets that
+   still exist, by their lock files under `$HOME` and each
+   `--search=<dir>`, by their records and at the personal scope, and
+   lists every `claude-skill-<target-hash>-<skillName>` root whose
+   target it didn't find or no longer links the skill. It names each dir
+   its search couldn't read, since a target inside one looks gone. It
+   removes the roots only with `--delete`, refuses `--delete` when it
+   finds no lock file at all, and keeps legacy shared roots and anything
+   changed in the last hour. It removes nothing but those links: no
+   store path, and no garbage collection.
+
+   ```sh
+   nix run github:nhooey/agent-skill-flake#prune-gc-roots              # list, with counts
+   nix run github:nhooey/agent-skill-flake#prune-gc-roots -- --delete  # remove them
+   ```
+
    A shared root with no target hash, `claude-skill-<skillName>`, is
    left by older installs. Ownership checks still accept it, and
    install, reconcile and uninstall leave it alone, since it may be the

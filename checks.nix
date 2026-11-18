@@ -694,6 +694,18 @@ in
       INSTALL_ALL_APP = installAllApp;
       UNINSTALL_ALL_APP = uninstallAllApp;
       REAP_ALL_APP = reapAllApp;
+      PURGE_ALL_APP = purgeAllApp;
+      RECONCILE_ALL_APP = reconcileAllApp;
+    };
+  };
+
+  # The one-time sweep of roots no found install target owns: dry run by
+  # default, --delete removes only unowned claude-skill-* links.
+  prune-gc-roots = mkBatsCheck {
+    name = "prune-gc-roots";
+    env = {
+      INSTALL_ALL_APP = installAllApp;
+      PRUNE_GC_ROOTS_APP = self.apps.${system}.prune-gc-roots.program;
     };
   };
 

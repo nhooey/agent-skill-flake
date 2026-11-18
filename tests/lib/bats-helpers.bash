@@ -47,7 +47,19 @@ snapshot_fs() {
 # Spelled out here rather than reusing scope.bash, so the tests pin the
 # on-disk name independently of the code that writes it.
 gc_root() {
-  local name=$1 dir=${2:-$CUSTOM_TARGET} tag
-  tag=$(printf '%s' "$(realpath -m -- "$dir")" | sha256sum | cut -c1-12)
-  printf '%s/claude-skill-%s-%s' "$GCROOTS_DIR" "$tag" "$name"
+  local name=$1 dir=${2:-$CUSTOM_TARGET}
+  printf '%s/claude-skill-%s-%s' "$GCROOTS_DIR" "$(gc_root_tag "$dir")" "$name"
+}
+
+# gc_root_tag <target-dir>  ->  the first 12 hex of sha256(resolved dir).
+gc_root_tag() {
+  printf '%s' "$(realpath -m -- "$1")" | sha256sum | cut -c1-12
+}
+
+# gc_root_record [<target-dir>]  ->  the record an install into
+# <target-dir> (default: $CUSTOM_TARGET) leaves beside its roots:
+# $GCROOTS_DIR/claude-skill-<tag>.target, a link to the resolved dir.
+gc_root_record() {
+  local dir=${1:-$CUSTOM_TARGET}
+  printf '%s/claude-skill-%s.target' "$GCROOTS_DIR" "$(gc_root_tag "$dir")"
 }

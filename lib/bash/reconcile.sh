@@ -35,6 +35,8 @@ gcroots_ok=1
 if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
   gcroots_ok=0
   printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
+elif ! ensure_gc_root_record; then
+  printf 'WARNING: could not write %s\n' "$(gc_root_record_path)" >&2
 fi
 
 # 1. Install / refresh each declared skill (idempotent).

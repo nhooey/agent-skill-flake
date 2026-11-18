@@ -42,31 +42,47 @@ lineage_sweep() {
 
   # 2. Walk $gcroots_dir/claude-skill-* — prune GC roots that protect
   #    nothing:
+  #      - every root and the record of a target whose record points at a
+  #        dir that is gone (a removed worktree's skills dir, say);
   #      - any root whose store-path target no longer exists in the store;
   #      - a legacy shared root (claude-skill-<name>, no target tag) whose
-  #        store path another, per-target root also points at.
+  #        store path another, live target's root also points at.
   #    A live legacy root no per-target root covers is kept: some target
   #    not yet re-installed may still have only that root protecting it.
-  #    The lock entry goes too only when the root was this target's.
+  #    The lock entry goes too only when the store path is gone and the
+  #    root was this target's.
   if [ -d "$gcroots_dir" ]; then
-    shopt -s nullglob
-    local -A tagged_targets=()
-    local reason lock_sp
-    for gc in "${gcroots_dir}/${GC_ROOT_PREFIX}"*; do
-      [ -L "$gc" ] || continue
-      gc_root_parse "${gc##*/}" || continue
-      if [ -n "$gc_root_parsed_tag" ]; then
-        tagged_targets["$(readlink "$gc")"]=1
+    local -A link_of=() gone_tags=() tagged_targets=()
+    local -a gc_names=()
+    local gc_name reason lock_sp
+    # One find lists every entry and its link, where a readlink per entry
+    # would start tens of thousands of processes.
+    while IFS=$'\t' read -r gc_name target; do
+      gc_root_parse "$gc_name" || continue
+      gc_names+=("$gc_name")
+      link_of[$gc_name]=$target
+      if [ "$gc_root_parsed_kind" = record ] && [ ! -e "$target" ]; then
+        gone_tags[$gc_root_parsed_tag]=1
+      fi
+    done < <(find "$gcroots_dir" -mindepth 1 -maxdepth 1 -type l -name "${GC_ROOT_PREFIX}*" -printf '%f\t%l\n' | sort)
+    for gc_name in "${gc_names[@]}"; do
+      gc_root_parse "$gc_name"
+      if [ "$gc_root_parsed_kind" = root ] && [ -z "${gone_tags[$gc_root_parsed_tag]+x}" ]; then
+        tagged_targets[${link_of[$gc_name]}]=1
       fi
     done
-    for gc in "${gcroots_dir}/${GC_ROOT_PREFIX}"*; do
-      [ -L "$gc" ] || continue
-      gc_root_parse "${gc##*/}" || continue
+    for gc_name in "${gc_names[@]}"; do
+      gc_root_parse "$gc_name"
+      gc=$gcroots_dir/$gc_name
       name=$gc_root_parsed_name
-      target=$(readlink "$gc")
-      if [ ! -e "$target" ]; then
+      target=${link_of[$gc_name]}
+      if [ -n "$gc_root_parsed_tag" ] && [ -n "${gone_tags[$gc_root_parsed_tag]+x}" ]; then
+        reason='install target gone'
+      elif [ "$gc_root_parsed_kind" = record ]; then
+        continue
+      elif [ ! -e "$target" ]; then
         reason='target gone'
-      elif [ -z "$gc_root_parsed_tag" ] && [ -n "${tagged_targets[$target]+x}" ]; then
+      elif [ "$gc_root_parsed_kind" = legacy ] && [ -n "${tagged_targets[$target]+x}" ]; then
         reason='legacy, superseded by a per-target root'
       else
         continue
@@ -75,12 +91,14 @@ lineage_sweep() {
         printf 'would %s GC root (%s): %s\n' "$sweep_verb" "$reason" "$gc"
       else
         rm -f "$gc"
-        if [ "$gc_root_parsed_tag" = "$gc_root_tag" ]; then
-          lock_remove "$name"
-        elif [ -z "$gc_root_parsed_tag" ] && [ ! -e "$target" ]; then
-          lock_sp=$(lock_store_path "$name")
-          if [ "$lock_sp" = "$target" ]; then
+        if [ "$reason" = 'target gone' ]; then
+          if [ "$gc_root_parsed_tag" = "$gc_root_tag" ]; then
             lock_remove "$name"
+          elif [ -z "$gc_root_parsed_tag" ]; then
+            lock_sp=$(lock_store_path "$name")
+            if [ "$lock_sp" = "$target" ]; then
+              lock_remove "$name"
+            fi
           fi
         fi
         printf '%s GC root (%s): %s\n' "$sweep_label" "$reason" "$gc"

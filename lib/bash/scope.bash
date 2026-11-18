@@ -22,6 +22,7 @@
 SKILLS_SHARE_SUBDIR="share/claude-skills"       # per-skill content path under a skill's store output
 GC_ROOT_PREFIX="claude-skill-"                  # per-user GC-root filename prefix
 GC_ROOT_TAG_LEN=12                              # hex chars of the target-dir hash in a root's name
+GC_ROOT_RECORD_SUFFIX=".target"                 # suffix of the link naming a tag's target dir
 SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
 
 # GC roots. Every install target (the user scope, each project's skill
@@ -31,6 +32,14 @@ SENTINEL_FILE=".agent-skill-flake-managed.json" # per-install provenance marker
 # target dir's resolved absolute path. A root name shared by every target
 # would let the last target to install a skill take the root, leaving the
 # other targets' links pointing at unrooted store paths.
+#
+# Beside a target's roots, install and reconcile keep a record,
+#   <gcroots_dir>/claude-skill-<tag>.target -> <resolved target dir>
+# since the tag alone can't name its dir. Target dirs come and go, a git
+# worktree's skills dir with each worktree, and their roots point at live
+# store paths, so nothing else marks them as orphans: lineage_sweep drops
+# a target's roots once its record points at a dir that is gone. Nix
+# ignores the record, a link to a directory outside the store.
 #
 # A root named `claude-skill-<name>`, with no tag, is the legacy shared
 # form. Ownership checks still accept it; nothing here creates it, and only
@@ -56,9 +65,15 @@ legacy_gc_root_path() {
   printf '%s/%s%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "$1"
 }
 
-# gc_root_parse <root-filename> -> sets gc_root_parsed_tag (empty for the
-# legacy form) and gc_root_parsed_name. Returns 1 if the filename lacks the
-# prefix.
+# gc_root_record_path -> this run's target's record.
+gc_root_record_path() {
+  printf '%s/%s%s%s' "$gcroots_dir" "$GC_ROOT_PREFIX" "$gc_root_tag" "$GC_ROOT_RECORD_SUFFIX"
+}
+
+# gc_root_parse <root-filename> -> sets gc_root_parsed_kind (root, record
+# or legacy), gc_root_parsed_tag (empty for the legacy form) and
+# gc_root_parsed_name (empty for a record). Returns 1 if the filename
+# lacks the prefix.
 gc_root_parse() {
   local rest
   case "$1" in
@@ -66,12 +81,33 @@ gc_root_parse() {
   *) return 1 ;;
   esac
   if [[ $rest =~ ^([0-9a-f]{$GC_ROOT_TAG_LEN})-(.+)$ ]]; then
+    gc_root_parsed_kind=root
     gc_root_parsed_tag=${BASH_REMATCH[1]}
     gc_root_parsed_name=${BASH_REMATCH[2]}
+  elif [[ $rest =~ ^([0-9a-f]{$GC_ROOT_TAG_LEN})"$GC_ROOT_RECORD_SUFFIX"$ ]]; then
+    gc_root_parsed_kind=record
+    gc_root_parsed_tag=${BASH_REMATCH[1]}
+    gc_root_parsed_name=""
   else
+    gc_root_parsed_kind=legacy
     gc_root_parsed_tag=""
     gc_root_parsed_name=$rest
   fi
+}
+
+# ensure_gc_root_record — point this target's record at its resolved dir,
+# which must already exist. Returns 1 if the record can't be written.
+ensure_gc_root_record() {
+  local record dir
+  record=$(gc_root_record_path)
+  dir=$(realpath -m -- "$target_root")
+  # A dir inside the store gets no record: Nix would take a link to it
+  # for a root, keeping the dir, and so the record, alive for good.
+  case "$dir" in
+  "${NIX_STORE_DIR:-/nix/store}"/*) return 0 ;;
+  esac
+  [ "$(readlink "$record" 2>/dev/null)" = "$dir" ] && return 0
+  ln -sfn "$dir" "$record" 2>/dev/null
 }
 
 # ensure_gc_root <name> <store-path> [announce] — point this target's root
