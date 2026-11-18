@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Inputs: INSTALL_ALL_APP, UNINSTALL_ALL_APP, REAP_ALL_APP — aggregate
-#         entrypoints (alpha + beta).
+# Inputs: INSTALL_ALL_APP, UNINSTALL_ALL_APP, REAP_ALL_APP, PURGE_ALL_APP,
+#         RECONCILE_ALL_APP — aggregate entrypoints (alpha + beta).
 #
 # Every install target keeps its own per-user GC root per skill. With one
 # root name shared by every target, the last target to install a skill took
@@ -48,6 +48,85 @@ app_in() {
   refute [ -e "$(gc_root alpha "$TARGET_A")" ]
   assert [ -f "$TARGET_B/alpha/SKILL.md" ]
   assert_store_symlink "$(gc_root alpha "$TARGET_B")" "target B's root"
+}
+
+@test "install and reconcile record the target dir beside its roots" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  assert_equal "$(readlink "$(gc_root_record "$TARGET_A")")" "$(realpath -m -- "$TARGET_A")"
+
+  app_in "$RECONCILE_ALL_APP" "$TARGET_B"
+  assert_success
+  assert_equal "$(readlink "$(gc_root_record "$TARGET_B")")" "$(realpath -m -- "$TARGET_B")"
+}
+
+@test "reap drops the roots of an install target that no longer exists" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha beta
+  assert_success
+  app_in "$INSTALL_ALL_APP" "$TARGET_B" alpha
+  assert_success
+  local root_b store_path
+  root_b=$(gc_root alpha "$TARGET_B")
+  store_path=$(readlink "$root_b")
+
+  # A worktree removed with its skills dir leaves roots that still point
+  # at live store paths.
+  rm -r "$TARGET_A"
+
+  app_in "$REAP_ALL_APP" "$TARGET_B"
+  assert_success
+  assert_output --partial "reaped GC root (install target gone): $(gc_root alpha "$TARGET_A")"
+  refute [ -L "$(gc_root alpha "$TARGET_A")" ]
+  refute [ -L "$(gc_root beta "$TARGET_A")" ]
+  refute [ -L "$(gc_root_record "$TARGET_A")" ]
+  assert_equal "$(readlink "$root_b")" "$store_path"
+  assert [ -L "$(gc_root_record "$TARGET_B")" ]
+  assert [ -d "$store_path" ]
+}
+
+@test "reap keeps the roots of a target that has no record" {
+  # Roots written before installs recorded their target: the tag alone
+  # can't say whether the dir is gone, so reap leaves them.
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  rm "$(gc_root_record "$TARGET_A")"
+  rm -r "$TARGET_A"
+
+  app_in "$REAP_ALL_APP" "$TARGET_B"
+  assert_success
+  assert_store_symlink "$(gc_root alpha "$TARGET_A")" "target A's root"
+}
+
+@test "purge drops a gone target's roots, and its dry run only lists them" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  app_in "$INSTALL_ALL_APP" "$TARGET_B" alpha
+  assert_success
+  rm -r "$TARGET_A"
+
+  app_in "$PURGE_ALL_APP" "$TARGET_B" --dry-run
+  assert_success
+  assert_output --partial "would purge GC root (install target gone): $(gc_root alpha "$TARGET_A")"
+  assert [ -L "$(gc_root alpha "$TARGET_A")" ]
+
+  app_in "$PURGE_ALL_APP" "$TARGET_B" --yes
+  assert_success
+  refute [ -L "$(gc_root alpha "$TARGET_A")" ]
+  refute [ -L "$(gc_root_record "$TARGET_A")" ]
+}
+
+@test "a legacy root covered only by a gone target's root is kept" {
+  app_in "$INSTALL_ALL_APP" "$TARGET_A" alpha
+  assert_success
+  local store_path legacy="$GCROOTS_DIR/claude-skill-alpha"
+  store_path=$(readlink "$(gc_root alpha "$TARGET_A")")
+  ln -s "$store_path" "$legacy"
+  rm -r "$TARGET_A"
+
+  app_in "$REAP_ALL_APP" "$TARGET_B"
+  assert_success
+  refute [ -L "$(gc_root alpha "$TARGET_A")" ]
+  assert_equal "$(readlink "$legacy")" "$store_path"
 }
 
 @test "a target reached through a symlink shares the resolved dir's root" {

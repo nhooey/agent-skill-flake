@@ -631,6 +631,7 @@ let
       inherit verb appName profile;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
+        findutils
         git
         jq
       ];
@@ -639,6 +640,26 @@ let
         ${projectLinkEnv profile}
       '';
       sourceModules = projectScopeModules ++ [ ./bash/lineage-sweep.bash ];
+      extraExcludeShellChecks = [ "SC2034" ];
+    };
+
+  # Prune GC roots: the one-time sweep of the per-target roots no install
+  # target it can find still owns, across every target at once. Takes no
+  # scope and carries no skill set, so it runs off the bare upstream flake.
+  mkPruneGcRoots =
+    system:
+    { appName, profile }:
+    mkShellApp system {
+      verb = "prune-gc-roots";
+      inherit appName profile;
+      runtimeInputs = with nixpkgs.legacyPackages.${system}; [
+        coreutils
+        findutils
+        gnugrep
+        gnused
+      ];
+      # project_suffix comes with the shared prelude; this verb has no
+      # project scope to use it for.
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
@@ -879,6 +900,7 @@ let
         preview = "Show what installing this flake's skill(s) would change, without writing anything.";
         reconcile = "Converge the agent's skill directory to exactly this flake's declared skill set.";
         check = "Report skill links whose store path has no GC root of this install target's own.";
+        prune-gc-roots = "List, or with --delete remove, the GC roots of install targets that are gone.";
         reap = "Remove only garbage-collected (broken) skill entries this flake's lineage owns.";
         purge = "Remove every skill entry this flake's lineage owns, live or broken.";
         init = "Scaffold the dev-shell skills boilerplate into the current repo.";
@@ -912,6 +934,7 @@ in
     mkPreview
     mkReap
     mkCheck
+    mkPruneGcRoots
     mkPurge
     mkReconcile
     mkInit

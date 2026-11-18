@@ -121,6 +121,14 @@
             profile = internal.resolveAgentProfile "claude-code";
           };
 
+          # Every target's GC roots at once: lists, or with --delete removes,
+          # the roots of install targets that are gone:
+          #   nix run github:nhooey/agent-skill-flake#prune-gc-roots
+          pruneGcRootsApp = internal.mkPruneGcRoots system {
+            appName = "agent-skill-flake";
+            profile = internal.resolveAgentProfile "claude-code";
+          };
+
           # Lineage-wide teardown, exposed here (like reap) so it runs
           # transiently with no embedded skill set:
           #   nix run github:nhooey/agent-skill-flake#purge -- --scope=personal
@@ -171,6 +179,7 @@
               programs = {
                 reap = reapApp;
                 check = checkApp;
+                prune-gc-roots = pruneGcRootsApp;
                 purge = purgeApp;
                 init = initApp;
               };
