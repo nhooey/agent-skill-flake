@@ -1,0 +1,4 @@
+# A setting of the wrong type, which is an error rather than a setting read
+# some other way.
+[layout]
+enable = "no"

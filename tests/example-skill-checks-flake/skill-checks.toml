@@ -1,0 +1,3 @@
+# A skill repository whose skills each break the skill-flake rule.
+[description]
+skill-flake = true

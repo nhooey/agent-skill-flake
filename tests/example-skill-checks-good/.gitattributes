@@ -1,0 +1,3 @@
+# This SKILL.md keeps its CRLF line endings, which the checks must accept,
+# whatever core.autocrlf says.
+skills/crlf-skill/SKILL.md -text

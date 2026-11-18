@@ -1,0 +1,8 @@
+# ruff's settings for the skill-layout check (lib/bash/skill-layout-check.sh):
+# a skill's script imports a module beside it by name, never relative to a
+# package, so every relative import is reported.
+[lint]
+select = ["TID252"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
