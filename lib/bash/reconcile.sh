@@ -39,8 +39,8 @@ gcroots_ok=1
 if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
   gcroots_ok=0
   printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
-elif ! ensure_gc_root_record; then
-  printf 'WARNING: could not write %s\n' "$(gc_root_record_path)" >&2
+else
+  ensure_gc_root_record || true
 fi
 
 # 1. Install / refresh each declared skill (idempotent).
@@ -157,6 +157,7 @@ else
   lock_replace_all
 fi
 lock_replace_preferences "${pref_entries[@]}"
+gc_roots_unlock
 sync_project_excludes
 # Record what was left to the personal scope; with --strict, stop here if
 # a declared skill differs from it.

@@ -580,6 +580,7 @@ let
       inherit appName profile skills;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
+        flock
         git
         gnugrep
         jq
@@ -616,6 +617,7 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         findutils
+        flock
         git
         jq
       ];
@@ -627,9 +629,10 @@ let
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
-  # Prune GC roots: the one-time sweep of the per-target roots no install
-  # target it can find still owns, across every target at once. Takes no
-  # scope and carries no skill set, so it runs off the bare upstream flake.
+  # Prune GC roots: the one-time sweep of the per-target records and roots
+  # no install target it can find still owns, across every target at once.
+  # Takes no scope and carries no skill set, so it runs off the bare
+  # upstream flake.
   mkPruneGcRoots =
     system:
     { appName, profile }:
@@ -639,6 +642,7 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         findutils
+        flock
         gnugrep
         gnused
       ];
@@ -707,6 +711,7 @@ let
       runtimeInputs = with pkgs; [
         coreutils
         findutils
+        flock
         git
         gnugrep
         jq
@@ -751,6 +756,7 @@ let
       inherit appName profile;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
+        flock
         git
         jq
       ];
@@ -837,6 +843,7 @@ let
       runtimeInputs = with pkgs; [
         coreutils
         findutils
+        flock
         git
         gnugrep
         gnused

@@ -1185,7 +1185,7 @@ flags:
 
 | Flag                  | Default                              | Meaning |
 |-----------------------|--------------------------------------|---------|
-| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where each target's `claude-skill-<target-hash>-<skillName>` roots go (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
+| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where the shared roots and each target's records go, under `claude-skills/` (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
 | `--profile`           | (off)                                | `install` only: install via `nix profile install` instead of the default direct-symlink mode. See [`--profile`](#--profile-via-nix-profile-install). |
 | `--strict`            | (off)                                | `reconcile --scope=project` only: exit 1 when a declared skill differs from the personal scope's copy. See [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds). |
 | `--ignore-personal-scope` | (off)                            | `reconcile --scope=project` only: don't compare the declared skills with the personal scope's copies. |
@@ -1280,47 +1280,124 @@ The Nix-native install. Three things happen:
    `<target>/<skillName>` is created as a symlink to
    `<store-path>/share/claude-skills/<skillName>`. Claude Code (or
    whichever agent profile you picked) follows it transparently.
-2. **Per-user GC root, one per target.**
-   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<target-hash>-<skillName>`
-   is created as a symlink to the store derivation. This protects the
-   store path from `nix-store --gc`. `<target-hash>` is the first 12 hex
-   characters of the SHA-256 of `<target>`'s absolute path with symlinks
-   resolved (so on macOS `/tmp/x` and `/private/tmp/x` share a root).
-   Each target — the user scope, each project's skills dir, each custom
-   root — therefore holds its own root, and installing or uninstalling a
-   skill in one target never unroots another target's link. Override the
-   gcroots dir with `--gcroots-dir=<path>` (test-suite use; rarely useful
-   in practice).
+2. **A shared per-user GC root, and a record per target.**
+   Identical builds share one GC root, keyed by store path, and each
+   target records which builds it uses. Under
+   `/nix/var/nix/gcroots/per-user/$USER/claude-skills/`:
 
-   A target roots its current and previous builds of each skill, and no
-   older ones. When an install or reconcile replaces a skill's store
-   path, the replaced path moves to
-   `claude-skill-<target-hash>-<skillName>.previous`, displacing the
-   build before it. Uninstall removes both roots, and `reap` and `purge`
-   remove a previous-build root whose current root is gone.
+   | Path | What it is |
+   |------|------------|
+   | `store/<store-path-name>` | The GC root: a link to the store path, protecting it from `nix-store --gc`. |
+   | `store/<store-path-name>.refs` | The root's anchor: a regular file holding the store path. |
+   | `targets/<target-hash>/<skillName>` | The target's record: a hard link of the anchor of the build it links. |
+   | `targets/<target-hash>/<skillName>.previous` | The record of the build before it. |
+   | `targets/<target-hash>/.target` | A link to the target's resolved dir. |
+   | `lock` | The lock every change below `claude-skills/` takes. |
 
-   Beside its roots, each target keeps a record,
-   `claude-skill-<target-hash>.target`, a link to its resolved dir, which
-   Nix ignores. Target dirs come and go, such as a git worktree's
-   `.agents/skills`, and a removed target's roots still point at live
-   store paths, so nothing else marks them as orphans. `reap` and `purge`,
-   in any target, remove every root of a target whose record points at a
-   dir that is gone, and the record with them.
+   `<target-hash>` is the first 12 hex characters of the SHA-256 of
+   `<target>`'s absolute path with symlinks resolved (so on macOS
+   `/tmp/x` and `/private/tmp/x` share their records). Each target —
+   the user scope, each project's skills dir, each custom root — holds
+   its own records, and an anchor's link count is one more than the
+   records using its root, so a root goes only when the last record
+   using it goes: installing or uninstalling a skill in one target never
+   unroots another target's link. Nix takes only the `store/` links for
+   roots, so a machine with hundreds of worktrees, each installing the
+   same skills, keeps one root per build rather than one per worktree
+   and skill. Override the gcroots dir with `--gcroots-dir=<path>`
+   (test-suite use; rarely useful in practice).
 
-   Roots with no record can't be traced to their dir this way: those
-   written before records existed, and those an older agent-skill-flake
-   still writes, from any dev shell whose `skills-devshell/flake.lock`
-   pins a rev without records. `prune-gc-roots` finds the targets that
-   still exist, by their lock files under `$HOME` and each
-   `--search=<dir>`, by their records and at the personal scope, and
-   lists every `claude-skill-<target-hash>-<skillName>` root whose
-   target it didn't find or no longer links the skill, and every
-   previous-build root whose current root is gone. It names each dir
-   its search couldn't read, since a target inside one looks gone. It
-   removes the roots only with `--delete`, refuses `--delete` when it
-   finds no lock file at all, and keeps legacy shared roots and anything
-   changed in the last hour. It removes nothing but those links: no
-   store path, and no garbage collection.
+   A target records its current and previous builds of each skill, and
+   no older ones. When an install or reconcile replaces a skill's store
+   path, the replaced path's record moves to `<skillName>.previous`,
+   displacing the build before it. Uninstall removes both records.
+   `reap` and `purge` remove their own target's previous-build records
+   whose current record is gone; `prune-gc-roots` removes every
+   target's.
+
+   Target dirs come and go, such as a git worktree's `.agents/skills`,
+   and a removed target's records still point at live store paths, so
+   nothing else marks them as orphans. `reap` and `purge`, in any target,
+   remove every record of a target whose `.target` points at a dir that
+   is gone, then every root no record uses any more. Usually they read
+   only each target's `.target`, their own target's records and the
+   shared roots, so they stay fast with hundreds of targets; they read
+   every target's records only to drop the records of a store path that
+   is gone, which its root rarely lets happen, and while a legacy
+   `claude-skill-<skillName>` root is left.
+
+   Every change below `claude-skills/`, and every check an install makes
+   before deciding it has nothing to change, holds an exclusive
+   `flock(1)` on its `lock`, taken once per run and released before the
+   run starts `git`. Runs of this revision therefore serialize: none
+   removes a root between another's counting of its records and its
+   adding one, nor removes a target's records while an install into the
+   same path is checking them. `prune-gc-roots --delete` takes the lock
+   after its search and reads each entry again under it. A run that
+   can't get the lock within 120 seconds
+   (`AGENT_SKILL_FLAKE_GC_LOCK_TIMEOUT`) warns once and changes nothing
+   below `claude-skills/`, which leaves:
+
+   - after `install`, the records it would have written missing until
+     the next install or reconcile;
+   - after `reconcile`, the same, and the records of the skills it
+     swept kept, with their roots, until `prune-gc-roots` finds those
+     skills no longer linked;
+   - after `uninstall` or `purge`, the links and their lock entries gone
+     but the target's records kept, with their roots, until
+     `prune-gc-roots` finds the skills no longer linked, and `purge`'s
+     sweep of the shared layout left for the next `reap` or `purge`;
+   - after `reap`, the shared layout unswept until the next `reap` or
+     `purge`.
+
+   The counts live in hard links, so a copy of the gcroots dir must keep
+   them: use `rsync -aH` (macOS's own `rsync` takes `-H` too) or GNU
+   `cp -a`. macOS's `/bin/cp -a` copies hard-linked files as separate
+   files, as do `cp -r` and `rsync` without `-H`. A copy that splits a
+   record from its anchor makes the anchor look unused to every run but
+   that target's own `install`, `reconcile`, `reap` or `purge`: any
+   other run that drops a record of the same build, such as a `reap`,
+   `purge`, `prune-gc-roots` or `uninstall`, or an `install` or
+   `reconcile` that sweeps a skill or replaces a build, can remove a
+   root a split record still needs. `install`, `reconcile`, `reap` and
+   `purge` relink their own target's split records, current and
+   previous-build, before they count, but that repairs one target at a
+   time. Don't use a copy that split them:
+   copy the gcroots dir again from the original, keeping the hard
+   links.
+
+   An agent-skill-flake rev from before the shared layout, which a dev
+   shell's `skills-devshell/flake.lock` may still pin, writes flat roots
+   straight in the gcroots dir instead:
+   `claude-skill-<target-hash>-<skillName>` and its `.previous`, beside
+   the record `claude-skill-<target-hash>.target`. They keep protecting
+   their store paths until pruned. `install` and `reconcile` move their
+   target's flat roots into records, each record written before its flat
+   root goes, and `reap`, `purge`, `uninstall` and `check` handle the flat
+   roots they find as before. The flat record goes once none of its
+   target's flat roots is left.
+
+   Such an older rev, run in a target this one has moved into records,
+   doesn't see the records: its `check` reports every link as
+   `unrooted` or `wrongly rooted`, its `install` and `reconcile` write
+   flat roots again, and the next run of this rev moves them back into
+   records, so the two alternate without leaving a link unrooted. Its
+   `uninstall` removes only flat roots, leaving the record, and so the
+   root, until `prune-gc-roots` finds the skill no longer linked.
+
+   Records and flat roots with no record of their dir can't be traced to
+   it this way, such as those an older agent-skill-flake writes from a
+   dev shell that pins a rev without such records. `prune-gc-roots` finds
+   the targets that still exist, by their lock files under `$HOME` and
+   each `--search=<dir>`, by their records and at the personal scope, and
+   lists every record and flat root whose target it didn't find or no
+   longer links the skill, every previous-build one whose current one is
+   gone, and the shared roots their removal leaves without a record. It
+   names each dir its search couldn't read, since a target inside one
+   looks gone. It removes them only with `--delete`, refuses `--delete`
+   when it finds no lock file at all, and keeps legacy shared roots and
+   anything changed in the last hour. It removes nothing but those links
+   and records: no store path, and no garbage collection.
 
    ```sh
    nix run --refresh github:nhooey/agent-skill-flake#prune-gc-roots              # list, with counts
@@ -1335,14 +1412,15 @@ The Nix-native install. Three things happen:
    left by older installs. Ownership checks still accept it, and
    install, reconcile and uninstall leave it alone, since it may be the
    only root protecting some other target's link. `reap` and `purge`
-   remove it once its store path is gone, or once a per-target root
-   points at the same store path; re-running `install` or `reconcile` in
-   each target gives every target its own root, after which a `reap`
-   clears the shared ones.
+   remove it once its store path is gone, or once a target's current
+   record or flat root points at the same store path; re-running
+   `install` or `reconcile` in each target gives every target its own
+   record, after which a `reap` clears the legacy roots.
 
    `check` reports each skill and preferences link in the target's lock
-   whose store path has no root of the target's own, as `unrooted` or,
-   when only a shared or another target's root protects it, `wrongly
+   whose store path has no root of the target's own, its record of the
+   store path's shared root or its flat root, as `unrooted` or, when only
+   a legacy root or another target's record protects it, `wrongly
    rooted`, and exits 1; it prints nothing and exits 0 when every link
    is rooted. It reads the gcroots dir once, so it stays fast with
    thousands of roots, where `nix-store --query --roots` per link scans
@@ -1355,9 +1433,10 @@ The Nix-native install. Three things happen:
 
 The user-facing symlink is read-only by virtue of pointing into the
 store. To **upgrade** a skill, re-run `nix run .#install`: the symlink
-is replaced atomically, the new store path becomes the GC root, the
-old path keeps the previous-build root, the one before it becomes
-GC-eligible, and the lock entry is refreshed.
+is replaced atomically, the target's record points at the new store
+path's root, the old path keeps the previous-build record, the one
+before it becomes GC-eligible once no other target records it, and the
+lock entry is refreshed.
 
 ### `--profile`: via `nix profile install`
 
@@ -1654,16 +1733,25 @@ nix run .#uninstall -- --scope=personal alpha beta   # multiple at once
 Removes all three install-side artifacts:
 
 - the user-facing symlink at `<target>/<name>`,
-- this target's per-user GC root at
-  `<gcroots-dir>/claude-skill-<target-hash>-<name>` (other targets' roots
-  for the same skill, and any shared `claude-skill-<name>` root, stay),
+- this target's GC-root records at
+  `<gcroots-dir>/claude-skills/targets/<target-hash>/<name>` and its
+  `.previous`, its flat roots `claude-skill-<target-hash>-<name>`, and
+  every shared root no other target's record uses (other targets'
+  records for the same skill, and any legacy `claude-skill-<name>` root,
+  stay),
 - the entry in `<target>/.agent-skill-flake-lock.json`.
+
+An uninstall that can't get the GC-root layout's lock in time (see
+[Default: symlink + GC root](#default-symlink--gc-root)) still removes
+the symlink and the lock entry, but leaves the records, and so their
+roots, until `prune-gc-roots` finds the skill no longer linked.
 
 It refuses to touch entries it can't confidently identify as managed by
 this agent-skill-flake lineage (the sentinel must say `managedBy=<this
 lineage>`, or — if the symlink target has been GC'd — a GC root for it
-must exist as a naming-convention fallback: the target's own
-`claude-skill-<target-hash>-<name>`, or a shared `claude-skill-<name>`). A user's hand-rolled
+must exist as a naming-convention fallback: the target's own record
+`claude-skills/targets/<target-hash>/<name>` or flat root
+`claude-skill-<target-hash>-<name>`, or a legacy `claude-skill-<name>`). A user's hand-rolled
 `~/.claude/skills/foo` directory is therefore safe even if `foo`
 happens to match a agent-skill-flake skill name.
 
@@ -1693,8 +1781,9 @@ nix run .#purge -- --scope=personal --yes                      # skip the confir
 `purge` removes every entry this lineage (`managedBy`) installed under the
 scope — live or broken, any `appName`, no declared set or names needed — and
 runs transiently off the bare flake when nothing is installed locally,
-along with that scope's GC roots and any GC root whose store path is gone
-or, for a shared `claude-skill-<name>` root, covered by a per-target root. It
+along with that scope's GC-root records, every shared root no record uses
+any more, and any GC root whose store path is gone or, for a legacy
+`claude-skill-<name>` root, covered by a target's current record. It
 leaves other lineages and hand-rolled dirs alone, and confirms before
 removing (`--dry-run`/`--yes` skip the prompt; non-interactive without either
 refuses).

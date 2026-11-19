@@ -15,12 +15,17 @@ Optional:
 
 Removes the install-side artifacts for each named skill:
   - <target>/<name>                  (symlink into the Nix store)
-  - <gcroots>/claude-skill-<target-hash>-<name>
-                                     (this target's per-user GC root;
-                                     other targets' roots and a shared
-                                     claude-skill-<name> root stay)
-  - <gcroots>/claude-skill-<target-hash>-<name>.previous
-                                     (the root of the build before it)
+  - <gcroots>/claude-skills/targets/<target-hash>/<name>
+                                     (this target's GC-root record;
+                                     other targets' records and a
+                                     legacy claude-skill-<name> root stay)
+  - <gcroots>/claude-skills/targets/<target-hash>/<name>.previous
+                                     (the record of the build before it)
+  - <gcroots>/claude-skills/store/<store-path-name>
+                                     (each shared root no other
+                                     target's record uses)
+  - <gcroots>/claude-skill-<target-hash>-<name> and its .previous
+                                     (this target's flat roots)
   - the entry in <target>/.agent-skill-flake-lock.json
 
 Refuses to touch entries that aren't managed by this agent-skill-flake
@@ -75,6 +80,7 @@ for name in "$@"; do
 done
 
 printf '\n%d uninstalled, %d skipped.\n' "$removed" "$skipped"
+gc_roots_unlock
 sync_project_excludes
 # Exit non-zero if every requested name was skipped — the user
 # probably typo'd or invoked uninstall on something they didn't

@@ -75,6 +75,16 @@ EOF
   assert grep -q "^$PROJ .*build --no-link --print-out-paths path:./skill-flake#agent-skills-all" "$BATS_TEST_TMPDIR/nix-calls"
 }
 
+@test "each skill installed is GC-rooted in the shared layout, under its lock" {
+  write_local "skills = [\"$ALPHA_PKG\"]"
+  sync
+  assert_success
+  refute_output --partial "WARNING"
+  assert_gc_rooted alpha "$PROJ/.agents/skills"
+  assert_equal "$(gc_record_store_path alpha "$PROJ/.agents/skills")" "$ALPHA_PKG"
+  assert_equal "$(readlink "$(gc_root_record "$PROJ/.agents/skills")")" "$PROJ/.agents/skills"
+}
+
 @test "the local file is listed in the exclude block, and git ignores it" {
   write_local "skills = [\"$ALPHA_PKG\"]"
   sync

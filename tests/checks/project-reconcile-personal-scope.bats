@@ -90,8 +90,8 @@ assert_same_content_elsewhere() {
   refute [ -e "$skills/alpha" ]
   refute [ -L "$skills/alpha" ]
   refute [ -L "$skills/beta" ]
-  refute [ -e "$(gc_root alpha "$skills")" ]
-  refute [ -e "$(gc_root beta "$skills")" ]
+  refute [ -e "$(gc_record alpha "$skills")" ]
+  refute [ -e "$(gc_record beta "$skills")" ]
   assert_equal "$(jq -r '.skills | has("alpha") or has("beta")' "$lock")" "false"
   assert_equal "$(jq -r '.satisfiedByPersonalScope.alpha.personalCopy' "$lock")" "$personal/alpha"
   assert_equal "$(jq -r '.satisfiedByPersonalScope.alpha.installedBy' "$lock")" "example-skills-dir"
@@ -208,13 +208,13 @@ assert_same_content_elsewhere() {
   reconcile
   assert_success
   rm "$skills/alpha"
-  assert [ -L "$(gc_root alpha "$skills")" ]
+  assert_gc_rooted alpha "$skills"
   copy_as_older_build "$alpha_src" "$personal/alpha"
 
   reconcile
   assert_success
-  refute [ -e "$(gc_root alpha "$skills")" ]
-  refute [ -L "$(gc_root alpha "$skills")" ]
+  refute [ -e "$(gc_record alpha "$skills")" ]
+  refute [ -L "$(gc_record alpha "$skills")" ]
   assert_equal "$(jq -r '.satisfiedByPersonalScope | has("alpha")' "$lock")" "true"
 }
 

@@ -15,11 +15,14 @@ Optional:
 
 Removes managed entries (managedBy=$upstream_url) whose symlink
 targets have been garbage-collected, orphan GC roots whose store-path
-targets no longer exist, every root of an install target whose dir is
-gone, previous-build roots (claude-skill-<target-hash>-<name>.previous)
-whose current root is gone, and shared claude-skill-<name> GC roots
-whose store path a per-target current root also protects. A
-previous-build root beside its current root stays.
+targets no longer exist with the records of them, every record and
+flat root of an install target whose dir is gone, this target's
+previous-build records (<gcroots>/claude-skills/targets/<target-hash>/
+<name>.previous) and any previous-build flat root whose current one is
+gone, every shared root (<gcroots>/claude-skills/store/<store-path-name>)
+no record uses any more, and legacy claude-skill-<name> GC roots whose
+store path a target's current record or flat root also protects. A
+previous-build record beside its current record stays.
 EOF
 }
 
@@ -41,4 +44,5 @@ sweep_verb='reap'
 dry_run=0
 
 lineage_sweep
+gc_roots_unlock
 sync_project_excludes

@@ -15,7 +15,10 @@ Optional:
 
 Checks that every skill and preferences link agent-skill-flake installed
 in the target (each entry of its lock file) has a GC root of this
-target's own, $GC_ROOT_PREFIX<tag>-<name>, protecting its store path.
+target's own protecting its store path: the target's record,
+$GC_SHARED_SUBDIR/targets/<tag>/<name>, holding the store path's shared
+root, $GC_SHARED_SUBDIR/store/<store-path-name>, or the target's flat
+root, $GC_ROOT_PREFIX<tag>-<name>, pointing at the store path.
 Links it didn't install, such as Home Manager's, are left out. Prints
 one line per link that isn't rooted so and exits 1; prints nothing and
 exits 0 when every link is. Read-only.
@@ -57,6 +60,14 @@ if [ -d "$gcroots_dir" ]; then
     rooted_by[$sp]+="${rooted_by[$sp]:+ }$root_name"
   done < <(find "$gcroots_dir" -mindepth 1 -maxdepth 1 -type l -name "$GC_ROOT_PREFIX*" -printf '%f\t%l\n')
 fi
+# The shared roots, by store path; each protects whichever targets'
+# records hold it.
+declare -A shared_root=() # store path -> its shared root, relative to gcroots_dir
+if [ -d "$gc_store_dir" ]; then
+  while IFS=$'\t' read -r root_name root_target; do
+    shared_root[$root_target]=$GC_SHARED_SUBDIR/store/$root_name
+  done < <(find "$gc_store_dir" -mindepth 1 -maxdepth 1 -type l -printf '%f\t%l\n')
+fi
 
 # The entries agent-skill-flake installed here, from the lock.
 lock=$(lock_path)
@@ -73,14 +84,23 @@ for name in "${installed[@]}"; do
   sp=$(store_path_of "$resolved")
   [ -n "$sp" ] || continue
 
-  expected=$(gc_root_path "$name")
-  expected=${expected##*/}
-  [ "${root_store[$expected]:-}" = "$sp" ] && continue
+  record=$(gc_record_path "$name")
+  if [ -n "${shared_root[$sp]:-}" ] &&
+    [ "$record" -ef "$gcroots_dir/${shared_root[$sp]}$GC_ANCHOR_SUFFIX" ]; then
+    continue
+  fi
+  flat=$(flat_gc_root_path "$name")
+  [ "${root_store[${flat##*/}]:-}" = "$sp" ] && continue
 
   problems=$((problems + 1))
-  if [ -n "${rooted_by[$sp]:-}" ]; then
+  expected=${record#"$gcroots_dir"/}
+  by=${rooted_by[$sp]:-}
+  if [ -n "${shared_root[$sp]:-}" ]; then
+    by="${shared_root[$sp]}${by:+ $by}"
+  fi
+  if [ -n "$by" ]; then
     printf 'wrongly rooted: %s -> %s: rooted by %s, not %s\n' \
-      "$link" "$sp" "${rooted_by[$sp]}" "$expected"
+      "$link" "$sp" "$by" "$expected"
   else
     printf 'unrooted: %s -> %s: no GC root; expected %s\n' "$link" "$sp" "$expected"
   fi

@@ -696,25 +696,34 @@ in
     };
   };
 
-  # Each install target keeps its own GC root per skill, so two targets
-  # installing the same skill don't steal each other's root; a legacy
-  # shared root survives until a per-target root covers its store path.
+  # Identical builds share one GC root and each install target keeps its
+  # own record per skill, so a root goes only with the last record using
+  # it; flat per-target roots move into records and keep working until
+  # pruned; parallel runs serialize on the layout's lock; a legacy shared
+  # root survives until a per-target record covers its store path.
   gc-roots-per-target = mkBatsCheck {
     name = "gc-roots-per-target";
-    extraInputs = [ pkgs.jq ];
+    extraInputs = [
+      pkgs.flock
+      pkgs.jq
+    ];
     env = {
       INSTALL_ALL_APP = installAllApp;
       UNINSTALL_ALL_APP = uninstallAllApp;
       REAP_ALL_APP = reapAllApp;
       PURGE_ALL_APP = purgeAllApp;
       RECONCILE_ALL_APP = reconcileAllApp;
+      CHECK_ALL_APP = checkAllApp;
     };
   };
 
-  # The one-time sweep of roots no found install target owns: dry run by
-  # default, --delete removes only unowned claude-skill-* links.
+  # The one-time sweep of records and roots no found install target owns:
+  # dry run by default, --delete removes only unowned claude-skill-* links,
+  # records, and the shared roots no record uses any more, reading each one
+  # again under the lock so a target made again since the search keeps it.
   prune-gc-roots = mkBatsCheck {
     name = "prune-gc-roots";
+    extraInputs = [ pkgs.flock ];
     env = {
       INSTALL_ALL_APP = installAllApp;
       PRUNE_GC_ROOTS_APP = self.apps.${system}.prune-gc-roots.program;

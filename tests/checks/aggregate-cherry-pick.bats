@@ -21,7 +21,7 @@ setup() {
   assert [ -L "$CUSTOM_TARGET/alpha" ]
   assert [ -f "$CUSTOM_TARGET/alpha/SKILL.md" ]
   refute [ -e "$CUSTOM_TARGET/beta" ]
-  refute [ -e "$(gc_root beta)" ]
+  refute [ -e "$(gc_record beta)" ]
 }
 
 @test "prefixed cherry-pick installs only the selected skill" {

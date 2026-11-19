@@ -18,7 +18,7 @@ setup() {
   local s
   for s in alpha beta; do
     assert_store_symlink "$CUSTOM_TARGET/$s"
-    assert_store_symlink "$(gc_root $s)" "GC root for $s"
+    assert_gc_rooted "$s"
   done
 
   refute [ -e "$HOME/.claude/skills/alpha" ]

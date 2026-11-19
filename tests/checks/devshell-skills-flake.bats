@@ -24,7 +24,7 @@ setup() {
 
   local bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
   ln -sfn "$bogus/share/claude-skills/foo" "$CUSTOM_TARGET/foo"
-  ln -sfn "$bogus" "$(gc_root foo)"
+  fake_gc_record foo "$bogus"
 
   run "$REAP_APP" "${scope_args[@]}"
   assert_success
@@ -36,6 +36,6 @@ setup() {
   assert_success
   refute [ -L "$CUSTOM_TARGET/alpha" ]
   refute [ -L "$CUSTOM_TARGET/beta" ]
-  refute [ -e "$(gc_root alpha)" ]
-  refute [ -e "$(gc_root beta)" ]
+  refute [ -e "$(gc_record alpha)" ]
+  refute [ -e "$(gc_record beta)" ]
 }

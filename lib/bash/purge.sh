@@ -18,12 +18,19 @@ Optional:
 Removes EVERY skill this agent-skill-flake lineage (managedBy=$upstream_url)
 installed under the target dir — live or broken — regardless of which
 hook/appName installed it, with this target's current and
-previous-build GC roots (claude-skill-<target-hash>-<name> and its
-.previous), and prunes orphan GC roots (store path gone), every root of
-an install target whose dir is gone, previous-build roots whose current
-root is gone, and shared claude-skill-<name> roots a per-target current
-root covers. Unlike reconcile, purge ignores any declared
+previous-build GC-root records (claude-skills/targets/<target-hash>/
+<name> and its .previous) and flat roots, and prunes orphan GC roots
+(store path gone), every record and flat root of an install target
+whose dir is gone, previous-build records and roots whose current one
+is gone, every shared root no record uses any more, and legacy
+claude-skill-<name> roots a target's current record covers. Unlike
+reconcile, purge ignores any declared
 set; unlike uninstall, it needs no skill names.
+
+--dry-run lists the entries and GC-root records purge would remove, and
+the shared roots no record uses already; it leaves out the shared roots
+its removals would leave without a record, so a real run removes, and
+counts, more.
 
 The scope-uniform teardown escape hatch: the SAME command clears the
 user-global and project dirs (only --scope differs), and it can run
@@ -93,4 +100,5 @@ lineage_sweep
 # The skills a project reconcile left to the personal scope go with the
 # rest of the declared set.
 [ "$dry_run" = "1" ] || lock_clear_personal_scope
+gc_roots_unlock
 sync_project_excludes

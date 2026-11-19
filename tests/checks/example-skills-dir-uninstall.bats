@@ -14,11 +14,11 @@ setup() {
   local lock="$CUSTOM_TARGET/.agent-skill-flake-lock.json"
 
   refute [ -L "$CUSTOM_TARGET/alpha" ]
-  refute [ -e "$(gc_root alpha)" ]
+  refute [ -e "$(gc_record alpha)" ]
   assert_equal \
     "$(jq 'has("skills") and (.skills | has("alpha") | not)' "$lock")" "true"
 
   assert [ -L "$CUSTOM_TARGET/beta" ]
-  assert [ -L "$(gc_root beta)" ]
+  assert_gc_rooted beta
   assert_equal "$(jq -r '.skills.beta.skillName' "$lock")" "beta"
 }
