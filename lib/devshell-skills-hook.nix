@@ -20,8 +20,20 @@
   # combination's appName owns — the "reap it all" verb. (`reap` only prunes
   # broken/stale symlinks, so it is NOT the full-removal default here.)
   removeApp ? "purge",
+  # Arguments added to every run of the reconcile app (on `nix develop`, and
+  # by `reconcile-skills` and `update-skills-devshell`), such as
+  # `[ "--strict" ]` to fail when a skill differs from the personal scope's
+  # copy, or `[ "--ignore-personal-scope" ]` to skip that comparison.
+  reconcileArgs ? [ ],
 }:
 let
+  quote = arg: "'" + builtins.replaceStrings [ "'" ] [ "'\\''" ] arg + "'";
+  reconcileFlags = builtins.concatStringsSep "" (map (arg: " " + quote arg) reconcileArgs);
+  # The command a reconcile names for bringing the project's skills up to
+  # date, when one differs from the personal scope's copy. An environment
+  # variable rather than a flag, so a sub-flake still locked to a reconcile
+  # that predates it runs as before.
+  updateEnv = "AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND=update-skills-devshell ";
   run = app: ''nix run "$PRJ_ROOT/${dir}#${app}" -- --scope=${scope}'';
   # Commands find the project root each time they run: `$PRJ_ROOT` is fixed
   # when the dev shell is entered, so a command run from another checkout
@@ -35,7 +47,7 @@ let
 in
 {
   # Splice into `devshell.startup.<name>.text` (reconcile on `nix develop`).
-  startup = run reconcileApp;
+  startup = "${updateEnv}${run reconcileApp}${reconcileFlags}";
   # Concatenate onto a devshell `commands` list (`++ devshellSkills.commands`).
   # Every entry is fully repo-agnostic — they only reference `dir`/`scope`,
   # which this hook already owns — so every consuming repo shares them verbatim.
@@ -60,7 +72,7 @@ in
       help = "Install, update and sweep this dev shell's skills, as entering it does; args pass through to ${reconcileApp}";
       command = ''
         ${findRoot}
-        ${runHereWithArgs reconcileApp}
+        ${updateEnv}${runHere reconcileApp}${reconcileFlags} "$@"
       '';
     }
     {
@@ -69,7 +81,7 @@ in
       help = "Bump the ${dir}/ sub-flake lock (the skill set), then reconcile the skills";
       command = ''
         ${findRoot}
-        nix flake update --flake "$root/${dir}" "$@" && ${runHere reconcileApp}
+        nix flake update --flake "$root/${dir}" "$@" && ${updateEnv}${runHere reconcileApp}${reconcileFlags}
       '';
     }
   ];

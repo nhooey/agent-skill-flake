@@ -319,6 +319,18 @@ The `SKILL.md` frontmatter `name:` is **normalized at build time** to the
 effective skill name (post-`renameFn`), so the source value doesn't have to
 match `skillName` / the directory — see the next section.
 
+Beside the content, `.agent-skill-flake-managed.json` (the sentinel)
+records which agent-skill-flake built the skill, and its `contentHash`:
+a hash of the skill folder's paths, file kinds and bytes, without the
+sentinel, written `v1:sha256:<hex>`, where `v1:sha256` names how it was
+computed. It is taken before `scriptInputs` and the build's shebang
+patching write store paths into the scripts, and counts the script inputs
+by name, so the same source gives the same hash under any nixpkgs. For the
+same reason it doesn't see a `postInstall` or `postFixup` added with
+`overrideAttrs`: two builds that differ only there record the same hash.
+A project `reconcile` compares it to tell two copies of a skill apart (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+
 ## Renaming & avoiding Claude Code name collisions
 
 Claude Code has a **flat skill namespace**: a skill's identity is its
@@ -443,14 +455,16 @@ agent-skill-flake.lib.withNamePrefix {
 
 | Param        | Required | Default | Meaning |
 |--------------|----------|---------|---------|
-| `pkgs`       | yes      | —       | Nixpkgs instance for the target system. Same shape as `mkSkillsEnv`'s `pkgs`. |
+| `pkgs`       | yes      | —       | Nixpkgs instance for the target system, one that has `replaceVars`. Same shape as `mkSkillsEnv`'s `pkgs`. |
 | `namePrefix` | yes      | —       | Non-empty string. Must match `^[a-z0-9][a-z0-9-]*$`. The combined `<prefix>-<oldName>` is asserted against Claude Code's `^[a-z0-9-]{1,64}$` rule per member, so an over-long prefix fails `nix flake check`. |
 | `skill`      | yes      | —       | Either a single skill drv (`passthru.isFlakeSkill`) or a skills env drv (`passthru.isFlakeSkillsEnv`). Anything else throws. |
 
 What the wrapper preserves from the upstream sentinel:
 `originalSkillName`, `managedBy`/`managedByRev`/`managedByDirty`/
-`managedByNarHash`, `version`, `schemaVersion`. Only `skillName` is
-rewritten. Traceability back to the upstream lineage survives
+`managedByNarHash`, `version`, `schemaVersion`. `skillName` is rewritten,
+and `contentHash` becomes a hash of the upstream one and the new name, so
+two wraps of the same skill under the same prefix compare equal whatever
+nixpkgs built them. Traceability back to the upstream lineage survives
 re-prefixing.
 
 ## Marketplace / aggregation
@@ -632,6 +646,15 @@ bearing *its own* `name`. So multiple aggregates (or a hand-rolled
 installer) can share one skills directory, each declaratively owning its
 own slice without sweeping the others'.
 
+**The personal scope.** The reconcile leaves out a declared skill whose copy
+in the personal skills directory is the same version, and installs one
+whose copy there is a different version, with a warning (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+`reconcileScript system` is a plain command, so a dev shell adds
+`--strict` (fail on a different version) or `--ignore-personal-scope`
+(don't compare) by appending it:
+`shellHook = "${agg.reconcileScript system} --strict";`.
+
 ### `mkCombination`
 
 A **combination** is a curated, cross-cutting union of skills that is, by
@@ -728,6 +751,13 @@ at a skill's path is left alone too. The single `name` owner means one `purge` (
 whole set. See [`skills-devshell/flake.nix`](skills-devshell/flake.nix) for
 the live example.
 
+`projectUpdateCommand` (default `"update-skills-devshell"`, the hook's
+command) is what `reconcile` names for updating these skills when one
+differs from the personal scope's copy (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+`mkAggregateSkillsFlake` and `mkCombination` take it too, defaulting to
+`null`, which names `nix flake update --flake <project-root>`.
+
 ### `devshellSkillsHook`
 
 Root-side wiring for a `skills-devshell/` sub-flake invoked at runtime.
@@ -759,7 +789,17 @@ per repo:
   menu replaces re-defining all three per repo.
 
 Params (all optional): `dir` (`"skills-devshell"`), `scope` (`"project"`),
-`reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`). Pure — no provenance
+`reconcileApp` (`"reconcile"`), `removeApp` (`"purge"`), `reconcileArgs`
+(`[ ]`: arguments added to every reconcile run, on `nix develop` and by
+`reconcile-skills` and `update-skills-devshell`, such as `[ "--strict" ]`
+or `[ "--ignore-personal-scope" ]`; see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds).
+The `<dir>` sub-flake has its own lock, so it must lock an
+agent-skill-flake whose reconcile has these flags: an older one refuses
+them as unexpected arguments, and every dev-shell entry fails).
+Every reconcile run sets `AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND` to
+`update-skills-devshell`, the command a warning about a skill that differs
+from the personal scope's copy names for the project. Pure — no provenance
 threading. Assumes numtide/devshell, which exports `$PRJ_ROOT`. Usage is
 shown under [the `skills-devshell`
 section](#project-scope-dev-shell-skills-the-skills-devshell-sub-flake) below.
@@ -922,6 +962,7 @@ Options under `agent-skill-flake.devshellSkills`:
 | `scope` | `"project"` | Install scope passed to the reconcile / removal apps. |
 | `reconcileApp` | `"reconcile"` | Sub-flake app run on `nix develop` to converge the set. |
 | `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
+| `reconcileArgs` | `[ ]` | Arguments added to every run of `reconcileApp`, such as `[ "--strict" ]` or `[ "--ignore-personal-scope" ]` (see [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)). The `<dir>` sub-flake must lock an agent-skill-flake whose reconcile has these flags, or every dev-shell entry fails. |
 | `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the three `skills` commands are always included. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
@@ -936,15 +977,16 @@ gets two checks on its own skills folder, so `nix flake check` runs them with
 nothing to name:
 
 - `checks.<system>.skill-layout`: an installed skill holds only what it runs,
-  and its Python scripts import only the standard library and the modules
-  beside them.
+  and its Python scripts import only the standard library and the `.py`
+  modules beside them.
 - `checks.<system>.skill-description`: every SKILL.md opens with frontmatter
   that names the skill and describes it.
 
 Each prints one line per problem, `<skill>: <problem> (<rule>)`, and fails
 when there is any. A flake that wires its own dev shell imports
-`flakeModules.skillChecks`, the checks alone. A flake whose skills folder is
-missing, or holds no folder (only a `.gitkeep`, say), gets neither check.
+`flakeModules.skillChecks`, the checks alone. A flake without a skills folder
+gets neither check; one whose skills folder holds no skill folder (only a
+`.gitkeep`, say) gets both, and both fail.
 
 Every tool a check runs starts in an empty folder and reads the skill's
 files by absolute path, so no folder name or settings file a skill ships,
@@ -953,16 +995,24 @@ changes what it finds. pylint reads a copy of each `scripts/` folder that
 holds only its folders and `.py` files, since it puts a script's folder
 first on Python's path and would load a compiled module there, such as a
 `sqlite3.so`, in place of the standard library's. The layout check follows
-links in `scripts/` as Python's import does, so a module or package linked
-in from elsewhere is checked, and a link that names nothing is left out.
+links in `scripts/` as Python's import does, so a module linked in from
+elsewhere is checked and a link that names nothing is left out. Anything
+there that `find -L` can't walk, such as a link that loops back to its own
+folder or one above it, stops the check with status 2, the status of a tool
+that failed, and a `walkable-scripts` line holding find's own words for it.
 
 ### Rules
 
 | Check | Rule | Fails when |
 |---|---|---|
-| `skill-layout` | `test-folders` | A folder named in `test-folders` sits anywhere under the skills folder. Tests go in `tests/<skill>/`. |
-| `skill-layout` | `test-files` | A file matching a pattern in `test-files` sits anywhere under the skills folder. |
-| `skill-layout` | `standard-library-imports` | A skill's Python script, `scripts/**/*.py`, imports a module that is neither in the standard library of the Python the check is built with nor a `.py` file or folder in the script's own folder (Python imports a folder without `__init__.py` as a namespace package), or holds a comment with `pylint:` in it, such as `# pylint: disable=import-error` or `# pylint: skip-file`, which could hide one. Text in a string is no comment. |
+| both | `skills-exist` | The skills folder holds no skill folder: a folder, not a link, whose name doesn't start with a dot and isn't `__pycache__`. |
+| `skill-layout` | `dot-folders` | A folder directly in the skills folder has a name starting with a dot, such as `skills/.x/`. The checks pass over it, while agent-skill-flake builds it as a skill when it holds a SKILL.md and looks for skills in it otherwise. A file, such as `.gitkeep`, and a link pass. |
+| `skill-layout` | `test-folders` | A folder named in `test-folders`, or a link of that name, whatever it points at, sits anywhere under the skills folder. Tests go in `tests/<skill>/`. |
+| `skill-layout` | `test-files` | A file matching a pattern in `test-files`, or a link of such a name, whatever it points at, sits anywhere under the skills folder. |
+| `skill-layout` | `standard-library-imports` | A skill's Python script, `scripts/**/*.py`, imports a module that is neither in the standard library of the Python the check is built with nor a `.py` file in the script's own folder, or holds a comment with `pylint:` in it, such as `# pylint: disable=import-error` or `# pylint: skip-file`, which could hide one. A folder beside the script, a package or a namespace package, linked or not, fails, under `standard-library-names` when it has the name of a module in the checking Python's standard library; one named after a removed module is not enforced (see below). Text in a string is no comment. |
+| `skill-layout` | `standard-library-names` | A `.py` module anywhere in a skill's `scripts/`, or a folder beside a script (in a folder that holds a `.py` file), linked or not, has a name in the checking Python's `sys.stdlib_module_names`, such as `scripts/json/` or `scripts/secrets.py`. Python would import it in place of the standard library's, or the standard library's in place of it, and FawltyDeps reports no import of a standard-library name. |
+| `skill-layout` | `compiled-modules` | A compiled module, a file or link named `*.so`, `*.pyd` or `*.pyc`, sits anywhere in a skill's `scripts/`, where Python would import it in place of a standard-library module of its name. |
+| `skill-layout` | `walkable-scripts` | `find -L` reports something in a skill's `scripts/` it can't walk, such as a link loop, `scripts/loop -> .`, or a folder it can't read. The check stops with status 2. |
 | `skill-layout` | `python-syntax` | Python can't parse a skill's script. |
 | `skill-layout` | `relative-imports` | A skill's script imports relative to a package (`from . import x`); a script imports a module beside it by its name. A `# noqa` comment doesn't silence it. |
 | `skill-layout` | `unique-script-modules` | Two Python scripts in different folders share a module name. A package's `__init__.py` has its folder's name. |
@@ -983,9 +1033,10 @@ tokenize:
 
 | Tool | Reports | Rule |
 |---|---|---|
-| [FawltyDeps](https://github.com/tweag/FawltyDeps) `--check-undeclared`, with no dependency declared | Each import that is neither a standard-library name nor a `.py` file or folder beside the script, the libraries pylint runs on among them | `standard-library-imports` |
-| [pylint](https://pylint.readthedocs.io) `import-error`, settings in [`lib/config/skill-checks-pylintrc`](lib/config/skill-checks-pylintrc) | Each import the Python running the check can't resolve with the script's folder on its path, such as a module removed from the standard library (`imp`, `distutils`, `cgi`) | `standard-library-imports` |
+| [FawltyDeps](https://github.com/tweag/FawltyDeps) `--check-undeclared`, with no dependency declared and an empty folder as `--base-dir`, so nothing is first-party; the folder's name holds a dash, since FawltyDeps takes that name itself as first-party | Each import that isn't a standard-library name, the libraries pylint runs on and the folders beside the script among them; jq then drops those of a `.py` file beside the script, from the list `find -L` makes | `standard-library-imports` |
+| [pylint](https://pylint.readthedocs.io) `import-error`, settings in [`lib/config/skill-checks-pylintrc`](lib/config/skill-checks-pylintrc), run on one skill at a time, since it puts the folder of every script it reads on Python's path | Each import the Python running the check can't resolve with the script's folder on its path, such as a module removed from the standard library (`imp`, `distutils`, `cgi`) | `standard-library-imports` |
 | `python3 -m tokenize`, which decodes a script by its coding line and tells comments from strings | Each comment token holding `pylint:`, which could switch `import-error` off for a line, a block or the whole file, in whatever coding the script declares, such as UTF-7 | `standard-library-imports` |
+| `python3 -c` printing `sys.stdlib_module_names`, matched against the folders and `.py` files `find -L` lists | Each `.py` module in `scripts/`, or folder beside a script, named after a module of the checking Python's standard library | `standard-library-names` |
 | pylint `syntax-error` | A script that doesn't parse | `python-syntax` |
 | [ruff](https://docs.astral.sh/ruff) `TID252` with `ban-relative-imports = "all"`, settings in [`lib/config/skill-checks-ruff.toml`](lib/config/skill-checks-ruff.toml) | Every relative import | `relative-imports` |
 
@@ -999,6 +1050,10 @@ Not enforced:
   `ConfigParser`, passes.
 - A module the checking Python has but an older Python lacks, such as
   `tomllib` before 3.11, passes.
+- A package in a skill's `scripts/` named after a module removed from the
+  standard library, such as `imp` or `distutils`, passes when a script
+  imports it: FawltyDeps counts the name as the standard library's, and
+  pylint resolves the vendored folder.
 
 A standard-library module that the checking platform lacks, such as `winreg`
 on macOS or Linux, fails.
@@ -1044,7 +1099,7 @@ trigger-first = ["my-skill-one", "my-skill-two"]
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `skills-dir` | `"skills"` | The folder, relative to the root, holding one folder per skill. Without it, or with no folder in it, neither check is made. |
+| `skills-dir` | `"skills"` | The folder, relative to the root, holding one folder per skill. Without it, neither check is made; with no skill folder in it, both fail on `skills-exist`. |
 | `layout.enable` | `true` | Make `checks.<system>.skill-layout`. |
 | `layout.test-folders` | `["test", "tests", "golden", "stubs"]` | Folder names that mark tests or their data. |
 | `layout.test-files` | `["test_*", "*_test", "*_test.*", "*.bats"]` | Shell patterns of test file names. |
@@ -1130,8 +1185,10 @@ flags:
 
 | Flag                  | Default                              | Meaning |
 |-----------------------|--------------------------------------|---------|
-| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where each target's `claude-skill-<target-hash>-<skillName>` roots go (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
+| `--gcroots-dir=<path>`| `/nix/var/nix/gcroots/per-user/$USER`| Override the per-user GC-roots dir, where the shared roots and each target's records go, under `claude-skills/` (see [Default: symlink + GC root](#default-symlink--gc-root)). Primarily for the test suite — rarely useful in practice. |
 | `--profile`           | (off)                                | `install` only: install via `nix profile install` instead of the default direct-symlink mode. See [`--profile`](#--profile-via-nix-profile-install). |
+| `--strict`            | (off)                                | `reconcile --scope=project` only: exit 1 when a declared skill differs from the personal scope's copy. See [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds). |
+| `--ignore-personal-scope` | (off)                            | `reconcile --scope=project` only: don't compare the declared skills with the personal scope's copies. |
 | `-h`, `--help`        | —                                    | Print help and exit. |
 
 Positional args after the flags are skill-name selectors (subset install):
@@ -1145,6 +1202,76 @@ args, or only the named subset when given. An unknown skill name is a
 hard error listing what's available — the install-time equivalent of
 eval-time typo protection.
 
+### A skill the personal scope already holds
+
+An agent reads the personal skills directory as well as the project's, and
+Claude Code uses the personal copy when both hold a skill of the same
+name. So `reconcile --scope=project` compares each declared skill with the
+personal directory's copy of that name:
+
+- **The same version:** the project's copy isn't installed. A link an
+  earlier reconcile made is removed with its GC root, its `skills` entry
+  in the lock and its exclude line, and the lock lists the skill under
+  `satisfiedByPersonalScope` (see [Lock file](#lock-file)). The run prints
+  `N declared skill(s) left to the same version in <personal-dir>.`
+- **A different version:** the project's copy is installed as well, and
+  the run prints one line per skill on stderr, naming both versions, the
+  copy the agent uses, and how to bring each side up to date:
+
+  ```text
+  WARNING: beta is sha256:3f0c2a91d4b7 in the personal scope (/home/me/.claude/skills/beta) and sha256:8e51b0c6a2f9 in this project; both are installed. Claude Code uses the personal copy. To update both to the latest: for the personal copy, run `my-home-update`; for the project's, run `update-skills-devshell`.
+  ```
+
+  With `--strict` the line starts `ERROR:`, and the reconcile exits 1 once
+  it has converged.
+- **No copy of that name, or no personal directory** (as in CI or a
+  sandbox): the skill installs as at any other scope. So does a personal
+  entry whose links pass through the project's own skills directory, which
+  is the project's copy under another name, and a personal copy that can't
+  be read, which the run reports in one `WARNING:` line.
+
+Every reconcile compares afresh, from the files, and never trusts what an
+earlier run recorded: once the personal copy is removed or changes, the
+next reconcile installs the project's.
+
+Two copies are the same version when their content hashes match. When
+both copies are in the Nix store and their sentinels record a
+`contentHash` of the same scheme (see [Build behavior](#build-behavior)),
+those are compared, and the store path, the sentinel's `version` and
+`managedByRev` take no part. Otherwise, as for a copy built by an
+agent-skill-flake that didn't record the hash, or one outside the store,
+both folders are hashed as they stand, computed the same way. That
+fallback sees the store paths the build wrote into the scripts (patched
+shebangs, `scriptInputs`' PATH lines and wrappers), so the same source
+built against two different nixpkgs compares as a different version: the
+project's copy is installed too, with the warning.
+
+The personal directory is the one the agent reads,
+`$HOME/<agent.personalSuffix>` (`~/.claude/skills` for Claude Code),
+followed through any symlinks, as when Home Manager links it to another
+directory. A project whose skills directory is that same directory skips
+the comparison. These environment variables change what the reconcile
+looks at and says:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AGENT_SKILL_FLAKE_PERSONAL_DIR` | `$HOME/<agent.personalSuffix>` | The personal skills directory to compare with. |
+| `AGENT_SKILL_FLAKE_PERSONAL_UPDATE_COMMAND` | (unset) | The command that updates the personal skills, quoted in the warning. Unset, the warning says to update the flake that installs the personal directory and rebuild it. |
+| `AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND` | the builder's `projectUpdateCommand`, else `nix flake update --flake <project-root>` | The command that updates the project's skills. [`mkDevshellSkillsFlake`](#mkdevshellskillsflake) builds in `update-skills-devshell`, and [`devshellSkillsHook`](#devshellskillshook) also sets the variable to it. |
+
+The personal update command belongs to the user's machine, so set it where
+the user's environment is set, such as Home Manager's
+`home.sessionVariables`. A dev shell passes `--strict` or
+`--ignore-personal-scope` by appending it to `reconcileScript`'s command
+(`"${agg.reconcileScript system} --strict"`), through
+[`devshellSkillsHook`](#devshellskillshook)'s `reconcileArgs`, or through
+the [flake module's](#flakemodulesdevshellskills) `reconcileArgs` option.
+The two flags together are a usage error, and so is either one at
+personal or custom scope, as `--root` is outside custom scope. Personal and
+custom scope reconciles, and `install`, don't compare. `agent-skill-flake
+sync-project` does compare, with the defaults and the variables above, and
+rejects both flags as unexpected arguments.
+
 ### Default: symlink + GC root
 
 The Nix-native install. Three things happen:
@@ -1153,47 +1280,124 @@ The Nix-native install. Three things happen:
    `<target>/<skillName>` is created as a symlink to
    `<store-path>/share/claude-skills/<skillName>`. Claude Code (or
    whichever agent profile you picked) follows it transparently.
-2. **Per-user GC root, one per target.**
-   `/nix/var/nix/gcroots/per-user/$USER/claude-skill-<target-hash>-<skillName>`
-   is created as a symlink to the store derivation. This protects the
-   store path from `nix-store --gc`. `<target-hash>` is the first 12 hex
-   characters of the SHA-256 of `<target>`'s absolute path with symlinks
-   resolved (so on macOS `/tmp/x` and `/private/tmp/x` share a root).
-   Each target — the user scope, each project's skills dir, each custom
-   root — therefore holds its own root, and installing or uninstalling a
-   skill in one target never unroots another target's link. Override the
-   gcroots dir with `--gcroots-dir=<path>` (test-suite use; rarely useful
-   in practice).
+2. **A shared per-user GC root, and a record per target.**
+   Identical builds share one GC root, keyed by store path, and each
+   target records which builds it uses. Under
+   `/nix/var/nix/gcroots/per-user/$USER/claude-skills/`:
 
-   A target roots its current and previous builds of each skill, and no
-   older ones. When an install or reconcile replaces a skill's store
-   path, the replaced path moves to
-   `claude-skill-<target-hash>-<skillName>.previous`, displacing the
-   build before it. Uninstall removes both roots, and `reap` and `purge`
-   remove a previous-build root whose current root is gone.
+   | Path | What it is |
+   |------|------------|
+   | `store/<store-path-name>` | The GC root: a link to the store path, protecting it from `nix-store --gc`. |
+   | `store/<store-path-name>.refs` | The root's anchor: a regular file holding the store path. |
+   | `targets/<target-hash>/<skillName>` | The target's record: a hard link of the anchor of the build it links. |
+   | `targets/<target-hash>/<skillName>.previous` | The record of the build before it. |
+   | `targets/<target-hash>/.target` | A link to the target's resolved dir. |
+   | `lock` | The lock every change below `claude-skills/` takes. |
 
-   Beside its roots, each target keeps a record,
-   `claude-skill-<target-hash>.target`, a link to its resolved dir, which
-   Nix ignores. Target dirs come and go, such as a git worktree's
-   `.agents/skills`, and a removed target's roots still point at live
-   store paths, so nothing else marks them as orphans. `reap` and `purge`,
-   in any target, remove every root of a target whose record points at a
-   dir that is gone, and the record with them.
+   `<target-hash>` is the first 12 hex characters of the SHA-256 of
+   `<target>`'s absolute path with symlinks resolved (so on macOS
+   `/tmp/x` and `/private/tmp/x` share their records). Each target —
+   the user scope, each project's skills dir, each custom root — holds
+   its own records, and an anchor's link count is one more than the
+   records using its root, so a root goes only when the last record
+   using it goes: installing or uninstalling a skill in one target never
+   unroots another target's link. Nix takes only the `store/` links for
+   roots, so a machine with hundreds of worktrees, each installing the
+   same skills, keeps one root per build rather than one per worktree
+   and skill. Override the gcroots dir with `--gcroots-dir=<path>`
+   (test-suite use; rarely useful in practice).
 
-   Roots with no record can't be traced to their dir this way: those
-   written before records existed, and those an older agent-skill-flake
-   still writes, from any dev shell whose `skills-devshell/flake.lock`
-   pins a rev without records. `prune-gc-roots` finds the targets that
-   still exist, by their lock files under `$HOME` and each
-   `--search=<dir>`, by their records and at the personal scope, and
-   lists every `claude-skill-<target-hash>-<skillName>` root whose
-   target it didn't find or no longer links the skill, and every
-   previous-build root whose current root is gone. It names each dir
-   its search couldn't read, since a target inside one looks gone. It
-   removes the roots only with `--delete`, refuses `--delete` when it
-   finds no lock file at all, and keeps legacy shared roots and anything
-   changed in the last hour. It removes nothing but those links: no
-   store path, and no garbage collection.
+   A target records its current and previous builds of each skill, and
+   no older ones. When an install or reconcile replaces a skill's store
+   path, the replaced path's record moves to `<skillName>.previous`,
+   displacing the build before it. Uninstall removes both records.
+   `reap` and `purge` remove their own target's previous-build records
+   whose current record is gone; `prune-gc-roots` removes every
+   target's.
+
+   Target dirs come and go, such as a git worktree's `.agents/skills`,
+   and a removed target's records still point at live store paths, so
+   nothing else marks them as orphans. `reap` and `purge`, in any target,
+   remove every record of a target whose `.target` points at a dir that
+   is gone, then every root no record uses any more. Usually they read
+   only each target's `.target`, their own target's records and the
+   shared roots, so they stay fast with hundreds of targets; they read
+   every target's records only to drop the records of a store path that
+   is gone, which its root rarely lets happen, and while a legacy
+   `claude-skill-<skillName>` root is left.
+
+   Every change below `claude-skills/`, and every check an install makes
+   before deciding it has nothing to change, holds an exclusive
+   `flock(1)` on its `lock`, taken once per run and released before the
+   run starts `git`. Runs of this revision therefore serialize: none
+   removes a root between another's counting of its records and its
+   adding one, nor removes a target's records while an install into the
+   same path is checking them. `prune-gc-roots --delete` takes the lock
+   after its search and reads each entry again under it. A run that
+   can't get the lock within 120 seconds
+   (`AGENT_SKILL_FLAKE_GC_LOCK_TIMEOUT`) warns once and changes nothing
+   below `claude-skills/`, which leaves:
+
+   - after `install`, the records it would have written missing until
+     the next install or reconcile;
+   - after `reconcile`, the same, and the records of the skills it
+     swept kept, with their roots, until `prune-gc-roots` finds those
+     skills no longer linked;
+   - after `uninstall` or `purge`, the links and their lock entries gone
+     but the target's records kept, with their roots, until
+     `prune-gc-roots` finds the skills no longer linked, and `purge`'s
+     sweep of the shared layout left for the next `reap` or `purge`;
+   - after `reap`, the shared layout unswept until the next `reap` or
+     `purge`.
+
+   The counts live in hard links, so a copy of the gcroots dir must keep
+   them: use `rsync -aH` (macOS's own `rsync` takes `-H` too) or GNU
+   `cp -a`. macOS's `/bin/cp -a` copies hard-linked files as separate
+   files, as do `cp -r` and `rsync` without `-H`. A copy that splits a
+   record from its anchor makes the anchor look unused to every run but
+   that target's own `install`, `reconcile`, `reap` or `purge`: any
+   other run that drops a record of the same build, such as a `reap`,
+   `purge`, `prune-gc-roots` or `uninstall`, or an `install` or
+   `reconcile` that sweeps a skill or replaces a build, can remove a
+   root a split record still needs. `install`, `reconcile`, `reap` and
+   `purge` relink their own target's split records, current and
+   previous-build, before they count, but that repairs one target at a
+   time. Don't use a copy that split them:
+   copy the gcroots dir again from the original, keeping the hard
+   links.
+
+   An agent-skill-flake rev from before the shared layout, which a dev
+   shell's `skills-devshell/flake.lock` may still pin, writes flat roots
+   straight in the gcroots dir instead:
+   `claude-skill-<target-hash>-<skillName>` and its `.previous`, beside
+   the record `claude-skill-<target-hash>.target`. They keep protecting
+   their store paths until pruned. `install` and `reconcile` move their
+   target's flat roots into records, each record written before its flat
+   root goes, and `reap`, `purge`, `uninstall` and `check` handle the flat
+   roots they find as before. The flat record goes once none of its
+   target's flat roots is left.
+
+   Such an older rev, run in a target this one has moved into records,
+   doesn't see the records: its `check` reports every link as
+   `unrooted` or `wrongly rooted`, its `install` and `reconcile` write
+   flat roots again, and the next run of this rev moves them back into
+   records, so the two alternate without leaving a link unrooted. Its
+   `uninstall` removes only flat roots, leaving the record, and so the
+   root, until `prune-gc-roots` finds the skill no longer linked.
+
+   Records and flat roots with no record of their dir can't be traced to
+   it this way, such as those an older agent-skill-flake writes from a
+   dev shell that pins a rev without such records. `prune-gc-roots` finds
+   the targets that still exist, by their lock files under `$HOME` and
+   each `--search=<dir>`, by their records and at the personal scope, and
+   lists every record and flat root whose target it didn't find or no
+   longer links the skill, every previous-build one whose current one is
+   gone, and the shared roots their removal leaves without a record. It
+   names each dir its search couldn't read, since a target inside one
+   looks gone. It removes them only with `--delete`, refuses `--delete`
+   when it finds no lock file at all, and keeps legacy shared roots and
+   anything changed in the last hour. It removes nothing but those links
+   and records: no store path, and no garbage collection.
 
    ```sh
    nix run --refresh github:nhooey/agent-skill-flake#prune-gc-roots              # list, with counts
@@ -1208,14 +1412,15 @@ The Nix-native install. Three things happen:
    left by older installs. Ownership checks still accept it, and
    install, reconcile and uninstall leave it alone, since it may be the
    only root protecting some other target's link. `reap` and `purge`
-   remove it once its store path is gone, or once a per-target root
-   points at the same store path; re-running `install` or `reconcile` in
-   each target gives every target its own root, after which a `reap`
-   clears the shared ones.
+   remove it once its store path is gone, or once a target's current
+   record or flat root points at the same store path; re-running
+   `install` or `reconcile` in each target gives every target its own
+   record, after which a `reap` clears the legacy roots.
 
    `check` reports each skill and preferences link in the target's lock
-   whose store path has no root of the target's own, as `unrooted` or,
-   when only a shared or another target's root protects it, `wrongly
+   whose store path has no root of the target's own, its record of the
+   store path's shared root or its flat root, as `unrooted` or, when only
+   a legacy root or another target's record protects it, `wrongly
    rooted`, and exits 1; it prints nothing and exits 0 when every link
    is rooted. It reads the gcroots dir once, so it stays fast with
    thousands of roots, where `nix-store --query --roots` per link scans
@@ -1228,9 +1433,10 @@ The Nix-native install. Three things happen:
 
 The user-facing symlink is read-only by virtue of pointing into the
 store. To **upgrade** a skill, re-run `nix run .#install`: the symlink
-is replaced atomically, the new store path becomes the GC root, the
-old path keeps the previous-build root, the one before it becomes
-GC-eligible, and the lock entry is refreshed.
+is replaced atomically, the target's record points at the new store
+path's root, the old path keeps the previous-build record, the one
+before it becomes GC-eligible once no other target records it, and the
+lock entry is refreshed.
 
 ### `--profile`: via `nix profile install`
 
@@ -1395,6 +1601,13 @@ and `git worktree add`), prints at most two lines, and always exits 0, so
 it never fails a git command. Run it without `--from-hook` to see the
 details of a failure.
 
+The hook reads only the user-global config, never the checkout's own
+`config.local.toml` (as `--ignore-local` does). A cloned repository can
+commit that file, and the hook builds every installable its `skills`
+name, so reading it would let `git clone` alone build and run code the
+repository chose. A repository configured only by its local file syncs
+when you run `sync-project` yourself.
+
 ### Ignoring the local file
 
 `install`, `reconcile` and `sync-project` list
@@ -1520,16 +1733,25 @@ nix run .#uninstall -- --scope=personal alpha beta   # multiple at once
 Removes all three install-side artifacts:
 
 - the user-facing symlink at `<target>/<name>`,
-- this target's per-user GC root at
-  `<gcroots-dir>/claude-skill-<target-hash>-<name>` (other targets' roots
-  for the same skill, and any shared `claude-skill-<name>` root, stay),
+- this target's GC-root records at
+  `<gcroots-dir>/claude-skills/targets/<target-hash>/<name>` and its
+  `.previous`, its flat roots `claude-skill-<target-hash>-<name>`, and
+  every shared root no other target's record uses (other targets'
+  records for the same skill, and any legacy `claude-skill-<name>` root,
+  stay),
 - the entry in `<target>/.agent-skill-flake-lock.json`.
+
+An uninstall that can't get the GC-root layout's lock in time (see
+[Default: symlink + GC root](#default-symlink--gc-root)) still removes
+the symlink and the lock entry, but leaves the records, and so their
+roots, until `prune-gc-roots` finds the skill no longer linked.
 
 It refuses to touch entries it can't confidently identify as managed by
 this agent-skill-flake lineage (the sentinel must say `managedBy=<this
 lineage>`, or — if the symlink target has been GC'd — a GC root for it
-must exist as a naming-convention fallback: the target's own
-`claude-skill-<target-hash>-<name>`, or a shared `claude-skill-<name>`). A user's hand-rolled
+must exist as a naming-convention fallback: the target's own record
+`claude-skills/targets/<target-hash>/<name>` or flat root
+`claude-skill-<target-hash>-<name>`, or a legacy `claude-skill-<name>`). A user's hand-rolled
 `~/.claude/skills/foo` directory is therefore safe even if `foo`
 happens to match a agent-skill-flake skill name.
 
@@ -1559,8 +1781,9 @@ nix run .#purge -- --scope=personal --yes                      # skip the confir
 `purge` removes every entry this lineage (`managedBy`) installed under the
 scope — live or broken, any `appName`, no declared set or names needed — and
 runs transiently off the bare flake when nothing is installed locally,
-along with that scope's GC roots and any GC root whose store path is gone
-or, for a shared `claude-skill-<name>` root, covered by a per-target root. It
+along with that scope's GC-root records, every shared root no record uses
+any more, and any GC root whose store path is gone or, for a legacy
+`claude-skill-<name>` root, covered by a target's current record. It
 leaves other lineages and hand-rolled dirs alone, and confirms before
 removing (`--dry-run`/`--yes` skip the prompt; non-interactive without either
 refuses).
@@ -1585,13 +1808,30 @@ indexed by name so you can `cat` it for an overview:
       "skillName": "garnix-ci",
       "originalSkillName": "garnix-ci",
       "version": "0.1.0",
+      "contentHash": "v1:sha256:8e51b0c6a2f9...",
       "storePath": "/nix/store/...-claude-skill-garnix-ci-0.1.0",
       "installedAt": "2026-04-27T12:34:56Z",
+      "installedBy": "agent-skills-all"
+    }
+  },
+  "satisfiedByPersonalScope": {
+    "nix-flakes": {
+      "personalCopy": "/home/me/.claude/skills/nix-flakes",
+      "contentHash": "v1:sha256:3f0c2a91d4b7...",
+      "checkedAt": "2026-04-27T12:34:56Z",
       "installedBy": "agent-skills-all"
     }
   }
 }
 ```
+
+`satisfiedByPersonalScope`, present only when it lists something, holds the
+declared skills a project `reconcile` left to the personal scope's copy of
+the same version, with that copy's path and their content hash (see
+[A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)).
+Such a skill has no `skills` entry, link, GC root or exclude line in the
+project. Each reconcile rewrites the list from what it finds, and `purge`
+clears it.
 
 The lock is **descriptive, not authoritative**: install / reconcile / reap /
 purge / uninstall rebuild it from the symlinks + sentinels, so editing it by hand has
@@ -1634,7 +1874,11 @@ Built-in profiles (see [`lib/agent-profiles.nix`](lib/agent-profiles.nix)):
 | `cursor`       | `.cursor/skills`           | `.cursor/skills`           |
 
 A profile's optional `projectLink` names a project-root path that
-install and reconcile symlink to its project-scope directory. To add a new
+install and reconcile symlink to its project-scope directory. Its
+`displayName` names the agent in reconcile's messages, and
+`personalTakesPrecedence`, set for `claude-code`, lets the warning about a
+skill that differs from the personal scope's copy say the agent uses the
+personal one. To add a new
 agent, append an entry to `lib/agent-profiles.nix`. An
 unknown `agent` value throws at eval with the list of known profiles.
 

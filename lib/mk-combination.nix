@@ -26,6 +26,8 @@
   agent ? "claude-code",
   # Identical to mkAggregateSkillsFlake.preferences.
   preferences ? { },
+  # Identical to mkAggregateSkillsFlake.projectUpdateCommand.
+  projectUpdateCommand ? null,
   systems ? defaultSystems,
   # Injected by lib/default.nix, as in the other builders.
   provenance,
@@ -51,6 +53,7 @@ let
       provenance
       defaultSystems
       preferences
+      projectUpdateCommand
       ;
     packagePrefix = pp;
   };

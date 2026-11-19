@@ -36,11 +36,11 @@ setup() {
   run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  rm "$(gc_root alpha)"
+  rm "$(gc_record alpha)"
 
   run "$INSTALL_ALL_APP" "${scope_args[@]}"
   assert_success
-  assert_output --partial "GC root: $(gc_root alpha)"
-  refute_output --partial "GC root: $(gc_root beta)"
+  assert_output --partial "GC root: $(gc_record alpha)"
+  refute_output --partial "GC root: $(gc_record beta)"
   refute_output --partial 'installed (symlink): '
 }

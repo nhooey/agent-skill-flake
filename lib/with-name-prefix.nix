@@ -11,10 +11,12 @@
 # Behavior: produces a new derivation with the same on-disk contents as
 # the input but moved to `share/claude-skills/<prefix>-<oldName>/`. The
 # `SKILL.md` frontmatter `name:` and the `.agent-skill-flake-managed.json`
-# sentinel `skillName` are rewritten to the prefixed name; everything
-# else in the sentinel (managedBy*, originalSkillName, version, ...)
-# is preserved verbatim so traceability back to the upstream lineage
-# survives. Passthru is refreshed so the wrapped drv behaves like a
+# sentinel `skillName` are rewritten to the prefixed name, and its
+# `contentHash` becomes a hash of the original's and the new name, so it
+# stays independent of the nixpkgs the original was built against;
+# everything else in the sentinel (managedBy*, originalSkillName,
+# version, ...) is preserved verbatim so traceability back to the
+# upstream lineage survives. Passthru is refreshed so the wrapped drv behaves like a
 # first-class `mkSkill` output to the rest of the library (home-manager
 # activation, installer, reconcile, mkSkillsEnv).
 #
@@ -42,7 +44,7 @@
 { }:
 {
   # Nixpkgs instance for the target system. Used for stdenvNoCC + jq +
-  # symlinkJoin. Same shape as mkSkillsEnv's `pkgs`.
+  # replaceVars + symlinkJoin. Same shape as mkSkillsEnv's `pkgs`.
   pkgs,
   # Prefix string. Required; non-empty. Validated against
   # `^[a-z0-9][a-z0-9-]*$` so the combined `<prefix>-<oldName>` can
@@ -99,39 +101,15 @@ let
         isFlakeSkill = true;
         flakeSkillName = newName;
       };
-      installPhase = ''
-        runHook preInstall
-        srcDir=${drv}/share/claude-skills/${oldName}
-        dstDir=$out/share/claude-skills/${newName}
-        mkdir -p "$dstDir"
-        cp -rL --no-preserve=mode,ownership "$srcDir/." "$dstDir/"
-        chmod -R u+w "$dstDir"
-
-        # Rewrite SKILL.md frontmatter `name:` via the shared normalize
-        # pass (lib/normalize-frontmatter.nix) — the same script mkSkill
-        # uses, so the fenced-block contract stays defined in one place.
-        awk -v newname=${lib.escapeShellArg newName} \
-          -f ${normalizeFrontmatterAwk} \
-          "$dstDir/SKILL.md" > "$dstDir/SKILL.md.tmp"
-        mv "$dstDir/SKILL.md.tmp" "$dstDir/SKILL.md"
-        chmod 644 "$dstDir/SKILL.md"
-
-        # Sentinel: rewrite `skillName`, leave everything else verbatim
-        # so `originalSkillName`, `managedBy*`, and `version` still
-        # trace back to the original lineage. mkSkill guarantees the
-        # file exists, but the `-f` guard keeps us robust if the input
-        # was hand-built without one.
-        if [ -f "$dstDir/.agent-skill-flake-managed.json" ]; then
-          jq --arg n ${lib.escapeShellArg newName} \
-             '.skillName = $n' \
-             "$dstDir/.agent-skill-flake-managed.json" \
-             > "$dstDir/.agent-skill-flake-managed.json.tmp"
-          mv "$dstDir/.agent-skill-flake-managed.json.tmp" \
-             "$dstDir/.agent-skill-flake-managed.json"
-          chmod 644 "$dstDir/.agent-skill-flake-managed.json"
-        fi
-        runHook postInstall
-      '';
+      # The install script lives in its own file; see it for each value.
+      installPhase = "source ${
+        pkgs.replaceVars ./bash/with-name-prefix-install-phase.bash {
+          srcDir = lib.escapeShellArg "${drv}/share/claude-skills/${oldName}";
+          newName = lib.escapeShellArg newName;
+          normalizeFrontmatterAwk = lib.escapeShellArg normalizeFrontmatterAwk;
+          contentHashBash = lib.escapeShellArg "${./bash/content-hash.bash}";
+        }
+      }\n";
       meta = drv.meta or { };
     };
 

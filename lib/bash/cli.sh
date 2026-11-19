@@ -30,7 +30,10 @@ Commands:
 sync-project options:
   --from-hook           Run as git's post-checkout hook: act only on a branch
                         checkout (including clone and worktree add), print at
-                        most two lines, and always exit 0.
+                        most two lines, and always exit 0. Implies
+                        --ignore-local.
+  --ignore-local        Read only the user-global config, never the
+                        checkout's own $LOCAL_CONFIG_RELPATH.
   --gcroots-dir=<path>  Override the per-user GC-roots dir
                         (default: /nix/var/nix/gcroots/per-user/\$USER).
 
@@ -158,10 +161,15 @@ build_installable() {
   esac
 }
 
-# sync_project_run [--gcroots-dir=<path>] — the work behind sync-project.
+# sync_project_run [--ignore-local] [--gcroots-dir=<path>] — the work behind
+# sync-project.
 sync_project_run() {
   local root origin key gfile lfile shipped global local_json resolved origin_kind source_label
-  local inst out name outs names count
+  local inst out name outs names count ignore_local=0
+  if [ "${1:-}" = "--ignore-local" ]; then
+    ignore_local=1
+    shift
+  fi
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   root=$(git rev-parse --show-toplevel)
   origin=$(git -C "$root" remote get-url origin 2>/dev/null) || return 0
@@ -170,6 +178,11 @@ sync_project_run() {
 
   gfile=$(global_config_file)
   lfile=$(local_config_file "$root")
+  # A checkout's local file is the repository's to write: a cloned
+  # repository can commit one naming its own flake, and the post-checkout
+  # hook would then build that code on `git clone`. Hook mode reads only
+  # the user-global config, which the user wrote.
+  [ "$ignore_local" = 0 ] || lfile=""
   [ -f "$gfile" ] || [ -f "$lfile" ] || return 0
   shipped=$(read_shipped_defaults) || {
     printf 'agent-skill-flake: could not read the shipped defaults %s\n' "$shipped_defaults_file" >&2
@@ -233,13 +246,15 @@ sync_project_run() {
   cd "$root"
   # shellcheck disable=SC1090 # reconcile_script is a store path set by the wrapper
   source "$reconcile_script" --scope=project "$@"
+  # linked_skills is set by reconcile.sh: the declared skills it linked,
+  # leaving out any whose path holds the project's own file.
   printf 'agent-skill-flake: %d project skill(s) in sync in %s/%s (%s)\n' \
-    "${#skills_list[@]}" "$root" "$project_suffix" "$source_label"
+    "${#linked_skills[@]}" "$root" "$project_suffix" "$source_label"
 }
 
 cmd_sync_project() {
   local arg from_hook=0 out last rc
-  local -a pass=() positional=()
+  local -a pass=() positional=() local_flag=()
   for arg in "$@"; do
     case "$arg" in
     -h | --help)
@@ -247,6 +262,7 @@ cmd_sync_project() {
       return 0
       ;;
     --from-hook) from_hook=1 ;;
+    --ignore-local) local_flag=(--ignore-local) ;;
     --gcroots-dir=*) pass+=("$arg") ;;
     *) positional+=("$arg") ;;
     esac
@@ -257,7 +273,7 @@ cmd_sync_project() {
       printf 'agent-skill-flake sync-project: unexpected argument: %s\n' "${positional[0]}" >&2
       return 2
     fi
-    sync_project_run "${pass[@]}"
+    sync_project_run "${local_flag[@]}" "${pass[@]}"
     return
   fi
 
@@ -266,7 +282,7 @@ cmd_sync_project() {
   [ "${positional[2]:-}" = "1" ] || return 0
   # A separate process, so errexit applies to the work while this side
   # turns any failure into a short note and exit 0.
-  if out=$("$0" sync-project "${pass[@]}" 2>&1); then
+  if out=$("$0" sync-project --ignore-local "${pass[@]}" 2>&1); then
     last=$(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 1 || true)
     [ -z "$last" ] || printf '%s\n' "$last"
   else

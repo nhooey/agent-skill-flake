@@ -5,12 +5,13 @@
 # README's "Skill checks" section.
 
 # The folder, relative to the repository root, holding one folder per skill.
-# The checks are left out when it doesn't exist or holds no folder.
+# The checks are left out when it doesn't exist, and fail when it holds no
+# skill folder.
 skills-dir = "skills"
 
 # `checks.<system>.skill-layout`: a skill's folder holds only what an
 # installed skill runs, and its Python scripts import only what the Python
-# running the check provides and the modules beside them.
+# running the check provides and the .py modules beside them.
 [layout]
 enable = true
 

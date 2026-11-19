@@ -213,6 +213,8 @@ let
     bad = skillChecks.forRepository ./tests/example-skill-checks-bad;
     flake = skillChecks.forRepository ./tests/example-skill-checks-flake;
     settings = skillChecks.forRepository ./tests/example-skill-checks-settings;
+    loop = skillChecks.forRepository ./tests/example-skill-checks-loop;
+    empty = skillChecks.forRepository ./tests/example-skill-checks-empty;
   };
 
   mockHomeManager = import ./tests/modules/mock-home-manager.nix;
@@ -694,25 +696,34 @@ in
     };
   };
 
-  # Each install target keeps its own GC root per skill, so two targets
-  # installing the same skill don't steal each other's root; a legacy
-  # shared root survives until a per-target root covers its store path.
+  # Identical builds share one GC root and each install target keeps its
+  # own record per skill, so a root goes only with the last record using
+  # it; flat per-target roots move into records and keep working until
+  # pruned; parallel runs serialize on the layout's lock; a legacy shared
+  # root survives until a per-target record covers its store path.
   gc-roots-per-target = mkBatsCheck {
     name = "gc-roots-per-target";
-    extraInputs = [ pkgs.jq ];
+    extraInputs = [
+      pkgs.flock
+      pkgs.jq
+    ];
     env = {
       INSTALL_ALL_APP = installAllApp;
       UNINSTALL_ALL_APP = uninstallAllApp;
       REAP_ALL_APP = reapAllApp;
       PURGE_ALL_APP = purgeAllApp;
       RECONCILE_ALL_APP = reconcileAllApp;
+      CHECK_ALL_APP = checkAllApp;
     };
   };
 
-  # The one-time sweep of roots no found install target owns: dry run by
-  # default, --delete removes only unowned claude-skill-* links.
+  # The one-time sweep of records and roots no found install target owns:
+  # dry run by default, --delete removes only unowned claude-skill-* links,
+  # records, and the shared roots no record uses any more, reading each one
+  # again under the lock so a target made again since the search keeps it.
   prune-gc-roots = mkBatsCheck {
     name = "prune-gc-roots";
+    extraInputs = [ pkgs.flock ];
     env = {
       INSTALL_ALL_APP = installAllApp;
       PRUNE_GC_ROOTS_APP = self.apps.${system}.prune-gc-roots.program;
@@ -1207,6 +1218,70 @@ in
     extraInputs = [ pkgs.jq ];
   };
 
+  # A project reconcile leaves a skill the personal scope holds at the same
+  # content to that copy, recorded in the lock, and installs one it holds at
+  # another version with one warning line; it checks again every run, fails
+  # under --strict, compares nothing under --ignore-personal-scope, and is
+  # unchanged with no personal scope. Copies of the same content at other
+  # store paths, built at another version or wrapped by withNamePrefix,
+  # count as the same version.
+  project-reconcile-personal-scope =
+    let
+      # alpha and beta again, at version 9.9.9: other store paths, the same
+      # content.
+      released =
+        skillName:
+        (self.lib.mkSkillFlake {
+          inherit nixpkgs skillName;
+          src = ./tests/example-skills-dir + "/${skillName}";
+          version = "9.9.9";
+          namespaceFn = _: "";
+        }).packages.${system}.default;
+      alphaReleased = released "alpha";
+      prefixed =
+        skill:
+        self.lib.withNamePrefix {
+          inherit pkgs skill;
+          namePrefix = "px";
+        };
+      pxAlpha = prefixed alphaPkg;
+      prefixedReconcile = internal.mkReconcile system {
+        appName = "px";
+        skills = [
+          {
+            name = "px-alpha";
+            drv = pxAlpha;
+          }
+        ];
+        inherit (self.lib) provenance;
+        profile = internal.resolveAgentProfile "claude-code";
+      };
+      devshell = self.lib.mkDevshellSkillsFlake {
+        inherit nixpkgs;
+        name = "personal-scope-devshell";
+        sources = [ { source = fixtureAll; } ];
+      };
+    in
+    mkBatsCheck {
+      name = "project-reconcile-personal-scope";
+      env = {
+        RECONCILE_APP = reconcileAllApp;
+        ALPHA_PKG = alphaPkg;
+        BETA_PKG = betaPkg;
+        BETA_OTHER_PKG = fixtureAllScriptInputs.packages.${system}."agent-skill-beta";
+        ALPHA_RELEASED_PKG = alphaReleased;
+        BETA_RELEASED_PKG = released "beta";
+        PREFIXED_RECONCILE_APP = "${prefixedReconcile}/bin/reconcile-px";
+        PX_ALPHA_PKG = pxAlpha;
+        PX_ALPHA_RELEASED_PKG = prefixed alphaReleased;
+        DEVSHELL_RECONCILE_APP = devshell.apps.${system}.reconcile.program;
+      };
+      extraInputs = [
+        pkgs.git
+        pkgs.jq
+      ];
+    };
+
   # A preferences key naming no skill in the union fails at evaluation,
   # listing the skills the union holds.
   aggregate-preferences-unknown-skill =
@@ -1448,6 +1523,36 @@ in
       builtins.toJSON (import ./lib/devshell-skills-hook.nix { }).standardCommands
     );
   };
+
+  # `reconcileArgs` reach every run of the reconcile app the hook makes, and
+  # no other app; every reconcile run names update-skills-devshell as the
+  # project's update command, through the environment.
+  devshell-hook-reconcile-args =
+    let
+      hook = import ./lib/devshell-skills-hook.nix { reconcileArgs = [ "--strict" ]; };
+      plain = import ./lib/devshell-skills-hook.nix { };
+      text = nm: (lib.findFirst (c: c.name == nm) { command = ""; } hook.commands).command;
+      strict = "#reconcile\" -- --scope=project '--strict'";
+      updateEnv = "AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND=update-skills-devshell nix run";
+    in
+    mkEvalCheck {
+      name = "devshell-hook-reconcile-args";
+      cond =
+        lib.hasInfix strict hook.startup
+        && lib.hasInfix "${strict} \"$@\"" (text "reconcile-skills")
+        && lib.hasInfix strict (text "update-skills-devshell")
+        && !(lib.hasInfix "--strict" (text "reap-skills"))
+        && lib.all (lib.hasInfix updateEnv) [
+          hook.startup
+          (text "reconcile-skills")
+          (text "update-skills-devshell")
+        ]
+        && !(lib.hasInfix "--strict" plain.startup);
+      msg =
+        "devshell-hook-reconcile-args: reconcileArgs must follow --scope on the "
+        + "startup, reconcile-skills and update-skills-devshell reconcile runs only, "
+        + "each prefixed with the project update command. Got startup: ${hook.startup}";
+    };
 
   # ──────────────────────────────────────────────────────────────
   # flakeModules.devshellSkills — the exposed dev-shell flake-parts module.
@@ -1806,7 +1911,9 @@ in
   # ──────────────────────────────────────────────────────────────
 
   # Each rule of the skill-layout check, broken by one skill of the bad
-  # fixture, and kept by every skill of the good one.
+  # fixture, and kept by every skill of the good one; a link loop, which
+  # stops the check, by the loop fixture's skill; and a skills folder with
+  # no skill by the empty fixture.
   skill-layout-check = mkBatsCheck {
     name = "skill-layout-check";
     extraInputs = [ pkgs.jq ];
@@ -1816,11 +1923,16 @@ in
       GOOD_SKILLS = skillCheckFixtures.good.skills;
       BAD_SETTINGS = skillCheckFixtures.bad.input;
       BAD_SKILLS = skillCheckFixtures.bad.skills;
+      LOOP_SETTINGS = skillCheckFixtures.loop.input;
+      LOOP_SKILLS = skillCheckFixtures.loop.skills;
+      EMPTY_SETTINGS = skillCheckFixtures.empty.input;
+      EMPTY_SKILLS = skillCheckFixtures.empty.skills;
     };
   };
 
   # Each rule of the skill-description check, the same way, with the
-  # skill-flake rule broken by the flake fixture's skills.
+  # skill-flake rule broken by the flake fixture's skills and a skills
+  # folder with no skill by the empty fixture.
   skill-description-check = mkBatsCheck {
     name = "skill-description-check";
     extraInputs = [ pkgs.jq ];
@@ -1832,6 +1944,8 @@ in
       BAD_SKILLS = skillCheckFixtures.bad.skills;
       FLAKE_SETTINGS = skillCheckFixtures.flake.input;
       FLAKE_SKILLS = skillCheckFixtures.flake.skills;
+      EMPTY_SETTINGS = skillCheckFixtures.empty.input;
+      EMPTY_SKILLS = skillCheckFixtures.empty.skills;
     };
   };
 
@@ -1843,8 +1957,8 @@ in
   # Which checks each settings fixture gets: the settings fixture's
   # `skills-dir` and `[layout] enable = false` leave it the description check
   # alone, run on pack/; `[description] enable = false` leaves the layout
-  # check alone; and a repository whose skills folder is missing, or holds
-  # only a .gitkeep, gets no check.
+  # check alone; a repository without a skills folder gets no check; and one
+  # whose skills folder holds only a .gitkeep gets both, which fail.
   skill-checks-settings =
     let
       names = root: builtins.attrNames (skillChecks.forRepository root).checks;
@@ -1862,7 +1976,10 @@ in
           settings = [ "skill-description" ];
           description-off = [ "skill-layout" ];
           no-skills-folder = [ ];
-          empty-skills-folder = [ ];
+          empty-skills-folder = [
+            "skill-description"
+            "skill-layout"
+          ];
         }
         && skillCheckFixtures.settings.settings.skills-dir == "pack";
       msg = "skill-checks-settings: the fixtures got these checks: " + builtins.toJSON got;

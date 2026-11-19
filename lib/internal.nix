@@ -48,9 +48,11 @@ let
   # ── Sentinel ─────────────────────────────────────────────────────────
   # The `.agent-skill-flake-managed.json` record written into every installed
   # skill. Single source of truth for the schema/field set; `mkSkill`
-  # builds it at eval, and `withNamePrefix` rewrites only `skillName` on an
-  # already-built file via jq (see lib/with-name-prefix.nix) — keep the two
-  # in sync through this definition.
+  # builds it at eval and adds `contentHash` (see ./bash/content-hash.bash)
+  # when it builds the skill, and `withNamePrefix` rewrites only
+  # `skillName` and `contentHash` on an already-built file via jq (see
+  # lib/with-name-prefix.nix) — keep the two in sync through this
+  # definition.
   mkSentinel =
     {
       name,
@@ -366,7 +368,8 @@ let
 
       # See lib/normalize-frontmatter.nix for the rename contract; the
       # script is shared with `withNamePrefix` so both rewrite frontmatter
-      # `name:` identically. Run below via `awk -v newname=… -f`.
+      # `name:` identically. Run by ./bash/mk-skill-install-phase.bash via
+      # `awk -v newname=… -f`.
       normalizeFrontmatterAwk = pkgs.writeText "normalize-skill-frontmatter.awk" normalizeFrontmatterScript;
 
       sentinel = mkSentinel {
@@ -377,13 +380,25 @@ let
           provenance
           ;
       };
+
+      # extraFiles and extraDirs are the caller's own strings, which may
+      # hold `@`, so they reach the script as derivation attributes
+      # rather than through replaceVars, whose substitution and leftover
+      # check would read an `@…@` in them as a placeholder.
+      installPhaseScript = pkgs.replaceVars ./bash/mk-skill-install-phase.bash {
+        name = lib.escapeShellArg name;
+        normalizeFrontmatterAwk = lib.escapeShellArg normalizeFrontmatterAwk;
+        scriptInputsPath = lib.escapeShellArg (lib.makeBinPath scriptInputs);
+        scriptInputsNames = lib.escapeShellArg (lib.concatMapStringsSep " " lib.getName scriptInputs);
+        contentHashBash = lib.escapeShellArg "${./bash/content-hash.bash}";
+      };
     in
     assert assertValidSkillName name "skill name";
     pkgs.stdenvNoCC.mkDerivation {
       pname = "claude-skill-${name}";
       inherit version src;
       dontBuild = true;
-      nativeBuildInputs = lib.optional (scriptInputs != [ ]) pkgs.makeWrapper;
+      nativeBuildInputs = [ pkgs.jq ] ++ lib.optional (scriptInputs != [ ]) pkgs.makeWrapper;
       # Pass the JSON via env so we don't have to escape it inside the bash
       # heredoc; bash will see it as a single literal string.
       passAsFile = [ "sentinel" ];
@@ -395,55 +410,11 @@ let
         isFlakeSkill = true;
         flakeSkillName = name;
       };
-      installPhase = ''
-        runHook preInstall
-        mkdir -p "$out/share/claude-skills/${name}"
-        # extraFiles runs first so the canonical files written below
-        # (awk-normalized SKILL.md, sentinel) overwrite any same-named
-        # entry copied from the source root — a glob like
-        # `extraFiles = [ "*.md" ]` legitimately matches SKILL.md, and
-        # the awk-normalized frontmatter must win.
-        #
-        # nullglob makes a non-matching pattern expand to nothing instead
-        # of being copied as a literal; the [ -f ] guard skips directory
-        # matches so `extraFiles = [ "*" ]` ships only top-level regular
-        # files (directories already have `extraDirs`).
-        shopt -s nullglob
-        for pat in ${lib.concatMapStringsSep " " lib.escapeShellArg extraFiles}; do
-          for f in $pat; do
-            [ -f "$f" ] || continue
-            install -Dm644 "$f" "$out/share/claude-skills/${name}/$(basename "$f")"
-          done
-        done
-        shopt -u nullglob
-        awk -v newname=${lib.escapeShellArg name} \
-          -f ${normalizeFrontmatterAwk} \
-          SKILL.md > "$out/share/claude-skills/${name}/SKILL.md"
-        chmod 644 "$out/share/claude-skills/${name}/SKILL.md"
-        for d in references scripts ${lib.concatMapStringsSep " " lib.escapeShellArg extraDirs}; do
-          if [ -d "$d" ]; then
-            mkdir -p "$out/share/claude-skills/${name}/$d"
-            cp -r "$d/." "$out/share/claude-skills/${name}/$d/"
-          fi
-        done
-        ${lib.optionalString (scriptInputs != [ ]) ''
-          # A shell script gets the PATH line after its shebang, so it
-          # keeps its path and runs under any bash, macOS's 3.2 among
-          # them, which misreads makeWrapper's PATH edits when a skill
-          # runs it as `bash <script>`. Any other executable is wrapped.
-          for f in "$out/share/claude-skills/${name}/scripts/"*; do
-            [ -f "$f" ] && [ -x "$f" ] || continue
-            if head -n 1 "$f" | grep -Eq '^#!.*[/ ](ba|da|k|z)?sh( |$)'; then
-              sed -i '1a PATH=${lib.makeBinPath scriptInputs}''${PATH:+:$PATH}; export PATH' "$f"
-            else
-              wrapProgram "$f" --prefix PATH : ${lib.escapeShellArg (lib.makeBinPath scriptInputs)}
-            fi
-          done
-        ''}
-        install -Dm644 "$sentinelPath" \
-          "$out/share/claude-skills/${name}/.agent-skill-flake-managed.json"
-        runHook postInstall
-      '';
+      # Each a space-separated list of `lib.escapeShellArg` words.
+      extraFilesArgs = lib.concatMapStringsSep " " lib.escapeShellArg extraFiles;
+      extraDirsArgs = lib.concatMapStringsSep " " lib.escapeShellArg extraDirs;
+      # The install script lives in its own file; see it for each value.
+      installPhase = "source ${installPhaseScript}\n";
       meta = with pkgs.lib; {
         inherit description;
         license = licenses.asl20;
@@ -494,18 +465,19 @@ let
     skills:
     if skills == [ ] then "" else lib.concatMapStringsSep "\n" (s: ''"${s.name}:${s.drv}"'') skills;
 
-  # Shared Nix-side prelude. Sets `app_name`, `personal_suffix`,
-  # `project_suffix` and sources scope.bash so `parse_scope_args` is
-  # available to the per-app bash that follows.
+  # Shared prelude, ./bash/scope-prelude.bash: sets `app_name`,
+  # `personal_suffix`, `project_suffix` and sources scope.bash so
+  # `parse_scope_args` is available to the per-app bash that follows.
   scopePrelude =
+    pkgs:
     { appName, profile }:
-    ''
-      app_name="${appName}"
-      personal_suffix='${profile.personalSuffix}'
-      project_suffix='${profile.projectSuffix}'
-
-      source ${./bash/scope.bash}
-    '';
+    "source ${
+      pkgs.replaceVars ./bash/scope-prelude.bash {
+        inherit appName;
+        inherit (profile) personalSuffix projectSuffix;
+        scopeBash = "${./bash/scope.bash}";
+      }
+    }\n";
 
   # Factory behind every installer/reap/purge/reconcile/uninstall/preview app.
   # The `<verb>` apps share one shape — `writeShellApplication` whose
@@ -557,7 +529,7 @@ let
       # scopePrelude ends with a trailing newline; each piece below is
       # newline-terminated (or empty) so no two tokens glue together.
       text =
-        scopePrelude {
+        scopePrelude pkgs {
           appName = fullAppName;
           inherit profile;
         }
@@ -579,6 +551,18 @@ let
     ./bash/project-layout.bash
   ];
 
+  # Reconcile at project scope also compares each declared skill with the
+  # personal scope's copy (./bash/personal-scope.bash), and names the agent
+  # in what it reports.
+  reconcileModules = projectScopeModules ++ [
+    ./bash/content-hash.bash
+    ./bash/personal-scope.bash
+  ];
+  agentEnv = profile: ''
+    agent_display_name='${profile.displayName or "The agent"}'
+    personal_takes_precedence='${if profile.personalTakesPrecedence or false then "1" else ""}'
+  '';
+
   mkInstaller =
     system:
     {
@@ -596,6 +580,7 @@ let
       inherit appName profile skills;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
+        flock
         git
         gnugrep
         jq
@@ -632,6 +617,7 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         findutils
+        flock
         git
         jq
       ];
@@ -643,9 +629,10 @@ let
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
-  # Prune GC roots: the one-time sweep of the per-target roots no install
-  # target it can find still owns, across every target at once. Takes no
-  # scope and carries no skill set, so it runs off the bare upstream flake.
+  # Prune GC roots: the one-time sweep of the per-target records and roots
+  # no install target it can find still owns, across every target at once.
+  # Takes no scope and carries no skill set, so it runs off the bare
+  # upstream flake.
   mkPruneGcRoots =
     system:
     { appName, profile }:
@@ -655,6 +642,7 @@ let
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
         findutils
+        flock
         gnugrep
         gnused
       ];
@@ -694,6 +682,11 @@ let
       # `<skill>.preferences.md` beside the installed skills, linked from
       # the store, where a skill's "Your preferences" section reads it.
       preferences ? { },
+      # The command a project reconcile names for updating the project's
+      # skills when one differs from the personal scope's copy; null names
+      # `nix flake update --flake <project-root>`. The
+      # AGENT_SKILL_FLAKE_PROJECT_UPDATE_COMMAND variable overrides it.
+      projectUpdateCommand ? null,
     }:
     let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -717,6 +710,8 @@ let
       inherit appName profile skills;
       runtimeInputs = with pkgs; [
         coreutils
+        findutils
+        flock
         git
         gnugrep
         jq
@@ -725,10 +720,15 @@ let
         upstream_url='${provenance.upstreamUrl}'
         owner_app='${appName}'
         ${projectLinkEnv profile}
+        default_project_update_command=${
+          lib.escapeShellArg (if projectUpdateCommand == null then "" else projectUpdateCommand)
+        }
       ''
+      + agentEnv profile
       + preferencesArray;
-      sourceModules = projectScopeModules;
-      # project_link is consumed only by the sourced project-layout.bash.
+      sourceModules = reconcileModules;
+      # project_link and the agent's names are consumed only by the
+      # sourced modules.
       extraExcludeShellChecks = [ "SC2034" ];
     };
 
@@ -756,6 +756,7 @@ let
       inherit appName profile;
       runtimeInputs = with nixpkgs.legacyPackages.${system}; [
         coreutils
+        flock
         git
         jq
       ];
@@ -841,6 +842,8 @@ let
       name = "agent-skill-flake";
       runtimeInputs = with pkgs; [
         coreutils
+        findutils
+        flock
         git
         gnugrep
         gnused
@@ -857,7 +860,7 @@ let
         mainProgram = "agent-skill-flake";
       };
       text =
-        scopePrelude {
+        scopePrelude pkgs {
           appName = "agent-skill-flake sync-project";
           inherit profile;
         }
@@ -868,8 +871,9 @@ let
           reconcile_script='${./bash/reconcile.sh}'
           shipped_defaults_file='${./config/defaults.toml}'
         ''
+        + agentEnv profile
         + lib.concatMapStringsSep "\n" (m: "source ${m}") (
-          projectScopeModules
+          reconcileModules
           ++ [
             ./bash/config.bash
             ./bash/apply.bash

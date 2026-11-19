@@ -9,6 +9,9 @@
 #           each skill breaks one rule
 #         FLAKE_SETTINGS, FLAKE_SKILLS — the same for the flake fixture,
 #           whose skills each break the skill-flake rule
+#         EMPTY_SETTINGS, EMPTY_SKILLS — the same for
+#           tests/example-skill-checks-empty, whose skills folder holds no
+#           skill
 setup() { source "$BATS_HELPERS"; }
 
 check_bad() { run "$SKILL_DESCRIPTION_CHECK" --settings "${1:-$BAD_SETTINGS}" "$BAD_SKILLS"; }
@@ -105,6 +108,13 @@ check_bad() { run "$SKILL_DESCRIPTION_CHECK" --settings "${1:-$BAD_SETTINGS}" "$
   assert_line "flake-missing: has no flake.nix (skill-flake)"
   assert_line "flake-without-mk-skill-flake: flake.nix does not build the skill with mkSkillFlake (skill-flake)"
   assert_equal "${#lines[@]}" 3
+}
+
+@test "a skills folder that holds no skill fails the check, naming skills-exist" {
+  run "$SKILL_DESCRIPTION_CHECK" --settings "$EMPTY_SETTINGS" "$EMPTY_SKILLS"
+  assert_failure 1
+  assert_file_exists "$EMPTY_SKILLS/.gitkeep"
+  assert_output "skills: holds no skill folder (skills-exist)"
 }
 
 @test "a call without a settings file or a skills folder is a usage error" {

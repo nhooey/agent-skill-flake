@@ -37,12 +37,15 @@ Positional <skill-name>...:
 
 Default (symlink mode):
   For each skill, creates a symlink at <target>/<skill> pointing to its
-  content under the Nix store, and registers a per-user GC root for this
-  target dir (<gcroots>/claude-skill-<target-hash>-<skill>) so the store
-  path is protected from \`nix-store --gc\`. When that replaces an older
-  build still in the store, the older build moves to the previous-build
-  root (<gcroots>/claude-skill-<target-hash>-<skill>.previous), and the
-  build before it loses its root.
+  content under the Nix store, and records it for this target dir
+  (<gcroots>/claude-skills/targets/<target-hash>/<skill>) against the
+  store path's per-user GC root, shared by every target that installs
+  the same build (<gcroots>/claude-skills/store/<store-path-name>), so
+  the store path is protected from \`nix-store --gc\`. When that replaces
+  an older build still in the store, the older build moves to the
+  previous-build record (<skill>.previous), and the build before it
+  loses its root once no other target records it. The target's flat
+  roots (<gcroots>/claude-skill-<target-hash>-<skill>) move into records.
 
 --profile:
   Installs each skill into your Nix profile (\`nix profile install\`),
@@ -108,8 +111,8 @@ symlink)
   if ! mkdir -p "$gcroots_dir" 2>/dev/null; then
     gcroots_ok=0
     printf 'WARNING: could not create %s; store paths may be GC-eligible\n' "$gcroots_dir" >&2
-  elif ! ensure_gc_root_record; then
-    printf 'WARNING: could not write %s\n' "$(gc_root_record_path)" >&2
+  else
+    ensure_gc_root_record || true
   fi
   for entry in "${effective_skills[@]}"; do
     parse_skill_entry "$entry"
@@ -146,4 +149,5 @@ profile)
   ;;
 esac
 
+gc_roots_unlock
 sync_project_excludes

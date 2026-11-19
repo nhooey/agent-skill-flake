@@ -154,7 +154,12 @@ in
   fixtureExtraFilesNoMatch = mkSkill {
     skillName = extraFilesSkillName;
     src = extraFilesSrc;
-    extraFiles = [ "*.nonexistent" ];
+    # The `@…@` pattern also proves an entry reaches the install script
+    # verbatim, never read as a replaceVars placeholder.
+    extraFiles = [
+      "*.nonexistent"
+      "@v2@*.nonexistent"
+    ];
   };
   # `extraFiles = [ "*" ]` against a source that has a top-level directory
   # (`companion-dir/`) which is NOT in `extraDirs`. The `[ -f ]` guard

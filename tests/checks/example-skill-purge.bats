@@ -11,7 +11,7 @@ setup() {
   run "$INSTALL_APP" "${scope_args[@]}"
   assert_success
   assert_store_symlink "$CUSTOM_TARGET/example-skill"
-  assert [ -L "$(gc_root example-skill)" ]
+  assert_gc_rooted example-skill
 
   mkdir -p "$CUSTOM_TARGET/manual-skill"
   echo manual > "$CUSTOM_TARGET/manual-skill/SKILL.md"
@@ -20,7 +20,7 @@ setup() {
   assert_success
 
   refute [ -L "$CUSTOM_TARGET/example-skill" ]
-  refute [ -e "$(gc_root example-skill)" ]
+  refute [ -e "$(gc_record example-skill)" ]
   assert_equal \
     "$(jq '.skills | has("example-skill")' "$CUSTOM_TARGET/.agent-skill-flake-lock.json")" \
     "false"

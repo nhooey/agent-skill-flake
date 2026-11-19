@@ -5,8 +5,9 @@
 #      verify `managedBy == upstream_url`. This is the strict signal.
 #   2. If the symlink target is broken (store path GC'd), fall back to
 #      checking for a GC root for <name>: the entry's own directory's
-#      per-target root (`claude-skill-<tag>-<name>`, see gc_root_path), or
-#      the legacy shared `claude-skill-<name>`. This is a naming-convention
+#      record (`claude-skills/targets/<tag>/<name>`, see gc_record_path),
+#      its flat root (`claude-skill-<tag>-<name>`), or the legacy shared
+#      `claude-skill-<name>`. This is a naming-convention
 #      signal — single-lineage assumption: a user with forks of
 #      agent-skill-flake could see false-positives across lineages.
 #   3. If the symlink target is broken and no GC root names it, accept a
@@ -32,12 +33,14 @@ is_ours_live() {
 # (the naming-convention fallback), or the lock holds a pre-`managedBy`
 # entry for it (is_ours_broken_by_lock). Best-effort.
 is_ours_broken() {
-  local entry="$1" gcroots_dir="$2" name root
+  local entry="$1" gcroots_dir="$2" name root tag
   [ -L "$entry" ] || return 1
   [ -e "$entry" ] && return 1
   name=$(basename "$entry")
+  tag=$(gc_root_tag_for "$(dirname "$entry")")
   for root in \
-    "$(gc_root_path "$name" "$(gc_root_tag_for "$(dirname "$entry")")")" \
+    "$(gc_record_path "$name" "$tag")" \
+    "$(flat_gc_root_path "$name" "$tag")" \
     "$(legacy_gc_root_path "$name")"; do
     if [ -L "$root" ] || [ -e "$root" ]; then
       return 0

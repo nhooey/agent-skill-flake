@@ -94,9 +94,9 @@ lock_remove() {
 }
 
 # remove_skill_links  $skill_name
-# Remove a skill's user-facing symlink (<target_root>/<name>) and this
-# target's current and previous-build GC roots (see gc_root_path and
-# remove_gc_roots). Every entry this flake
+# Remove a skill's user-facing symlink (<target_root>/<name>), this
+# target's current and previous-build GC-root records, and every shared
+# root no other record uses (see remove_gc_roots). Every entry this flake
 # makes is a symlink, so a file or directory at that path is the
 # project's own and is never removed. Leaves the lock untouched —
 # reconcile owns the lock and rebuilds it wholesale, so its sweep removes
@@ -185,6 +185,56 @@ lock_replace_preferences() {
     | ($others + $ours) as $all
     | if $all == {} then del(.preferences) else .preferences = $all end' \
     "$lock" >"$tmp"
+  mv -f "$tmp" "$lock"
+}
+
+# lock_replace_personal_scope  [name copy hash]...
+# Rebuild .satisfiedByPersonalScope, the declared skills a project
+# reconcile left to the personal scope's copy of the same version (see
+# personal-scope.bash), from the args, three per skill: its name, the
+# personal copy's path and their content hash. Scoped to `owner_app` as
+# lock_replace_all scopes .skills. With no args and no such table, the lock
+# is left as it is.
+lock_replace_personal_scope() {
+  local lock tmp now owner entries
+  lock=$(lock_path)
+  if [ $# -eq 0 ] && { [ ! -f "$lock" ] ||
+    ! jq -e 'has("satisfiedByPersonalScope")' "$lock" >/dev/null 2>&1; }; then
+    return 0
+  fi
+  tmp="$lock.tmp.$$"
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  owner="${owner_app:-}"
+  lock_init_if_absent
+  entries='[]'
+  while [ $# -ge 3 ]; do
+    entries=$(jq -n --argjson cur "$entries" --arg n "$1" --arg p "$2" --arg h "$3" \
+      '$cur + [{name: $n, personalCopy: $p, contentHash: $h}]')
+    shift 3
+  done
+  jq --argjson new "$entries" --arg owner "$owner" --arg t "$now" '
+    (.satisfiedByPersonalScope // {}
+      | with_entries(select((.value.installedBy // "") != ""
+        and (.value.installedBy // "") != $owner))) as $others
+    | ($new | map({key: .name, value: ({personalCopy, contentHash, checkedAt: $t}
+        + (if $owner == "" then {} else {installedBy: $owner} end))})
+      | from_entries) as $ours
+    | ($others + $ours) as $all
+    | if $all == {} then del(.satisfiedByPersonalScope)
+      else .satisfiedByPersonalScope = $all end' \
+    "$lock" >"$tmp"
+  mv -f "$tmp" "$lock"
+}
+
+# lock_clear_personal_scope — drop .satisfiedByPersonalScope, every
+# appName's, as purge does when it clears the target.
+lock_clear_personal_scope() {
+  local lock tmp
+  lock=$(lock_path)
+  [ -f "$lock" ] || return 0
+  jq -e 'has("satisfiedByPersonalScope")' "$lock" >/dev/null 2>&1 || return 0
+  tmp="$lock.tmp.$$"
+  jq 'del(.satisfiedByPersonalScope)' "$lock" >"$tmp"
   mv -f "$tmp" "$lock"
 }
 

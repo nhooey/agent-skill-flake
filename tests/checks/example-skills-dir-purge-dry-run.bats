@@ -20,8 +20,8 @@ setup() {
   # Untouched: both skills and their GC roots survive a dry run.
   assert [ -L "$CUSTOM_TARGET/alpha" ]
   assert [ -L "$CUSTOM_TARGET/beta" ]
-  assert [ -L "$(gc_root alpha)" ]
-  assert [ -L "$(gc_root beta)" ]
+  assert_gc_rooted alpha
+  assert_gc_rooted beta
 }
 
 @test "purge refuses non-interactively without --yes" {

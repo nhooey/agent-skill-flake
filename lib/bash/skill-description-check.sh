@@ -9,6 +9,7 @@ Usage: skill-description-check --settings <settings.json> <skills-dir>
 
 Checks every skill folder under <skills-dir>, each rule named in brackets:
 
+- <skills-dir> holds a skill folder [skills-exist];
 - the folder name is lowercase words joined by hyphens, at most 64
   characters [folder-name];
 - it holds a SKILL.md [skill-md] that opens with a frontmatter block
@@ -180,11 +181,19 @@ check_skill() {
   fi
 }
 
+# A skill folder, for the skills-exist rule, is a folder, not a link to
+# one, other than Python's cache, as lib/skill-checks.nix counts them.
+checked=0
 for dir in "$skills"/*/; do
   dir=${dir%/}
   [ -d "$dir" ] || continue
   check_skill "$dir" "${dir##*/}"
+  if [ ! -L "$dir" ] && [ "${dir##*/}" != __pycache__ ]; then
+    checked=$((checked + 1))
+  fi
 done
+skills_dir=$(jq -r '."skills-dir"' "$settings")
+[ "$checked" -gt 0 ] || problems+=("$skills_dir: holds no skill folder (skills-exist)")
 
 listed_skills=()
 [ -z "$trigger_first" ] || mapfile -t listed_skills <<<"$trigger_first"

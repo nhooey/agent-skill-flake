@@ -41,10 +41,10 @@ setup() {
   run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
 
-  rm "$(gc_root alpha)"
+  rm "$(gc_record alpha)"
 
   run "$RECONCILE_ALL_APP" "${scope_args[@]}"
   assert_success
   refute_output --partial 'reconciled (install): '
-  assert [ -L "$(gc_root alpha)" ]
+  assert_gc_rooted alpha
 }

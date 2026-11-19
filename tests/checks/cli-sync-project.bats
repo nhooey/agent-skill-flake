@@ -75,6 +75,16 @@ EOF
   assert grep -q "^$PROJ .*build --no-link --print-out-paths path:./skill-flake#agent-skills-all" "$BATS_TEST_TMPDIR/nix-calls"
 }
 
+@test "each skill installed is GC-rooted in the shared layout, under its lock" {
+  write_local "skills = [\"$ALPHA_PKG\"]"
+  sync
+  assert_success
+  refute_output --partial "WARNING"
+  assert_gc_rooted alpha "$PROJ/.agents/skills"
+  assert_equal "$(gc_record_store_path alpha "$PROJ/.agents/skills")" "$ALPHA_PKG"
+  assert_equal "$(readlink "$(gc_root_record "$PROJ/.agents/skills")")" "$PROJ/.agents/skills"
+}
+
 @test "the local file is listed in the exclude block, and git ignores it" {
   write_local "skills = [\"$ALPHA_PKG\"]"
   sync
@@ -126,6 +136,21 @@ EOF
   assert_success
   refute_output --partial "reconciled (install)"
   refute_output --partial "reconciled (sweep)"
+}
+
+@test "a skill whose path holds the project's own directory isn't counted in sync" {
+  cat >"$GLOBAL_CONFIG" <<'EOF'
+[repo."github.com/acme/widget"]
+skills = ["path:./skill-flake#agent-skills-all"]
+EOF
+  mkdir -p "$PROJ/.agents/skills/beta"
+  printf 'mine\n' >"$PROJ/.agents/skills/beta/SKILL.md"
+  sync
+  assert_success
+  assert_output --partial "$PROJ/.agents/skills/beta is the project's own file"
+  assert_output --partial "agent-skill-flake: 1 project skill(s) in sync"
+  assert_store_symlink "$PROJ/.agents/skills/alpha"
+  assert_equal "$(cat "$PROJ/.agents/skills/beta/SKILL.md")" "mine"
 }
 
 @test "merge mode keeps the repo entry's skills when the local file doesn't set them" {
@@ -189,8 +214,15 @@ EOF
   refute [ -e "$PROJ/.agents" ]
 }
 
+write_repo_entry() {
+  cat >"$GLOBAL_CONFIG" <<EOF
+[repo."github.com/acme/widget"]
+skills = [$1]
+EOF
+}
+
 @test "--from-hook acts on a branch checkout, in one line" {
-  write_local "skills = [\"$ALPHA_PKG\"]"
+  write_repo_entry "\"$ALPHA_PKG\""
   sync --from-hook 0000000 1111111 1
   assert_success
   assert_equal "${#lines[@]}" "1"
@@ -199,7 +231,7 @@ EOF
 }
 
 @test "--from-hook ignores a file checkout" {
-  write_local "skills = [\"$ALPHA_PKG\"]"
+  write_repo_entry "\"$ALPHA_PKG\""
   sync --from-hook 1111111 1111111 0
   assert_success
   assert_output ""
@@ -207,13 +239,13 @@ EOF
 }
 
 @test "--from-hook exits 0 on an error, in two lines" {
-  write_local 'skills = ["path:./missing#nothing"]'
+  write_repo_entry '"path:./missing#nothing"'
   sync --from-hook 0000000 1111111 1
   assert_success
   assert_equal "${#lines[@]}" "2"
   assert_output --partial "agent-skill-flake: sync-project failed (exit 1)"
 
-  write_local 'skills = ['
+  printf 'skills = [\n' >"$GLOBAL_CONFIG"
   sync --from-hook 0000000 1111111 1
   assert_success
   assert_output --partial "sync-project failed"
@@ -221,6 +253,31 @@ EOF
   # Without --from-hook the same error fails.
   sync
   assert_failure
+}
+
+@test "--from-hook ignores the checkout's own local config file" {
+  # A cloned repository can commit config.local.toml. If the hook read it,
+  # `git clone` alone would build whatever installable it names, the
+  # repository's own flake included. With no user-global entry, the hook
+  # does nothing.
+  write_local 'skills = ["path:./skill-flake#agent-skills-all"]'
+  sync --from-hook 0000000 1111111 1
+  assert_success
+  assert_output ""
+  refute [ -e "$PROJ/.agents" ]
+  refute [ -e "$BATS_TEST_TMPDIR/nix-calls" ]
+}
+
+@test "--from-hook uses the user-global entry, not the checkout's local file" {
+  write_repo_entry "\"$ALPHA_PKG\""
+  write_local 'skills = ["path:./skill-flake#agent-skills-all"]'
+  sync --from-hook 0000000 1111111 1
+  assert_success
+  assert_output --partial "agent-skill-flake: 1 project skill(s) in sync"
+  assert_output --partial "(user-global:"
+  assert_store_symlink "$PROJ/.agents/skills/alpha"
+  refute [ -e "$PROJ/.agents/skills/beta" ]
+  refute [ -e "$BATS_TEST_TMPDIR/nix-calls" ]
 }
 
 @test "the registered git config hook runs sync-project on worktree add" {

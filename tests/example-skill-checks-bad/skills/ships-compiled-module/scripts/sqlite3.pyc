@@ -1,0 +1,1 @@
+Not bytecode: a text file named like a compiled module Python would import in place of the standard library's sqlite3.

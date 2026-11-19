@@ -13,10 +13,10 @@ setup() {
   assert_store_symlink "$CUSTOM_TARGET/example-skill"
 
   # Managed-but-broken: a link into a store path that doesn't exist, with
-  # this target's GC root for it.
+  # this target's GC-root record for it.
   local bogus=/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-bogus
   ln -sfn "$bogus/share/claude-skills/foo" "$CUSTOM_TARGET/foo"
-  ln -sfn "$bogus" "$(gc_root foo)"
+  fake_gc_record foo "$bogus"
 
   mkdir -p "$CUSTOM_TARGET/manual-skill"
   echo manual > "$CUSTOM_TARGET/manual-skill/SKILL.md"
@@ -25,11 +25,11 @@ setup() {
   assert_success
 
   refute [ -L "$CUSTOM_TARGET/foo" ]
-  refute [ -e "$(gc_root foo)" ]
+  refute [ -e "$(gc_record foo)" ]
 
   assert_store_symlink "$CUSTOM_TARGET/example-skill"
   assert [ -f "$CUSTOM_TARGET/example-skill/SKILL.md" ]
-  assert [ -L "$(gc_root example-skill)" ]
+  assert_gc_rooted example-skill
   assert [ -f "$CUSTOM_TARGET/manual-skill/SKILL.md" ]
 }
 

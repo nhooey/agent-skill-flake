@@ -17,7 +17,7 @@ setup() {
   assert_output --partial "reconciled (preferences): $link"
   assert_store_symlink "$link"
   assert_equal "$(cat "$link")" "- Delete local branch: yes"
-  assert [ -L "$(gc_root alpha.preferences.md)" ]
+  assert_gc_rooted alpha.preferences.md
   assert_equal "$(jq -r '.preferences["alpha.preferences.md"].installedBy' "$lock")" "prefs"
 
   # A second reconcile changes nothing and says nothing about them.
@@ -33,7 +33,7 @@ setup() {
   assert_success
   assert_output --partial "reconciled (sweep): $link"
   refute [ -e "$link" ]
-  refute [ -e "$(gc_root alpha.preferences.md)" ]
+  refute [ -e "$(gc_record alpha.preferences.md)" ]
   assert_equal "$(jq -r 'has("preferences")' "$lock")" "false"
   assert [ -L "$CUSTOM_TARGET/alpha" ]
 }
@@ -78,7 +78,7 @@ setup() {
   assert [ -f "$link" ]
   refute [ -L "$link" ]
   assert_equal "$(cat "$link")" "- Delete local branch: no"
-  refute [ -e "$(gc_root alpha.preferences.md)" ]
+  refute [ -e "$(gc_record alpha.preferences.md)" ]
   assert_equal "$(jq -r 'has("preferences")' "$lock")" "false"
 }
 
@@ -108,6 +108,7 @@ setup() {
   run "$RECONCILE_PREFS_APP" "${scope_args[@]}"
   assert_success
   assert_output --partial "$CUSTOM_TARGET/beta is the project's own file"
+  assert_output --partial "1 declared skill(s) installed"
   refute [ -L "$CUSTOM_TARGET/beta" ]
   assert_equal "$(cat "$CUSTOM_TARGET/beta/SKILL.md")" "mine"
   assert_equal "$(jq -r '.skills | has("beta")' "$lock")" "false"
