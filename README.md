@@ -964,11 +964,44 @@ Options under `agent-skill-flake.devshellSkills`:
 | `removeApp` | `"purge"` | Sub-flake app `reap-skills` invokes to remove the whole set; `reap-skills`' arguments (e.g. `--yes`) pass through to it. |
 | `reconcileArgs` | `[ ]` | Arguments added to every run of `reconcileApp`, such as `[ "--strict" ]` or `[ "--ignore-personal-scope" ]` (see [A skill the personal scope already holds](#a-skill-the-personal-scope-already-holds)). The `<dir>` sub-flake must lock an agent-skill-flake whose reconcile has these flags, or every dev-shell entry fails. |
 | `includeStandardCommands` | `true` | Prepend the ci/dev/maintenance trio; the three `skills` commands are always included. |
+| `rootCheckDependencies` | `true` | Root the repository's check dependencies against garbage collection on entry, in the background, and add the `root-check-dependencies` command (see [Check dependencies kept from garbage collection](#check-dependencies-kept-from-garbage-collection)). `false` drops both. |
 
 `flakeModules.default` is an alias for `flakeModules.devshellSkills`. This repo
 dogfoods the module in its own [`flake.nix`](flake.nix) (listing the bundle's
 pieces directly rather than `self.flakeModules.devshellSkills`, which would be
 an eval cycle).
+
+#### Check dependencies kept from garbage collection
+
+`nix flake check` registers no GC root, so a garbage collection deletes
+the dependency builds a repository's checks use, such as crane's
+`cargoArtifacts`, and the next check builds them all again. With
+`rootCheckDependencies` on, entering the dev shell keeps them:
+
+- **What is rooted.** It evaluates `checks.<system>` and roots one store
+  file that refers to every check's `.drv`. A `.drv` refers to the `.drv`
+  of every input, so the root holds each check's whole derivation graph,
+  and with `keep-outputs = true` in `nix.conf` the collector keeps every
+  output of that graph already in the store: the dependency builds, and
+  the checks' own results. Without `keep-outputs` only the derivations are
+  kept, and the command warns.
+- **Nothing is built.** The file is written by evaluation alone, and the
+  evaluation runs with no build slots (`--max-jobs 0 --builders ''`), so
+  a check that needs an import from derivation not yet in the store fails
+  the refresh instead of building it, and the previous root stays.
+- **Where it lives.** One indirect root per repository,
+  `<git-common-dir>/agent-skill-flake/check-dependencies`, inside `.git`,
+  so git never tracks it and every worktree shares it. Each refresh
+  replaces the link, so the superseded set is freed by the next
+  collection. Beside it are `check-dependencies.stamp` and, for a
+  background refresh, `check-dependencies.log`.
+- **When it refreshes.** Entry compares a hash of the contents of the
+  repository's `*.nix`, `*.lock`, `go.sum`, `Package.resolved`,
+  `package-lock.json` and `pnpm-lock.yaml` files, tracked or untracked but
+  not ignored, with the stamp, and only when they differ, or the root is
+  gone, starts a detached refresh and returns. `root-check-dependencies`
+  refreshes in the foreground, and `--force` refreshes when nothing
+  changed.
 
 ## Skill checks
 

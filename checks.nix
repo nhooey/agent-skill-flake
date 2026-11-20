@@ -1616,6 +1616,111 @@ in
         + "\nstartup: ${startup}";
     };
 
+  # The dev shell roots its repository's check dependencies: a background
+  # refresh on entry, and a command that refreshes in the foreground from the
+  # checkout it runs in.
+  devshell-skills-flake-module-roots-check-dependencies =
+    let
+      shell = self.devShells.${system}.default.config;
+      startup = shell.devshell.startup.root-check-dependencies.text or "";
+      command =
+        (lib.findFirst (c: c.name == "root-check-dependencies") { command = ""; } shell.commands).command;
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake-module-roots-check-dependencies";
+      cond =
+        lib.hasInfix "/bin/root-check-dependencies --background --flake=\"$PRJ_ROOT\"" startup
+        && lib.hasInfix "git rev-parse --show-toplevel" command
+        && lib.hasInfix "/bin/root-check-dependencies --flake=\"$root\" \"$@\"" command;
+      msg =
+        "devshell-skills-flake-module-roots-check-dependencies: the dogfooded devShell "
+        + "must refresh the check-dependencies root in the background on entry, and "
+        + "carry a root-check-dependencies command run from the current checkout. "
+        + "Got startup: ${startup}\ncommand: ${command}";
+    };
+
+  # `rootCheckDependencies = false` drops both the startup step and the
+  # command, and leaves the rest of the wiring alone.
+  devshell-skills-flake-module-root-check-dependencies-off =
+    let
+      shellWith =
+        enable:
+        (self.inputs.flake-parts.lib.mkFlake
+          {
+            inputs = self.inputs // {
+              self = {
+                outPath = ./tests/fixtures;
+                inputs = self.inputs;
+              };
+            };
+          }
+          {
+            systems = [ system ];
+            imports = [
+              self.inputs.devshell.flakeModule
+              ./lib/devshell-skills-flake-module.nix
+            ];
+            agent-skill-flake.devshellSkills.rootCheckDependencies = enable;
+          }
+        ).devShells.${system}.default.config;
+      off = shellWith false;
+      on = shellWith true;
+      names = s: map (c: c.name) s.commands;
+    in
+    mkEvalCheck {
+      name = "devshell-skills-flake-module-root-check-dependencies-off";
+      cond =
+        !(off.devshell.startup ? root-check-dependencies)
+        && !(lib.elem "root-check-dependencies" (names off))
+        && off.devshell.startup ? install-skills
+        && on.devshell.startup ? root-check-dependencies
+        && lib.elem "root-check-dependencies" (names on);
+      msg =
+        "devshell-skills-flake-module-root-check-dependencies-off: rootCheckDependencies "
+        + "must add the startup step and command when true (the default) and neither "
+        + "when false. Got startup steps off: "
+        + builtins.toJSON (builtins.attrNames off.devshell.startup)
+        + ", commands off: "
+        + builtins.toJSON (names off);
+    };
+
+  # lib/check-dependencies.nix, the function root-check-dependencies applies
+  # to `checks.<system>`: one store file listing each check's derivation,
+  # whose only string context is that file as a plain path, so evaluating
+  # and rooting it builds nothing.
+  check-dependencies-expression =
+    let
+      checks = {
+        a = pkgs.runCommand "check-dependencies-a" { } "touch $out";
+        b = pkgs.runCommand "check-dependencies-b" { } "touch $out";
+      };
+      listing = import ./lib/check-dependencies.nix checks;
+      context = builtins.getContext listing;
+      expected = lib.concatMapStrings (d: builtins.unsafeDiscardStringContext d.drvPath + "\n") [
+        checks.a
+        checks.b
+      ];
+    in
+    mkEvalCheck {
+      name = "check-dependencies-expression";
+      cond =
+        builtins.readFile listing == expected
+        && builtins.attrNames context == [ (builtins.unsafeDiscardStringContext listing) ]
+        && context.${builtins.unsafeDiscardStringContext listing} == { path = true; };
+      msg =
+        "check-dependencies-expression: the listing must name each check's .drv, one "
+        + "per line, and carry only its own path as context. Got: "
+        + builtins.toJSON context;
+    };
+
+  root-check-dependencies = mkBatsCheck {
+    name = "root-check-dependencies";
+    extraInputs = [ pkgs.git ];
+    env.ROOT_CHECK_DEPENDENCIES = "${
+      import ./lib/root-check-dependencies.nix { inherit pkgs system; }
+    }/bin/root-check-dependencies";
+  };
+
   # Coverage of the EXPORTED artifact (what consumers actually receive), not
   # the dogfood path the check above exercises. The exported
   # `flake.flakeModules.devshellSkills` must be an attrset with an `imports`
