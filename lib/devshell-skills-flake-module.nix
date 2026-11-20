@@ -13,8 +13,9 @@
 #   agent-skill-flake.devshellSkills = { name = "my-repo"; };
 # and nothing else.
 #
-# SCOPE: dev-shell wiring ONLY — motd, the install-skills startup, and the
-# standard/skills command lists. treefmt is deliberately NOT bundled: real
+# SCOPE: dev-shell wiring ONLY — motd, the install-skills startup, the
+# standard/skills command lists, and the background step that roots the
+# repository's check dependencies against garbage collection. treefmt is deliberately NOT bundled: real
 # consumers diverge on it (nixfmt+shfmt+excludes here, +yamlfmt/prettier
 # elsewhere), so folding it in would force every consumer into an override.
 #
@@ -130,11 +131,27 @@ in
         `skills`-category commands are always included.
       '';
     };
+
+    rootCheckDependencies = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Whether entering the dev shell roots the importing repository's
+        check dependencies under one indirect GC root,
+        `<git-common-dir>/agent-skill-flake/check-dependencies`, so garbage
+        collection keeps them. It evaluates `checks.<system>`, builds
+        nothing, and roots each check's derivation, which with
+        `keep-outputs = true` keeps every dependency build already in the
+        store. The refresh runs in the background, and only when a `*.nix`
+        or lock file changed. Also adds the `root-check-dependencies`
+        command, which refreshes in the foreground.
+      '';
+    };
   };
 
   config = {
     perSystem =
-      { ... }:
+      { pkgs, system, ... }:
       let
         # The pure hook: the runtime `nix run "$PRJ_ROOT/<dir>#…"` startup
         # snippet, the two skills commands, and the standard command trio.
@@ -147,6 +164,9 @@ in
             reconcileArgs
             ;
         };
+
+        rootCheckDependencies = import ./root-check-dependencies.nix { inherit pkgs system; };
+        rootCommand = "${rootCheckDependencies}/bin/root-check-dependencies";
       in
       {
         devshells.default = {
@@ -158,12 +178,28 @@ in
           # Reconcile the runtime skills-devshell sub-flake on `nix develop`.
           devshell.startup.install-skills.text = devshellSkills.startup;
 
+          # Root the repository's check dependencies, off the critical path:
+          # a stamp comparison, then a detached refresh only when the checks'
+          # inputs changed.
+          devshell.startup.root-check-dependencies = lib.mkIf cfg.rootCheckDependencies {
+            text = ''${rootCommand} --background --flake="$PRJ_ROOT" >/dev/null || true'';
+          };
+
           # Standard trio (optional) ++ the two skills commands. This is a list
           # option, so a consumer's own `devshells.default.commands` concatenate
           # onto these rather than replacing them.
           commands =
             (lib.optionals cfg.includeStandardCommands devshellSkills.standardCommands)
-            ++ devshellSkills.commands;
+            ++ devshellSkills.commands
+            ++ lib.optional cfg.rootCheckDependencies {
+              category = "maintenance";
+              name = "root-check-dependencies";
+              help = "Root this repository's check dependencies against garbage collection (--force refreshes when nothing changed)";
+              command = ''
+                root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PRJ_ROOT
+                ${rootCommand} --flake="$root" "$@"
+              '';
+            };
         };
       };
   };
